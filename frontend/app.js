@@ -46,6 +46,13 @@ function formatDate(d) {
   } catch { return d; }
 }
 
+function isFutureDate(d) {
+  if (!d || /^\d{4}-00-00/.test(d)) return false;
+  try {
+    return new Date(d + "T00:00:00Z") > new Date();
+  } catch { return false; }
+}
+
 function timeAgo(isoStr) {
   if (!isoStr) return "never";
   const diff = Date.now() - new Date(isoStr + "Z").getTime();
@@ -55,6 +62,34 @@ function timeAgo(isoStr) {
   const h = Math.floor(m / 60);
   if (h < 24) return `${h}h ago`;
   return `${Math.floor(h / 24)}d ago`;
+}
+
+function formatDuration(ms) {
+  if (!ms) return "";
+  const s = Math.round(ms / 1000);
+  const m = Math.floor(s / 60);
+  return `${m}:${(s % 60).toString().padStart(2, "0")}`;
+}
+
+const FORMAT_LABELS = {
+  "lossy-stereo":    "AAC",
+  "lossless":        "Lossless",
+  "hi-res-lossless": "Hi-Res Lossless",
+  "atmos":           "Dolby Atmos",
+  "spatial":         "Spatial Audio",
+  "adm":             "Apple Digital Masters",
+};
+
+function formatBadges(formats) {
+  if (!formats || !formats.length) return null;
+  const wrap = el("div", "format-badges");
+  for (const key of formats) {
+    const label = FORMAT_LABELS[key];
+    if (!label) continue;
+    const span = el("span", `format-badge ${key}`, label);
+    wrap.appendChild(span);
+  }
+  return wrap.childElementCount ? wrap : null;
 }
 
 function artworkEl(artworkUrl, cls) {
@@ -103,7 +138,12 @@ const state = {
   currentPage: 1,
   currentTotal: 0,
   currentQuery: "",
+  currentStorefront: "",
   perPage: 48,
+  configuredStorefronts: null,
+  metadataStorefront: localStorage.getItem("metadataStorefront") || "",
+  alwaysIncludeMY: localStorage.getItem("alwaysIncludeMY") === "true",
+  homeStorefront: "",
 };
 
 // ---------------------------------------------------------------------------
@@ -148,6 +188,82 @@ async function triggerRefresh() {
       }
     } catch {}
   }, 2000);
+}
+
+// ---------------------------------------------------------------------------
+// Metadata source widget
+// ---------------------------------------------------------------------------
+function updateFetchArtistBtn() {
+  const fetchBtn = document.querySelector(".btn-fetch-artist");
+  if (!fetchBtn || fetchBtn.disabled) return;
+  const sf = state.metadataStorefront;
+  fetchBtn.textContent = sf ? `↓ Fetch from ${sf.toUpperCase()}` : "↓ Fetch All";
+}
+
+function renderMetaSourceWidget() {
+  const chips = $("meta-source-chips");
+  if (!chips) return;
+  chips.innerHTML = "";
+
+  const storefronts = state.configuredStorefronts || [];
+
+  // "Off" option
+  const offBtn = el("button", `meta-src-btn${!state.metadataStorefront ? " active" : ""}`, "Off");
+  offBtn.title = "Use cached metadata";
+  offBtn.addEventListener("click", () => {
+    state.metadataStorefront = "";
+    localStorage.removeItem("metadataStorefront");
+    renderMetaSourceWidget();
+    updateFetchArtistBtn();
+  });
+  chips.appendChild(offBtn);
+
+  storefronts.forEach(sf => {
+    const isActive = state.metadataStorefront === sf;
+    const btn = el("button", `meta-src-btn ${sf}${isActive ? " active" : ""}`, sf.toUpperCase());
+    btn.title = `Fetch metadata from ${sf.toUpperCase()} storefront`;
+    btn.addEventListener("click", () => {
+      state.metadataStorefront = sf;
+      localStorage.setItem("metadataStorefront", sf);
+      renderMetaSourceWidget();
+      updateFetchArtistBtn();
+    });
+    chips.appendChild(btn);
+  });
+
+  // "+HOME" comparison toggle — only shown when a non-home storefront is selected
+  const home = state.homeStorefront;
+  if (home && state.metadataStorefront && state.metadataStorefront !== home) {
+    const label = `+${home.toUpperCase()}`;
+    const myToggle = el("button", `meta-src-btn my-toggle${state.alwaysIncludeMY ? " active" : ""}`, label);
+    myToggle.title = state.alwaysIncludeMY
+      ? `Also fetching ${home.toUpperCase()} for tracklist comparison (click to disable)`
+      : `Also fetch ${home.toUpperCase()} storefront to compare tracklists`;
+    myToggle.addEventListener("click", () => {
+      state.alwaysIncludeMY = !state.alwaysIncludeMY;
+      if (state.alwaysIncludeMY) {
+        localStorage.setItem("alwaysIncludeMY", "true");
+      } else {
+        localStorage.removeItem("alwaysIncludeMY");
+      }
+      renderMetaSourceWidget();
+    });
+    chips.appendChild(myToggle);
+  }
+}
+
+async function initMetaSourceWidget() {
+  if (state.configuredStorefronts === null) {
+    try {
+      const cfg = await API.get("/api/config");
+      state.configuredStorefronts = cfg.check_storefronts || [];
+      state.homeStorefront = cfg.home_storefront || "my";
+    } catch {
+      state.configuredStorefronts = [];
+      state.homeStorefront = "my";
+    }
+  }
+  renderMetaSourceWidget();
 }
 
 // ---------------------------------------------------------------------------
@@ -205,9 +321,10 @@ async function toggleWatch(artistId, name, artistUrl) {
 // ---------------------------------------------------------------------------
 // Page: New Releases
 // ---------------------------------------------------------------------------
-async function renderNewReleases(main, page = 1, query = "") {
+async function renderNewReleases(main, page = 1, query = "", storefront = "") {
   state.currentPage = page;
   state.currentQuery = query;
+  state.currentStorefront = storefront;
 
   // Skeleton
   main.innerHTML = "";
@@ -222,7 +339,7 @@ async function renderNewReleases(main, page = 1, query = "") {
   inp.value = query;
   inp.id = "releases-search";
   inp.addEventListener("input", debounce(e => {
-    renderNewReleases(main, 1, e.target.value.trim());
+    renderNewReleases(main, 1, e.target.value.trim(), state.currentStorefront);
   }, 350));
   searchBar.appendChild(inp);
   wrap.appendChild(searchBar);
@@ -232,12 +349,32 @@ async function renderNewReleases(main, page = 1, query = "") {
   wrap.appendChild(gridWrap);
   main.appendChild(wrap);
 
+  // Load config once, then insert the filter bar
+  if (state.configuredStorefronts === null) {
+    try {
+      const cfg = await API.get("/api/config");
+      state.configuredStorefronts = cfg.check_storefronts || [];
+    } catch {
+      state.configuredStorefronts = [];
+    }
+  }
+  const filterBar = el("div", "sf-filter-bar");
+  const sfButtons = [["All", ""], ...state.configuredStorefronts.map(sf => [sf.toUpperCase(), sf.toLowerCase()])];
+  sfButtons.forEach(([label, code]) => {
+    const btn = el("button", "sf-filter-btn" + (code ? ` ${code}` : "") + (storefront === code ? " active" : ""));
+    btn.textContent = label;
+    btn.addEventListener("click", () => renderNewReleases(main, 1, state.currentQuery, code));
+    filterBar.appendChild(btn);
+  });
+  searchBar.after(filterBar);
+
   // Fetch
   await loadWatchedIds();
   let data;
   try {
     const qp = new URLSearchParams({ page, per_page: state.perPage });
     if (query) qp.set("q", query);
+    if (storefront) qp.set("storefront", storefront);
     data = await API.get(`/api/releases?${qp}`);
   } catch {
     gridWrap.innerHTML = `<div class="empty-state"><div class="empty-icon">⚠️</div><div class="empty-title">Could not load releases</div><div class="empty-desc">Is the server running?</div></div>`;
@@ -259,14 +396,14 @@ async function renderNewReleases(main, page = 1, query = "") {
   // Pagination
   const totalPages = Math.ceil(data.total / state.perPage);
   if (totalPages > 1) {
-    gridWrap.appendChild(buildPagination(page, totalPages, p => renderNewReleases(main, p, state.currentQuery)));
+    gridWrap.appendChild(buildPagination(page, totalPages, p => renderNewReleases(main, p, state.currentQuery, state.currentStorefront)));
   }
 }
 
 // ---------------------------------------------------------------------------
 // Page: All Albums
 // ---------------------------------------------------------------------------
-async function renderAllReleases(main, page = 1, query = "") {
+async function renderAllReleases(main, page = 1, query = "", storefront = "") {
   main.innerHTML = "";
   const wrap = el("div", "page-enter");
   wrap.appendChild(buildHeader("📀 All Albums", "Every album in your local database"));
@@ -277,10 +414,28 @@ async function renderAllReleases(main, page = 1, query = "") {
   inp.placeholder = "Search title or artist…";
   inp.value = query;
   inp.addEventListener("input", debounce(e => {
-    renderAllReleases(main, 1, e.target.value.trim());
+    renderAllReleases(main, 1, e.target.value.trim(), storefront);
   }, 350));
   searchBar.appendChild(inp);
   wrap.appendChild(searchBar);
+
+  if (state.configuredStorefronts === null) {
+    try {
+      const cfg = await API.get("/api/config");
+      state.configuredStorefronts = cfg.check_storefronts || [];
+    } catch {
+      state.configuredStorefronts = [];
+    }
+  }
+  const filterBar = el("div", "sf-filter-bar");
+  const sfButtons = [["All", ""], ...state.configuredStorefronts.map(sf => [sf.toUpperCase(), sf.toLowerCase()])];
+  sfButtons.forEach(([label, code]) => {
+    const btn = el("button", "sf-filter-btn" + (code ? ` ${code}` : "") + (storefront === code ? " active" : ""));
+    btn.textContent = label;
+    btn.addEventListener("click", () => renderAllReleases(main, 1, query, code));
+    filterBar.appendChild(btn);
+  });
+  searchBar.after(filterBar);
 
   const gridWrap = el("div");
   gridWrap.appendChild(skeletonGrid(12));
@@ -292,6 +447,7 @@ async function renderAllReleases(main, page = 1, query = "") {
   try {
     const qp = new URLSearchParams({ page, per_page: state.perPage });
     if (query) qp.set("q", query);
+    if (storefront) qp.set("storefront", storefront);
     data = await API.get(`/api/releases?${qp}`);
   } catch {
     gridWrap.innerHTML = `<div class="empty-state"><div class="empty-icon">⚠️</div><div class="empty-title">Could not load</div></div>`;
@@ -310,7 +466,7 @@ async function renderAllReleases(main, page = 1, query = "") {
 
   const totalPages = Math.ceil(data.total / state.perPage);
   if (totalPages > 1) {
-    gridWrap.appendChild(buildPagination(page, totalPages, p => renderAllReleases(main, p, query)));
+    gridWrap.appendChild(buildPagination(page, totalPages, p => renderAllReleases(main, p, query, storefront)));
   }
 }
 
@@ -362,13 +518,34 @@ async function renderArtist(main, artistId) {
   });
   links.appendChild(watchBtn);
 
+  const sfLabel = state.metadataStorefront ? state.metadataStorefront.toUpperCase() : "";
+  const fetchBtn = el("button", "btn-fetch-artist", sfLabel ? `↓ Fetch from ${sfLabel}` : "↓ Fetch All");
+  fetchBtn.title = "Fetch all releases for this artist and store tracklists";
+  fetchBtn.addEventListener("click", async () => {
+    fetchBtn.disabled = true;
+    fetchBtn.textContent = "Fetching…";
+    try {
+      const sf = state.metadataStorefront;
+      const qp = sf ? `?storefront=${sf}` : "";
+      const res = await API.post(`/api/artists/${artistId}/fetch${qp}`, {});
+      fetchBtn.textContent = `✓ ${res.fetched} fetched`;
+      setTimeout(() => renderArtist(main, artistId), 800);
+    } catch {
+      fetchBtn.textContent = "Failed";
+      fetchBtn.disabled = false;
+    }
+  });
+  links.appendChild(fetchBtn);
+
   meta.appendChild(links);
   header.appendChild(meta);
   wrap.appendChild(header);
 
   // Stats
   const subtitle = el("p", "page-subtitle");
-  subtitle.textContent = `${data.releases.length} release${data.releases.length !== 1 ? "s" : ""} in database`;
+  const trackFetched = data.releases.filter(r => r.tracks_fetched).length;
+  subtitle.textContent = `${data.releases.length} release${data.releases.length !== 1 ? "s" : ""} in database` +
+    (trackFetched ? ` · ${trackFetched} with tracklist` : "");
   subtitle.style.marginBottom = "20px";
   wrap.appendChild(subtitle);
 
@@ -380,6 +557,7 @@ async function renderArtist(main, artistId) {
   const grid = el("div", "album-grid");
   data.releases.forEach(album => {
     album.watched = state.watchedIds.has(album.artist_id);
+    if (data.artist_name) album.artist = data.artist_name;
     grid.appendChild(albumCard(album));
   });
   wrap.appendChild(grid);
@@ -481,6 +659,27 @@ async function renderSettings(main) {
   sfsGroup.appendChild(sfsInput);
   form.appendChild(sfsGroup);
 
+  // Home Storefront
+  const homeGroup = el("div");
+  homeGroup.style.display = "flex";
+  homeGroup.style.flexDirection = "column";
+  homeGroup.style.gap = "8px";
+  const homeLabel = el("label", "", "Home Storefront");
+  homeLabel.style.fontWeight = "600";
+  const homeDesc = el("p", "", "The storefront your Apple Music account is in. Used as the baseline for tracklist comparisons.");
+  homeDesc.style.fontSize = "12px";
+  homeDesc.style.color = "var(--text-dim)";
+  homeDesc.style.margin = "0";
+  homeGroup.appendChild(homeLabel);
+  homeGroup.appendChild(homeDesc);
+  const homeInput = el("input", "search-input");
+  homeInput.type = "text";
+  homeInput.value = cfg.home_storefront || "my";
+  homeInput.placeholder = "e.g. my";
+  homeInput.style.maxWidth = "120px";
+  homeGroup.appendChild(homeInput);
+  form.appendChild(homeGroup);
+
   // Poll Interval
   const pollGroup = el("div");
   pollGroup.style.display = "flex";
@@ -525,18 +724,25 @@ async function renderSettings(main) {
 
     try {
       const parsedSfs = sfsInput.value.split(",").map(s => s.trim().toLowerCase()).filter(s => s);
+      const parsedHome = homeInput.value.trim().toLowerCase();
       const parsedPoll = parseInt(pollInput.value, 10);
       const parsedRooms = JSON.parse(roomsInput.value);
 
       const newCfg = {
         ...cfg,
         check_storefronts: parsedSfs,
+        home_storefront: parsedHome || "my",
         poll_interval_minutes: isNaN(parsedPoll) ? 60 : parsedPoll,
         rooms: parsedRooms
       };
 
       await API.put("/api/config", newCfg);
-  
+
+      // Update in-memory state so widget/modal reflect new values immediately
+      state.configuredStorefronts = parsedSfs;
+      state.homeStorefront = newCfg.home_storefront;
+      renderMetaSourceWidget();
+
       saveBtn.textContent = "Saved!";
       setTimeout(() => {
         saveBtn.textContent = "Save Config";
@@ -591,7 +797,7 @@ function albumCard(album, showGenre = false) {
   }
 
   const meta = el("div", "album-meta");
-  const dateEl = el("span", "release-date", formatDate(album.release_date));
+  const dateEl = el("span", `release-date${isFutureDate(album.release_date) ? " future" : ""}`, formatDate(album.release_date));
   meta.appendChild(dateEl);
 
   const sf = sfChips(album.storefronts);
@@ -614,8 +820,41 @@ async function openModal(storeAdamId) {
   body.innerHTML = `<div style="padding:32px;text-align:center;color:var(--text-dim)">Loading…</div>`;
 
   let album;
+  let myAlbumData = null;
   try {
-    album = await API.get(`/api/releases/${storeAdamId}`);
+    const home = state.homeStorefront;
+    const shouldCompareMY = state.alwaysIncludeMY
+      && home
+      && state.metadataStorefront
+      && state.metadataStorefront !== home;
+
+    const dbPromise = API.get(`/api/releases/${storeAdamId}`);
+    const lookupPromise = state.metadataStorefront
+      ? API.get(`/api/lookup/${storeAdamId}?storefront=${state.metadataStorefront}`)
+      : null;
+    const myLookupPromise = shouldCompareMY
+      ? API.get(`/api/lookup/${storeAdamId}?storefront=${home}`)
+      : null;
+
+    album = await dbPromise;
+
+    if (lookupPromise) {
+      try {
+        const fresh = await lookupPromise;
+        if (fresh.title)        album.title        = fresh.title;
+        if (fresh.artist)       album.artist       = fresh.artist;
+        if (fresh.artwork_url)  album.artwork_url  = fresh.artwork_url;
+        if (fresh.genre)        album.genre        = fresh.genre;
+        if (fresh.description)  album.description  = fresh.description;
+        if (fresh.tracks?.length) album.tracks     = fresh.tracks;
+        if (fresh.audio_formats?.length) album.audio_formats = fresh.audio_formats;
+        album._metaSf = state.metadataStorefront;
+      } catch {}
+    }
+
+    if (myLookupPromise) {
+      try { myAlbumData = await myLookupPromise; } catch {}
+    }
   } catch {
     body.innerHTML = `<div style="padding:32px;text-align:center">Failed to load</div>`;
     return;
@@ -631,6 +870,12 @@ async function openModal(storeAdamId) {
   const title = el("h2", "modal-title", album.title || "—");
   details.appendChild(title);
 
+  if (album._metaSf) {
+    const sfBadge = el("div", "modal-meta-sf-badge");
+    sfBadge.innerHTML = `<span class="sf-chip ${album._metaSf}">${album._metaSf.toUpperCase()}</span> metadata`;
+    details.appendChild(sfBadge);
+  }
+
   if (album.artist) {
     const artist = el("span", "modal-artist", album.artist);
     if (album.artist_id) {
@@ -645,7 +890,7 @@ async function openModal(storeAdamId) {
   // Tags
   const tags = el("div", "modal-tags");
   if (album.release_date) {
-    const t = el("span", "modal-tag", `📅 ${formatDate(album.release_date)}`);
+    const t = el("span", `modal-tag${isFutureDate(album.release_date) ? " future" : ""}`, `📅 ${formatDate(album.release_date)}`);
     tags.appendChild(t);
   }
   if (album.track_count) {
@@ -660,6 +905,9 @@ async function openModal(storeAdamId) {
     tags.appendChild(sfChips(album.storefronts));
   }
   details.appendChild(tags);
+
+  const badges = formatBadges(album.audio_formats);
+  if (badges) details.appendChild(badges);
 
   if (album.description) {
     const desc = el("p", "modal-desc", album.description);
@@ -745,6 +993,68 @@ async function openModal(storeAdamId) {
 
   details.appendChild(actions);
   details.appendChild(sfResultContainer);
+
+  // Tracklist
+  const tracks = album.tracks || [];
+  const myTracks = myAlbumData?.tracks || [];
+  const hasDiff = tracks.length > 0 && myTracks.length > 0 && tracklistsDiffer(tracks, myTracks);
+
+  const homeForDiff = state.homeStorefront || "my";
+  if (hasDiff) {
+    const diffBanner = el("div", "tracklist-diff-banner");
+    const sfLabel = album._metaSf.toUpperCase();
+    diffBanner.innerHTML = `<span class="diff-warn-icon">⚠</span> Track titles differ between <span class="sf-chip ${album._metaSf}">${sfLabel}</span> and <span class="sf-chip ${homeForDiff}">${homeForDiff.toUpperCase()}</span>`;
+    details.appendChild(diffBanner);
+  }
+
+  if (tracks.length) {
+    const tl = el("div", "tracklist");
+    const tlHead = el("div", "tracklist-header");
+    if (hasDiff) {
+      tlHead.innerHTML = `<span class="sf-chip ${album._metaSf}" style="font-size:10px;vertical-align:middle">${album._metaSf.toUpperCase()}</span> &nbsp;Tracklist — ${tracks.length} track${tracks.length !== 1 ? "s" : ""}`;
+    } else {
+      tlHead.textContent = `Tracklist — ${tracks.length} track${tracks.length !== 1 ? "s" : ""}`;
+    }
+    tl.appendChild(tlHead);
+    tracks.forEach((t, i) => {
+      const myTrack = myTracks[i];
+      const rowDiffers = hasDiff && myTrack && t.title !== myTrack.title;
+      const row = el("div", `track-row${rowDiffers ? " track-differs" : ""}`);
+      const num = el("span", "track-num", String(t.track_number ?? i + 1));
+      const title = el("span", "track-title", t.title || "—");
+      const dur = el("span", "track-dur", formatDuration(t.duration_ms));
+      row.appendChild(num);
+      row.appendChild(title);
+      row.appendChild(dur);
+      tl.appendChild(row);
+    });
+    details.appendChild(tl);
+  } else if (album._metaSf && album.artist_id) {
+    // Live-fetched but no tracks found — show note
+    const note = el("p", "tracklist-empty", "No tracklist available from this storefront.");
+    details.appendChild(note);
+  }
+
+  if (hasDiff && myTracks.length) {
+    const myTl = el("div", "tracklist");
+    const myTlHead = el("div", "tracklist-header tracklist-header-my");
+    myTlHead.innerHTML = `<span class="sf-chip ${homeForDiff}" style="font-size:10px;vertical-align:middle">${homeForDiff.toUpperCase()}</span> &nbsp;Tracklist — ${myTracks.length} track${myTracks.length !== 1 ? "s" : ""}`;
+    myTl.appendChild(myTlHead);
+    myTracks.forEach((t, i) => {
+      const mainTrack = tracks[i];
+      const rowDiffers = mainTrack && t.title !== mainTrack.title;
+      const row = el("div", `track-row${rowDiffers ? " track-differs-my" : ""}`);
+      const num = el("span", "track-num", String(t.track_number ?? i + 1));
+      const title = el("span", "track-title", t.title || "—");
+      const dur = el("span", "track-dur", formatDuration(t.duration_ms));
+      row.appendChild(num);
+      row.appendChild(title);
+      row.appendChild(dur);
+      myTl.appendChild(row);
+    });
+    details.appendChild(myTl);
+  }
+
   body.appendChild(details);
 }
 
@@ -798,6 +1108,11 @@ function debounce(fn, ms) {
   return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), ms); };
 }
 
+function tracklistsDiffer(a, b) {
+  if (a.length !== b.length) return true;
+  return a.some((t, i) => t.title !== b[i]?.title);
+}
+
 // ---------------------------------------------------------------------------
 // Bootstrap
 // ---------------------------------------------------------------------------
@@ -816,6 +1131,9 @@ document.addEventListener("DOMContentLoaded", () => {
   document.addEventListener("keydown", e => {
     if (e.key === "Escape") closeModal();
   });
+
+  // Metadata source widget
+  initMetaSourceWidget();
 
   // Initial status poll
   refreshStatus();

@@ -7,6 +7,7 @@ Run: uv run python server.py
 import concurrent.futures
 import json
 import os
+import re
 import threading
 import time
 from datetime import datetime, timezone
@@ -33,7 +34,7 @@ swagger = Swagger(app)
 # ---------------------------------------------------------------------------
 
 def load_config() -> dict:
-    defaults = {"poll_interval_minutes": 60, "rooms": {}}
+    defaults = {"poll_interval_minutes": 60, "rooms": {}, "check_storefronts": ["jp", "tw", "my", "hk", "sg"], "home_storefront": "my"}
     if os.path.exists(CONFIG_PATH):
         with open(CONFIG_PATH, encoding="utf-8") as f:
             return {**defaults, **json.load(f)}
@@ -105,6 +106,7 @@ def _do_poll():
                 "description": info.get("description"),
                 "artist_id": info.get("artist_id"),
                 "artist_url": info.get("artist_url"),
+                "audio_formats": info.get("audio_formats"),
                 "info_fetched": 1,
             }
             db.upsert_album(merged)
@@ -166,9 +168,11 @@ def trigger_poll_now():
 # ---------------------------------------------------------------------------
 
 def _serialize(row: dict) -> dict:
-    """Ensure storefronts is a list (stored as JSON string in SQLite)."""
+    """Ensure storefronts and audio_formats are lists (stored as JSON strings in SQLite)."""
     if isinstance(row.get("storefronts"), str):
         row["storefronts"] = json.loads(row["storefronts"])
+    if isinstance(row.get("audio_formats"), str):
+        row["audio_formats"] = json.loads(row["audio_formats"])
     return row
 
 
@@ -197,11 +201,12 @@ def api_releases():
     page = int(request.args.get("page", 1))
     per_page = int(request.args.get("per_page", 50))
     q = request.args.get("q", "").strip()
+    storefront = request.args.get("storefront", "").strip().lower()
 
     if q:
-        rows, total = db.search_albums(q, page, per_page)
+        rows, total = db.search_albums(q, page, per_page, storefront=storefront)
     else:
-        rows, total = db.list_albums(page, per_page)
+        rows, total = db.list_albums(page, per_page, storefront=storefront)
 
     watched_ids = db.get_watched_artist_ids()
     result = []
@@ -233,6 +238,7 @@ def api_release_detail(store_adam_id):
     if not row:
         return jsonify({"error": "Not found"}), 404
     row = _serialize(row)
+    row["tracks"] = db.get_tracks(store_adam_id)
     watched_ids = db.get_watched_artist_ids()
     row["watched"] = row.get("artist_id") in watched_ids
     return jsonify(row)
@@ -259,6 +265,102 @@ def api_check_storefronts(store_adam_id):
     return jsonify(result)
 
 
+@app.route("/api/lookup/<store_adam_id>")
+def api_lookup(store_adam_id):
+    """
+    Fetch fresh metadata for a release from a specific storefront.
+    ---
+    parameters:
+      - name: store_adam_id
+        in: path
+        type: string
+        required: true
+      - name: storefront
+        in: query
+        type: string
+        default: us
+    responses:
+      200:
+        description: Fresh metadata from the specified storefront
+    """
+    storefront = request.args.get("storefront", "us").strip().lower()
+    url = f"https://music.apple.com/{storefront}/album/{store_adam_id}"
+    client = AppleMusicClient()
+    info = client.get_album_full_info(url)
+    return jsonify(info)
+
+
+@app.route("/api/artists/<artist_id>/fetch", methods=["POST"])
+def api_artist_fetch(artist_id):
+    """
+    Fetch all releases for an artist from a specific storefront and store them.
+    ---
+    parameters:
+      - name: artist_id
+        in: path
+        type: string
+        required: true
+      - name: storefront
+        in: query
+        type: string
+        description: Storefront to fetch from (defaults to first configured storefront)
+    responses:
+      200:
+        description: Fetch result with count
+    """
+    storefront = request.args.get("storefront", "").strip().lower()
+    if not storefront:
+        cfg = load_config()
+        storefront = (cfg.get("check_storefronts") or ["us"])[0]
+
+    client = AppleMusicClient()
+    artist_url = f"https://music.apple.com/{storefront}/artist/{artist_id}"
+    releases = client.get_artist_all_releases(artist_url, storefront)
+
+    if not releases:
+        return jsonify({"ok": True, "fetched": 0, "message": "No releases found on artist page"})
+
+    def fetch_one(r):
+        aid = r["storeAdamID"]
+        existing = db.get_album(aid)
+        if existing and existing.get("tracks_fetched"):
+            # Already fully fetched — just ensure this storefront is recorded
+            db.upsert_album({"store_adam_id": aid, "storefronts": r.get("storefronts", [storefront])})
+            return
+
+        album_url = f"https://music.apple.com/{storefront}/album/{aid}"
+        info = client.get_album_full_info(album_url)
+
+        album_data = {
+            "store_adam_id": aid,
+            "url": r.get("url") or album_url,
+            "storefronts": r.get("storefronts", [storefront]),
+            "release_date": info.get("release_date"),
+            "artwork_url": info.get("artwork_url"),
+            "track_count": info.get("track_count"),
+            "genre": info.get("genre"),
+            "description": info.get("description"),
+            "artist_id": info.get("artist_id") or artist_id,
+            "artist_url": info.get("artist_url"),
+            "audio_formats": info.get("audio_formats"),
+            "info_fetched": 1,
+        }
+        if not existing:
+            # New to DB — store localised title/artist from this storefront
+            album_data["title"] = r.get("title") or info.get("title") or "Unknown"
+            album_data["artist"] = r.get("artist") or info.get("artist")
+
+        db.upsert_album(album_data)
+
+        if info.get("tracks"):
+            db.upsert_tracks(aid, info["tracks"])
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as ex:
+        list(ex.map(fetch_one, releases))
+
+    return jsonify({"ok": True, "fetched": len(releases)})
+
+
 @app.route("/api/artists/<artist_id>/releases")
 def api_artist_releases(artist_id):
     """
@@ -277,9 +379,12 @@ def api_artist_releases(artist_id):
     watched_ids = db.get_watched_artist_ids()
     result = [_serialize(r) for r in rows]
     watched = artist_id in watched_ids
-    # Get artist name from first result
-    artist_name = result[0]["artist"] if result else None
-    artist_url = result[0].get("artist_url") if result else None
+    # Pick the first non-year artist name (years like "1997" are bad data from parsing)
+    artist_name = next(
+        (r["artist"] for r in result if r.get("artist") and not re.match(r'^\d{4}$', r["artist"])),
+        result[0]["artist"] if result else None,
+    )
+    artist_url = next((r.get("artist_url") for r in result if r.get("artist_url")), None)
     return jsonify({
         "artist_id": artist_id,
         "artist_name": artist_name,

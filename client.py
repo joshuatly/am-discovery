@@ -8,6 +8,8 @@ import time
 import base64
 import os
 
+_BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
 class AppleMusicClient:
     def __init__(self, user_token=None):
         self.user_token = user_token
@@ -20,7 +22,7 @@ class AppleMusicClient:
             self.headers["Authorization"] = f"Bearer {self.bearer_token}"
 
     def _get_bearer_token(self):
-        token_file = "bearer_token.txt"
+        token_file = os.path.join(_BASE_DIR, "bearer_token.txt")
         token = None
         
         # Check if exists and valid
@@ -150,6 +152,108 @@ class AppleMusicClient:
             return new_releases
         except Exception: return []
 
+    # -----------------------------------------------------------------
+    # All artist releases (albums, singles, EPs, live, compilations…)
+    # -----------------------------------------------------------------
+    _RELEASE_SECTION_KW = [
+        # English
+        'album', 'single', 'ep', 'live', 'compilation', 'collection',
+        'soundtrack', 'latest', 'release', 'mixtape',
+        # Chinese
+        '專輯', '單曲', '最新發行', '精選', '現場', '合輯', '最新',
+        # Japanese
+        'アルバム', 'シングル', '最新リリース', 'ライブ',
+        # Malay
+        'terbaru', 'lagu',
+    ]
+    _SKIP_SECTION_KW = [
+        'appears on', 'fans also', 'similar', 'followers', 'playlist',
+        '參與作品', '粉絲', '喜歡此歌手', 'video', 'mv', '影片',
+    ]
+
+    def get_artist_all_releases(self, url, storefront):
+        """Fetch every release listed on an artist page (albums, singles, EPs, live, etc.)."""
+        req = urllib.request.Request(url, headers=self.headers)
+        try:
+            with urllib.request.urlopen(req) as response:
+                html = response.read().decode('utf-8')
+
+            match = re.search(r'<script type="application/json" id="serialized-server-data">(.*?)</script>', html)
+            if not match:
+                return []
+            data = json.loads(match.group(1))
+
+            try:
+                if isinstance(data, dict) and 'data' in data:
+                    content = data['data'][0]['data']
+                    sections = content.get('sections', [])
+                elif isinstance(data, list):
+                    content = data[0]['data']['data'][0]['data']
+                    sections = content.get('sections', [])
+                else:
+                    sections = []
+            except Exception:
+                return []
+
+            releases = []
+            seen = set()
+
+            for sec in sections:
+                header = sec.get('header', '')
+                if isinstance(header, dict):
+                    title = header.get('item', {}).get('titleLink', {}).get('title', '')
+                elif not header and 'dictionary' in sec:
+                    title = sec['dictionary'].get('title', '')
+                else:
+                    title = str(header)
+
+                title_lower = title.lower() if title else ''
+
+                if any(kw in title_lower for kw in self._SKIP_SECTION_KW):
+                    continue
+                if not any(kw in title_lower for kw in self._RELEASE_SECTION_KW):
+                    continue
+
+                for item in sec.get('items', []):
+                    actual = item.get('item', item)
+                    if not actual:
+                        continue
+
+                    title_val, artist_val, url_val, adam_id = None, None, None, None
+
+                    if 'attributes' in actual:
+                        attrs = actual['attributes']
+                        title_val = attrs.get('title') or attrs.get('name')
+                        artist_val = attrs.get('artistName')
+                        url_val = attrs.get('url')
+                    else:
+                        if actual.get('titleLinks'):
+                            title_val = actual['titleLinks'][0].get('title')
+                        if actual.get('subtitleLinks'):
+                            artist_val = actual['subtitleLinks'][0].get('title')
+                        desc = actual.get('contentDescriptor', {})
+                        url_val = desc.get('url')
+                        adam_id = desc.get('identifiers', {}).get('storeAdamID')
+
+                    if not adam_id and url_val:
+                        m = re.search(r'/(\d+)(?:\?.*)?$', url_val)
+                        adam_id = m.group(1) if m else actual.get('id')
+                        if adam_id and '-' in str(adam_id):
+                            adam_id = str(adam_id).split('-')[-1].strip()
+
+                    if title_val and url_val and adam_id and adam_id not in seen:
+                        seen.add(adam_id)
+                        releases.append({
+                            'storeAdamID': adam_id,
+                            'title': title_val,
+                            'artist': artist_val,
+                            'url': url_val,
+                            'storefronts': [storefront],
+                        })
+            return releases
+        except Exception:
+            return []
+
     def get_artist_new_releases(self, url, storefront):
         req = urllib.request.Request(url, headers=self.headers)
         try:
@@ -225,13 +329,37 @@ class AppleMusicClient:
             return new_releases
         except Exception: return []
 
+    def _get_catalog_attributes(self, adam_id: str, storefront: str) -> dict:
+        """Fetch catalog attributes for an album via the Apple Music API."""
+        url = f"https://amp-api.music.apple.com/v1/catalog/{storefront}/albums/{adam_id}?extend=extendedAssetUrls"
+        headers = {
+            "User-Agent": self.headers["User-Agent"],
+            "Origin": "https://music.apple.com",
+            "Referer": "https://music.apple.com/",
+        }
+        if self.bearer_token:
+            headers["Authorization"] = f"Bearer {self.bearer_token}"
+        if self.user_token:
+            headers["Music-User-Token"] = self.user_token
+        req = urllib.request.Request(url, headers=headers)
+        try:
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                data = json.loads(resp.read().decode('utf-8'))
+            attrs = data.get('data', [{}])[0].get('attributes', {})
+            return attrs
+        except Exception as e:
+            print(f"[catalog] Failed to fetch attributes for {adam_id}/{storefront}: {e}")
+            return {}
+
     def get_album_full_info(self, url: str) -> dict:
         """Fetch full album metadata from its Apple Music page.
         Returns a dict with: release_date, artwork_url, track_count, genre,
-        description, artist_id, artist_url (all may be None if not found).
+        description, artist_id, artist_url, audio_formats (all may be None if not found).
         """
         req = urllib.request.Request(url, headers=self.headers)
         result = {
+            "title": None,
+            "artist": None,
             "release_date": None,
             "artwork_url": None,
             "track_count": None,
@@ -239,7 +367,10 @@ class AppleMusicClient:
             "description": None,
             "artist_id": None,
             "artist_url": None,
+            "tracks": [],
+            "audio_formats": None,
         }
+        data = None
         try:
             with urllib.request.urlopen(req) as response:
                 html = response.read().decode('utf-8')
@@ -288,25 +419,128 @@ class AppleMusicClient:
                 modal = item.get('modalPresentationDescriptor', {})
                 result['description'] = modal.get('paragraphText')
 
-                # Artist ID & URL from subtitleLinks
+                # Title from titleLinks
+                title_links = item.get('titleLinks', [])
+                if title_links:
+                    result['title'] = title_links[0].get('title')
+
+                # Artist ID & URL from subtitleLinks — prefer the link with a valid artist segue
                 subtitle_links = item.get('subtitleLinks', [])
-                if subtitle_links:
+                for sl in subtitle_links:
                     try:
-                        dest = subtitle_links[0]['segue']['destination']['contentDescriptor']
+                        dest = sl['segue']['destination']['contentDescriptor']
                         adam = dest.get('identifiers', {}).get('storeAdamID')
-                        result['artist_id'] = str(adam) if adam else None
-                        result['artist_url'] = dest.get('url')
+                        if adam:
+                            result['artist'] = sl.get('title')
+                            result['artist_id'] = str(adam)
+                            result['artist_url'] = dest.get('url')
+                            break
                     except Exception:
-                        pass
+                        continue
+                # Fallback: first subtitle that isn't a bare 4-digit year
+                if not result['artist'] and subtitle_links:
+                    title = subtitle_links[0].get('title')
+                    if title and not re.match(r'^\d{4}$', title):
+                        result['artist'] = title
 
                 break  # found the header section
 
-            # Release date — search entire data blob (reuse existing logic)
-            result['release_date'] = self._extract_release_date(data)
+            # Tracklist — scan remaining sections
+            result['tracks'] = self._extract_tracks(sections)
 
         except Exception as e:
             print(f"Error fetching album info for {url}: {e}")
+
+        # Fetch release date + audio format traits from catalog API
+        try:
+            m = re.search(r'music\.apple\.com/([a-z]{2})/album/(?:[^/]+/)?(\d+)', url)
+            if m:
+                sf, adam_id = m.group(1), m.group(2)
+                attrs = self._get_catalog_attributes(adam_id, sf)
+                if attrs:
+                    result['release_date'] = attrs.get('releaseDate') or self._extract_release_date(data)
+                    formats = list(attrs.get('audioTraits') or [])
+                    if attrs.get('isMasteredForItunes'):
+                        formats.append('adm')
+                    result['audio_formats'] = formats if formats else None
+        except Exception as e:
+            print(f"[catalog] Error fetching catalog attributes for {url}: {e}")
+
+        # Fallback: parse release date from page if catalog API didn't provide it
+        if not result['release_date'] and data is not None:
+            result['release_date'] = self._extract_release_date(data)
+
         return result
+
+    def _parse_track_item(self, item: dict):
+        title = None
+        track_number = None
+        duration_ms = None
+
+        # API-style: attributes wrapper
+        attrs = item.get('attributes') or {}
+        if isinstance(attrs, dict) and attrs:
+            title = attrs.get('name') or attrs.get('title')
+            track_number = attrs.get('trackNumber')
+            duration_ms = attrs.get('durationInMillis')
+
+        # Web-scrape style: titleLinks array
+        if not title:
+            tl = item.get('titleLinks') or []
+            if tl and isinstance(tl, list):
+                title = (tl[0] or {}).get('title')
+
+        # Direct fields fallback
+        if not title:
+            title = item.get('title') or item.get('name') or item.get('primaryTitle')
+        if not track_number:
+            track_number = item.get('trackNumber')
+        if not duration_ms:
+            duration_ms = (item.get('durationInMillis') or
+                           item.get('durationMs') or
+                           item.get('duration'))
+
+        if not title:
+            return None
+        return {'title': title, 'track_number': track_number, 'duration_ms': duration_ms}
+
+    def _extract_tracks(self, sections: list) -> list:
+        print(f"[Tracks] total sections={len(sections)}: "
+              + ", ".join(f"'{s.get('id','?')}'({len(s.get('items',[]))})" for s in sections),
+              flush=True)
+        best = []
+        best_score = 0
+        for sec in sections:
+            sec_id = sec.get('id', '')
+            if 'album-detail-header' in sec_id:
+                continue
+            items = sec.get('items', [])
+            if not items:
+                continue
+            tracks = []
+            score = 0
+            for item in items:
+                actual = item.get('item', item)
+                if not isinstance(actual, dict):
+                    continue
+                t = self._parse_track_item(actual)
+                if t:
+                    tracks.append(t)
+                    # Only real track signals count — title-only matches score 0
+                    score += 10 if t.get('track_number') else 0
+                    score += 5  if t.get('duration_ms')  else 0
+            if not tracks and items:
+                sample = items[0].get('item', items[0]) if isinstance(items[0], dict) else items[0]
+                print(f"[Tracks] section '{sec_id}' sample keys: "
+                      f"{list(sample.keys()) if isinstance(sample, dict) else type(sample)}", flush=True)
+            print(f"[Tracks] section '{sec_id}': {len(items)} items → "
+                  f"{len(tracks)} parsed, score={score}", flush=True)
+            # Must have at least one item with a real track signal to be considered
+            if score > 0 and score > best_score:
+                best_score = score
+                best = tracks
+        print(f"[Tracks] best section: {len(best)} tracks (score={best_score})", flush=True)
+        return best
 
     def _extract_release_date(self, data) -> str:
         """Recursive search for a release-date description string in the data blob."""
@@ -348,7 +582,7 @@ class AppleMusicClient:
         if m3:
             mo_str, day, year = m3.groups()
             return f"{year}-{month_map.get(mo_str[:3].lower(), '01')}-{int(day):02d}"
-        year_m = re.search(r'(202\d)', desc)
+        year_m = re.search(r'\b((?:19|20)\d{2})\b', desc)
         if year_m:
             return f"{year_m.group(1)}-00-00"
         return None

@@ -1,0 +1,18 @@
+{
+  "check_storefronts": [
+    "jp",
+    "tw",
+    "my",
+    "hk",
+    "sg",
+    "us"
+  ],
+  "home_storefront": "my",
+  "poll_interval_minutes": 3600,
+  "rooms": {
+    "hk": "https://music.apple.com/hk/room/6760511635",
+    "jp": "https://music.apple.com/jp/room/6760491280",
+    "my": "https://music.apple.com/my/room/6760483004",
+    "tw": "https://music.apple.com/tw/room/6760510169"
+  }
+}
