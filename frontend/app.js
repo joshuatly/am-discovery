@@ -212,7 +212,7 @@ function renderMetaSourceWidget() {
   offBtn.title = "Use cached metadata";
   offBtn.addEventListener("click", () => {
     state.metadataStorefront = "";
-    localStorage.removeItem("metadataStorefront");
+    localStorage.setItem("metadataStorefront", "");
     renderMetaSourceWidget();
     updateFetchArtistBtn();
   });
@@ -262,6 +262,10 @@ async function initMetaSourceWidget() {
       state.configuredStorefronts = [];
       state.homeStorefront = "my";
     }
+  }
+  if (localStorage.getItem("metadataStorefront") === null) {
+    state.metadataStorefront = state.homeStorefront;
+    localStorage.setItem("metadataStorefront", state.homeStorefront);
   }
   renderMetaSourceWidget();
 }
