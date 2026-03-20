@@ -6,6 +6,7 @@ Run: uv run python server.py
 
 import concurrent.futures
 import json
+import logging
 import os
 import re
 import threading
@@ -25,6 +26,8 @@ from client import AppleMusicClient
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 FRONTEND_DIR = os.path.join(BASE_DIR, "frontend")
 CONFIG_PATH = os.path.join(BASE_DIR, "config.json")
+
+logger = logging.getLogger(__name__)
 
 app = Flask(__name__, static_folder=FRONTEND_DIR, static_url_path="")
 swagger = Swagger(app)
@@ -68,7 +71,7 @@ def _do_poll():
         all_releases: dict[str, dict] = {}
         for sf, url in rooms.items():
             rels = client.get_room_new_releases(url, sf)
-            print(f"[Poll] [{sf.upper()}] {len(rels)} releases", flush=True)
+            logger.info("[Poll] [%s] %d releases", sf.upper(), len(rels))
             for r in rels:
                 aid = r["storeAdamID"]
                 if aid in all_releases:
@@ -87,7 +90,7 @@ def _do_poll():
             else:
                 new_ids.append(aid)
 
-        print(f"[Poll] {len(new_ids)} new, {len(known_ids)} already cached", flush=True)
+        logger.info("[Poll] %d new, %d already cached", len(new_ids), len(known_ids))
 
         # 3. Fetch full info only for new albums (concurrent)
         def fetch_full(aid):
@@ -128,10 +131,10 @@ def _do_poll():
 
         total = db.list_albums()[1]
         db.log_discovery_run(len(new_ids), total)
-        print(f"[Poll] Done. DB total: {total}", flush=True)
+        logger.info("[Poll] Done. DB total: %d", total)
 
     except Exception as e:
-        print(f"[Poll] Error: {e}", flush=True)
+        logger.error("[Poll] Error: %s", e)
     finally:
         _is_running = False
         _schedule_next()
@@ -149,7 +152,7 @@ def _schedule_next(override_delay=None):
         _poll_timer = threading.Timer(delay, _do_poll)
         _poll_timer.daemon = True
         _poll_timer.start()
-    print(f"[Scheduler] Next poll in {delay / 60:.1f} minutes", flush=True)
+    logger.info("[Scheduler] Next poll in %.1f minutes", delay / 60)
 
 
 def trigger_poll_now():
@@ -238,7 +241,6 @@ def api_release_detail(store_adam_id):
     if not row:
         return jsonify({"error": "Not found"}), 404
     row = _serialize(row)
-    row["tracks"] = db.get_tracks(store_adam_id)
     watched_ids = db.get_watched_artist_ids()
     row["watched"] = row.get("artist_id") in watched_ids
     return jsonify(row)
@@ -323,7 +325,7 @@ def api_artist_fetch(artist_id):
     def fetch_one(r):
         aid = r["storeAdamID"]
         existing = db.get_album(aid)
-        if existing and existing.get("tracks_fetched"):
+        if existing and existing.get("info_fetched"):
             # Already fully fetched — just ensure this storefront is recorded
             db.upsert_album({"store_adam_id": aid, "storefronts": r.get("storefronts", [storefront])})
             return
@@ -343,6 +345,7 @@ def api_artist_fetch(artist_id):
             "artist_id": info.get("artist_id") or artist_id,
             "artist_url": info.get("artist_url"),
             "audio_formats": info.get("audio_formats"),
+            "release_type": r.get("release_type"),
             "info_fetched": 1,
         }
         if not existing:
@@ -351,9 +354,6 @@ def api_artist_fetch(artist_id):
             album_data["artist"] = r.get("artist") or info.get("artist")
 
         db.upsert_album(album_data)
-
-        if info.get("tracks"):
-            db.upsert_tracks(aid, info["tracks"])
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=8) as ex:
         list(ex.map(fetch_one, releases))
@@ -554,13 +554,15 @@ def serve_frontend(path="index.html"):
 # ---------------------------------------------------------------------------
 
 def main():
-    print("Initialising database...", flush=True)
-    db.init_db()
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--debug", action="store_true", help="Enable debug logging and Flask debug mode")
+    args = parser.parse_args()
 
-    # Seed from existing JSON if DB is empty
-    seeded = db.seed_from_json("aggregated_new_releases.json")
-    if seeded:
-        print(f"Seeded {seeded} albums from aggregated_new_releases.json", flush=True)
+    log_level = logging.DEBUG if args.debug else logging.INFO
+    logging.basicConfig(level=log_level, format="%(asctime)s %(name)s %(levelname)s %(message)s")
+    logger.info("Initialising database...")
+    db.init_db()
 
     cfg = load_config()
     interval_sec = cfg.get("poll_interval_minutes", 60) * 60
@@ -570,25 +572,21 @@ def main():
     delay = interval_sec
 
     if last_run and last_run.get("ran_at"):
-        try:
-            last_dt = datetime.fromisoformat(last_run["ran_at"])
-            elapsed = (datetime.utcnow() - last_dt).total_seconds()
-            if elapsed < interval_sec:
-                should_poll_now = False
-                delay = interval_sec - elapsed
-        except ValueError:
-            pass
+        elapsed = time.time() - last_run["ran_at"]
+        if elapsed < interval_sec:
+            should_poll_now = False
+            delay = interval_sec - elapsed
 
     if should_poll_now:
-        print("Starting initial poll...", flush=True)
+        logger.info("Starting initial poll...")
         trigger_poll_now()
     else:
-        print(f"Last poll was recent, scheduling next poll in {delay / 60:.1f} minutes...", flush=True)
+        logger.info("Last poll was recent, scheduling next poll in %.1f minutes...", delay / 60)
         _schedule_next(override_delay=delay)
 
     port = int(os.environ.get("PORT", 5000))
-    print(f"Serving on http://localhost:{port}", flush=True)
-    app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)
+    logger.info("Serving on http://localhost:%d", port)
+    app.run(host="0.0.0.0", port=port, debug=args.debug, use_reloader=args.debug)
 
 
 if __name__ == "__main__":

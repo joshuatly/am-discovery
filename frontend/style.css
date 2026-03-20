@@ -840,6 +840,118 @@ body {
 .track-row.track-differs-my .track-title { color: #3cc864; }
 
 /* =========================================================
+   Artist Release Toolbar (view toggle + type filter)
+   ========================================================= */
+.artist-releases-toolbar {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+.view-toggle-bar {
+  display: flex;
+  gap: 3px;
+  padding: 3px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  width: fit-content;
+}
+
+.view-toggle-btn {
+  padding: 5px 14px;
+  border-radius: calc(var(--radius-sm) - 2px);
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all var(--transition);
+}
+.view-toggle-btn:hover { color: var(--text-primary); }
+.view-toggle-btn.active {
+  background: var(--accent-grad);
+  color: #fff;
+}
+
+.type-filter-bar {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.type-filter-btn {
+  padding: 4px 12px;
+  border-radius: 20px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all var(--transition);
+}
+.type-filter-btn:hover { border-color: rgba(255,255,255,0.2); color: var(--text-primary); }
+.type-filter-btn.active {
+  background: rgba(168,85,247,0.15);
+  color: var(--accent-2);
+  border-color: rgba(168,85,247,0.4);
+}
+
+/* Grouped release sections */
+.release-section {
+  margin-bottom: 40px;
+}
+.release-section-header {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  margin-bottom: 16px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+/* Release type chip on album cards */
+.release-type-chip {
+  font-size: 9px;
+  font-weight: 700;
+  padding: 2px 5px;
+  border-radius: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  white-space: nowrap;
+}
+.rt-main-albums        { background: rgba(255,255,255,0.08); color: var(--text-secondary); }
+.rt-singles-eps        { background: rgba(255,60,130,0.18);  color: #ff3c82; }
+.rt-compilation-albums { background: rgba(168,85,247,0.18);  color: #a855f7; }
+.rt-live-albums        { background: rgba(255,160,50,0.18);  color: #ffa032; }
+
+/* Release type tag inside the modal — inherits colour classes above */
+.rt-modal {
+  border-color: currentColor;
+  opacity: 0.9;
+}
+
+.release-section-count {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-dim);
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 1px 7px;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+/* =========================================================
    Animations
    ========================================================= */
 @keyframes shimmer {

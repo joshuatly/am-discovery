@@ -71,6 +71,14 @@ function formatDuration(ms) {
   return `${m}:${(s % 60).toString().padStart(2, "0")}`;
 }
 
+const RELEASE_TYPE_LABELS = {
+  "main-albums":        "Albums",
+  "compilation-albums": "Compilations",
+  "live-albums":        "Live Albums",
+  "singles-eps":        "Singles & EPs",
+};
+const RELEASE_TYPE_ORDER = ["main-albums", "singles-eps", "compilation-albums", "live-albums"];
+
 const FORMAT_LABELS = {
   "lossy-stereo":    "AAC",
   "lossless":        "Lossless",
@@ -144,6 +152,8 @@ const state = {
   metadataStorefront: localStorage.getItem("metadataStorefront") || "",
   alwaysIncludeMY: localStorage.getItem("alwaysIncludeMY") === "true",
   homeStorefront: "",
+  artistViewMode: "chrono",   // "chrono" | "grouped"
+  artistTypeFilter: "",       // "" = all, else a release_type value
 };
 
 // ---------------------------------------------------------------------------
@@ -475,6 +485,51 @@ async function renderAllReleases(main, page = 1, query = "", storefront = "") {
 }
 
 // ---------------------------------------------------------------------------
+// Artist release grid (chronological or grouped by type)
+// ---------------------------------------------------------------------------
+function renderArtistReleaseGrid(releases, container) {
+  container.innerHTML = "";
+  const filtered = state.artistTypeFilter
+    ? releases.filter(r => r.release_type === state.artistTypeFilter)
+    : releases;
+
+  if (!filtered.length) {
+    container.innerHTML = `<div class="empty-state"><div class="empty-icon">🎵</div><div class="empty-title">No releases</div></div>`;
+    return;
+  }
+
+  if (state.artistViewMode === "grouped") {
+    const groups = {};
+    filtered.forEach(r => {
+      const key = r.release_type || "__other";
+      if (!groups[key]) groups[key] = [];
+      groups[key].push(r);
+    });
+    const orderedKeys = [
+      ...RELEASE_TYPE_ORDER.filter(k => groups[k]),
+      ...Object.keys(groups).filter(k => !RELEASE_TYPE_ORDER.includes(k) && k !== "__other"),
+      ...(groups["__other"] ? ["__other"] : []),
+    ];
+    orderedKeys.forEach(key => {
+      const items = groups[key];
+      const section = el("div", "release-section");
+      const label = key === "__other" ? "Other" : (RELEASE_TYPE_LABELS[key] || key);
+      const header = el("div", "release-section-header");
+      header.innerHTML = `${label} <span class="release-section-count">${items.length}</span>`;
+      section.appendChild(header);
+      const grid = el("div", "album-grid");
+      items.forEach(album => grid.appendChild(albumCard(album)));
+      section.appendChild(grid);
+      container.appendChild(section);
+    });
+  } else {
+    const grid = el("div", "album-grid");
+    filtered.forEach(album => grid.appendChild(albumCard(album)));
+    container.appendChild(grid);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Page: Artist Detail
 // ---------------------------------------------------------------------------
 async function renderArtist(main, artistId) {
@@ -558,13 +613,54 @@ async function renderArtist(main, artistId) {
     return;
   }
 
-  const grid = el("div", "album-grid");
   data.releases.forEach(album => {
     album.watched = state.watchedIds.has(album.artist_id);
     if (data.artist_name) album.artist = data.artist_name;
-    grid.appendChild(albumCard(album));
   });
-  wrap.appendChild(grid);
+
+  // Toolbar: view toggle + type filter
+  const toolbar = el("div", "artist-releases-toolbar");
+  const gridContainer = el("div", "artist-grid-container");
+
+  // View mode toggle
+  const viewToggle = el("div", "view-toggle-bar");
+  [["Chronological", "chrono"], ["By Type", "grouped"]].forEach(([label, mode]) => {
+    const btn = el("button", `view-toggle-btn${state.artistViewMode === mode ? " active" : ""}`, label);
+    btn.dataset.mode = mode;
+    btn.addEventListener("click", () => {
+      state.artistViewMode = mode;
+      viewToggle.querySelectorAll(".view-toggle-btn").forEach(b =>
+        b.classList.toggle("active", b.dataset.mode === mode));
+      renderArtistReleaseGrid(data.releases, gridContainer);
+    });
+    viewToggle.appendChild(btn);
+  });
+  toolbar.appendChild(viewToggle);
+
+  // Type filter — only shown when multiple types are present
+  const typeSet = new Set(data.releases.map(r => r.release_type).filter(Boolean));
+  if (typeSet.size > 1) {
+    const typeFilter = el("div", "type-filter-bar");
+    [["All", ""], ...RELEASE_TYPE_ORDER
+      .filter(k => typeSet.has(k))
+      .map(k => [RELEASE_TYPE_LABELS[k] || k, k])
+    ].forEach(([label, code]) => {
+      const btn = el("button", `type-filter-btn${state.artistTypeFilter === code ? " active" : ""}`, label);
+      btn.dataset.type = code;
+      btn.addEventListener("click", () => {
+        state.artistTypeFilter = code;
+        typeFilter.querySelectorAll(".type-filter-btn").forEach(b =>
+          b.classList.toggle("active", b.dataset.type === code));
+        renderArtistReleaseGrid(data.releases, gridContainer);
+      });
+      typeFilter.appendChild(btn);
+    });
+    toolbar.appendChild(typeFilter);
+  }
+
+  wrap.appendChild(toolbar);
+  wrap.appendChild(gridContainer);
+  renderArtistReleaseGrid(data.releases, gridContainer);
 }
 
 // ---------------------------------------------------------------------------
@@ -804,6 +900,17 @@ function albumCard(album, showGenre = false) {
   const dateEl = el("span", `release-date${isFutureDate(album.release_date) ? " future" : ""}`, formatDate(album.release_date));
   meta.appendChild(dateEl);
 
+  if (album.release_type) {
+    const TYPE_SHORT = {
+      "main-albums":        "Album",
+      "compilation-albums": "Comp.",
+      "live-albums":        "Live",
+      "singles-eps":        "Single/EP",
+    };
+    const chip = el("span", `release-type-chip rt-${album.release_type}`, TYPE_SHORT[album.release_type] || album.release_type);
+    meta.appendChild(chip);
+  }
+
   const sf = sfChips(album.storefronts);
   meta.appendChild(sf);
   info.appendChild(meta);
@@ -903,6 +1010,16 @@ async function openModal(storeAdamId) {
   }
   if (album.genre) {
     const t = el("span", "modal-tag", album.genre);
+    tags.appendChild(t);
+  }
+  if (album.release_type) {
+    const TYPE_LABELS = {
+      "main-albums":        "Album",
+      "compilation-albums": "Compilation",
+      "live-albums":        "Live Album",
+      "singles-eps":        "Single / EP",
+    };
+    const t = el("span", `modal-tag rt-modal rt-${album.release_type}`, TYPE_LABELS[album.release_type] || album.release_type);
     tags.appendChild(t);
   }
   if (album.storefronts?.length) {

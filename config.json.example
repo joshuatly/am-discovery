@@ -1,4 +1,5 @@
 {
+  "cors_proxy": ""
   "check_storefronts": [
     "jp",
     "tw",
