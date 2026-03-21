@@ -466,7 +466,7 @@ class TestApiWatchlist(ServerTestCase):
         self.assertEqual(resp.status_code, 200)
         data = resp.get_json()
         self.assertTrue(data["ok"])
-        mock_db.add_to_watchlist.assert_called_once_with("ART1", "Artist One", "https://example.com")
+        mock_db.add_to_watchlist.assert_called_once_with("ART1", "Artist One", "https://example.com", preferred_source=None)
 
     @patch("server.db")
     def test_post_watchlist_missing_artist_id(self, mock_db):
@@ -829,6 +829,219 @@ class TestConfigHelpers(ServerTestCase):
         # 'rooms' should still be present from defaults
         self.assertIn("rooms", loaded)
         self.assertIn("check_storefronts", loaded)
+
+
+# ---------------------------------------------------------------------------
+# Watchlist preferred_source
+# ---------------------------------------------------------------------------
+
+class TestApiWatchlistPreferredSource(ServerTestCase):
+
+    @patch("server.db")
+    def test_post_with_preferred_source(self, mock_db):
+        mock_db.add_to_watchlist.return_value = None
+        resp = self.client.post(
+            "/api/watchlist",
+            data=json.dumps({"artist_id": "ART1", "name": "Artist One", "preferred_source": "jp"}),
+            content_type="application/json",
+        )
+        self.assertEqual(resp.status_code, 200)
+        mock_db.add_to_watchlist.assert_called_once_with("ART1", "Artist One", "", preferred_source="jp")
+
+    @patch("server.db")
+    def test_post_with_invalid_preferred_source(self, mock_db):
+        resp = self.client.post(
+            "/api/watchlist",
+            data=json.dumps({"artist_id": "ART1", "name": "Artist One", "preferred_source": "bad!"}),
+            content_type="application/json",
+        )
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn("error", resp.get_json())
+
+    @patch("server.db")
+    def test_get_with_preferred_source_filter(self, mock_db):
+        mock_db.get_watchlist.return_value = [
+            {"artist_id": "ART1", "name": "Artist One", "preferred_source": "jp"}
+        ]
+        resp = self.client.get("/api/watchlist?preferred_source=jp")
+        self.assertEqual(resp.status_code, 200)
+        mock_db.get_watchlist.assert_called_once_with(preferred_source="jp")
+
+    @patch("server.db")
+    def test_get_with_invalid_preferred_source_filter(self, mock_db):
+        resp = self.client.get("/api/watchlist?preferred_source=bad!")
+        self.assertEqual(resp.status_code, 400)
+
+    @patch("server.db")
+    def test_get_without_filter(self, mock_db):
+        mock_db.get_watchlist.return_value = []
+        resp = self.client.get("/api/watchlist")
+        self.assertEqual(resp.status_code, 200)
+        mock_db.get_watchlist.assert_called_once_with(preferred_source="")
+
+
+# ---------------------------------------------------------------------------
+# GET /api/releases — watched filter
+# ---------------------------------------------------------------------------
+
+class TestApiReleasesWatched(ServerTestCase):
+
+    @patch("server.db")
+    def test_watched_filter_passed_to_db(self, mock_db):
+        mock_db.list_albums.return_value = ([], 0)
+        mock_db.get_watched_artist_ids.return_value = set()
+
+        self.client.get("/api/releases?watched=true&view=new")
+        args, kwargs = mock_db.list_albums.call_args
+        self.assertTrue(kwargs.get("watched_only"))
+
+    @patch("server.db")
+    def test_watched_filter_false_by_default(self, mock_db):
+        mock_db.list_albums.return_value = ([], 0)
+        mock_db.get_watched_artist_ids.return_value = set()
+
+        self.client.get("/api/releases")
+        args, kwargs = mock_db.list_albums.call_args
+        self.assertFalse(kwargs.get("watched_only", False))
+
+    @patch("server.db")
+    def test_watched_filter_with_search(self, mock_db):
+        mock_db.search_albums.return_value = ([], 0)
+        mock_db.get_watched_artist_ids.return_value = set()
+
+        self.client.get("/api/releases?q=test&watched=true")
+        args, kwargs = mock_db.search_albums.call_args
+        self.assertTrue(kwargs.get("watched_only"))
+
+
+# ---------------------------------------------------------------------------
+# GET /api/watchlist/export
+# ---------------------------------------------------------------------------
+
+class TestApiWatchlistExport(ServerTestCase):
+
+    @patch("server.db")
+    def test_export_returns_json_file(self, mock_db):
+        mock_db.export_watchlist.return_value = [
+            {"artist_id": "ART1", "name": "Artist One", "url": "https://url", "preferred_source": "jp"}
+        ]
+        resp = self.client.get("/api/watchlist/export")
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn("application/json", resp.content_type)
+        self.assertIn("attachment", resp.headers.get("Content-Disposition", ""))
+        self.assertIn("am_discovery_", resp.headers.get("Content-Disposition", ""))
+        self.assertIn(".json", resp.headers.get("Content-Disposition", ""))
+
+        data = resp.get_json()
+        self.assertEqual(len(data), 1)
+        self.assertEqual(data[0]["artist_id"], "ART1")
+
+    @patch("server.db")
+    def test_export_empty_watchlist(self, mock_db):
+        mock_db.export_watchlist.return_value = []
+        resp = self.client.get("/api/watchlist/export")
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.get_json(), [])
+
+    @patch("server.db")
+    def test_export_filename_has_date(self, mock_db):
+        mock_db.export_watchlist.return_value = []
+        resp = self.client.get("/api/watchlist/export")
+        disposition = resp.headers.get("Content-Disposition", "")
+        # Filename should match am_discovery_YYYY-MM-DD.json
+        import re
+        self.assertRegex(disposition, r"am_discovery_\d{4}-\d{2}-\d{2}\.json")
+
+
+# ---------------------------------------------------------------------------
+# POST /api/watchlist/import
+# ---------------------------------------------------------------------------
+
+class TestApiWatchlistImport(ServerTestCase):
+
+    @patch("server.db")
+    def test_import_json_body(self, mock_db):
+        mock_db.import_watchlist.return_value = None
+        artists = [
+            {"artist_id": "ART1", "name": "Artist One"},
+            {"artist_id": "ART2", "name": "Artist Two"},
+        ]
+        resp = self.client.post(
+            "/api/watchlist/import",
+            data=json.dumps(artists),
+            content_type="application/json",
+        )
+        self.assertEqual(resp.status_code, 200)
+        data = resp.get_json()
+        self.assertTrue(data["ok"])
+        self.assertEqual(data["imported"], 2)
+
+    @patch("server.db")
+    def test_import_rejects_non_array(self, mock_db):
+        resp = self.client.post(
+            "/api/watchlist/import",
+            data=json.dumps({"artist_id": "ART1"}),
+            content_type="application/json",
+        )
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn("error", resp.get_json())
+
+    @patch("server.db")
+    def test_import_rejects_missing_fields(self, mock_db):
+        resp = self.client.post(
+            "/api/watchlist/import",
+            data=json.dumps([{"artist_id": "ART1"}]),
+            content_type="application/json",
+        )
+        self.assertEqual(resp.status_code, 400)
+
+    @patch("server.db")
+    def test_import_file_upload(self, mock_db):
+        mock_db.import_watchlist.return_value = None
+        import io
+        data = json.dumps([{"artist_id": "ART1", "name": "Artist One"}])
+        resp = self.client.post(
+            "/api/watchlist/import",
+            data={"file": (io.BytesIO(data.encode()), "watchlist.json")},
+            content_type="multipart/form-data",
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(resp.get_json()["ok"])
+
+    @patch("server.db")
+    def test_import_file_no_file(self, mock_db):
+        resp = self.client.post(
+            "/api/watchlist/import",
+            content_type="multipart/form-data",
+        )
+        self.assertEqual(resp.status_code, 400)
+
+    @patch("server.db")
+    def test_import_file_invalid_json(self, mock_db):
+        import io
+        resp = self.client.post(
+            "/api/watchlist/import",
+            data={"file": (io.BytesIO(b"not json"), "bad.json")},
+            content_type="multipart/form-data",
+        )
+        self.assertEqual(resp.status_code, 400)
+
+
+# ---------------------------------------------------------------------------
+# Status endpoint — watchlist poll fields
+# ---------------------------------------------------------------------------
+
+class TestApiStatusWatchlist(ServerTestCase):
+
+    @patch("server.db")
+    def test_status_includes_watchlist_fields(self, mock_db):
+        mock_db.get_last_run.return_value = None
+        mock_db.list_albums.return_value = ([], 0)
+
+        resp = self.client.get("/api/status")
+        data = resp.get_json()
+        self.assertIn("watchlist_poll_running", data)
+        self.assertIn("watchlist_poll_interval_minutes", data)
 
 
 if __name__ == "__main__":

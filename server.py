@@ -43,7 +43,15 @@ swagger = Swagger(app)
 # ---------------------------------------------------------------------------
 
 def load_config() -> dict:
-    defaults = {"poll_interval_minutes": 60, "rooms": {}, "check_storefronts": ["jp", "tw", "my", "hk", "sg"], "home_storefront": "my"}
+    defaults = {
+        "poll_interval_minutes": 60,
+        "rooms": {},
+        "check_storefronts": ["jp", "tw", "my", "hk", "sg"],
+        "home_storefront": "my",
+        "watchlist_poll_interval_minutes": 10,
+        "watchlist_poll_batch_size": 5,
+        "watchlist_refresh_interval_days": 7,
+    }
     if os.path.exists(CONFIG_PATH):
         with open(CONFIG_PATH, encoding="utf-8") as f:
             return {**defaults, **json.load(f)}
@@ -175,6 +183,97 @@ def trigger_poll_now():
 
 
 # ---------------------------------------------------------------------------
+# Watchlist polling logic
+# ---------------------------------------------------------------------------
+
+_watchlist_lock = threading.Lock()
+_watchlist_timer: threading.Timer | None = None
+_watchlist_running = False
+
+
+def _do_watchlist_poll():
+    global _watchlist_running
+    _watchlist_running = True
+    try:
+        cfg = load_config()
+        batch_size = cfg.get("watchlist_poll_batch_size", 5)
+        refresh_days = cfg.get("watchlist_refresh_interval_days", 7)
+        home_sf = cfg.get("home_storefront", "my")
+
+        artists = db.get_artists_needing_refresh(batch_size, refresh_days)
+        if not artists:
+            logger.info("[WatchlistPoll] No artists need refreshing")
+            return
+
+        logger.info("[WatchlistPoll] Refreshing %d artists", len(artists))
+        client = AppleMusicClient()
+
+        for artist in artists:
+            artist_id = artist["artist_id"]
+            storefront = artist.get("preferred_source") or home_sf
+            artist_url = f"https://music.apple.com/{storefront}/artist/{artist_id}"
+
+            try:
+                releases, artist_info = client.get_artist_all_releases(artist_url, storefront)
+                db.upsert_artist(artist_id, artwork_url=artist_info.get("artwork_url"), genre=artist_info.get("genre"))
+
+                def fetch_one(r):
+                    aid = r["storeAdamID"]
+                    existing = db.get_album(aid)
+                    album_url = f"https://music.apple.com/{storefront}/album/{aid}"
+                    info = client.get_album_full_info(album_url)
+                    album_data = {
+                        "store_adam_id": aid,
+                        "url": r.get("url") or album_url,
+                        "storefronts": r.get("storefronts", [storefront]),
+                        "release_date": info.get("release_date"),
+                        "artwork_url": info.get("artwork_url"),
+                        "track_count": info.get("track_count"),
+                        "genre": info.get("genre"),
+                        "description": info.get("description"),
+                        "artist_id": info.get("artist_id") or artist_id,
+                        "artist_url": info.get("artist_url"),
+                        "audio_formats": info.get("audio_formats"),
+                        "release_type": r.get("release_type"),
+                        "info_fetched": 1,
+                        "source": "artist_fetch",
+                    }
+                    if not existing:
+                        album_data["title"] = r.get("title") or info.get("title") or "Unknown"
+                        album_data["artist"] = r.get("artist") or info.get("artist")
+                    db.upsert_album(album_data)
+
+                with concurrent.futures.ThreadPoolExecutor(max_workers=8) as ex:
+                    list(ex.map(fetch_one, releases))
+
+                db.mark_artist_refreshed(artist_id)
+                logger.info("[WatchlistPoll] Refreshed %s (%d releases)", artist.get("name"), len(releases))
+
+            except Exception as e:
+                logger.error("[WatchlistPoll] Error refreshing %s: %s", artist.get("name"), e)
+
+    except Exception as e:
+        logger.error("[WatchlistPoll] Error: %s", e)
+    finally:
+        _watchlist_running = False
+        _schedule_watchlist_next()
+
+
+def _schedule_watchlist_next(override_delay=None):
+    global _watchlist_timer
+    cfg = load_config()
+    interval_sec = cfg.get("watchlist_poll_interval_minutes", 10) * 60
+    delay = override_delay if override_delay is not None else interval_sec
+    with _watchlist_lock:
+        if _watchlist_timer:
+            _watchlist_timer.cancel()
+        _watchlist_timer = threading.Timer(delay, _do_watchlist_poll)
+        _watchlist_timer.daemon = True
+        _watchlist_timer.start()
+    logger.info("[WatchlistScheduler] Next watchlist poll in %.1f minutes", delay / 60)
+
+
+# ---------------------------------------------------------------------------
 # REST API
 # ---------------------------------------------------------------------------
 
@@ -220,11 +319,12 @@ def api_releases():
     if raw_sf and not storefront:
         return jsonify({"error": "invalid storefront"}), 400
     discovered_only = request.args.get("view") == "new"
+    watched_only = request.args.get("watched") == "true"
 
     if q:
-        rows, total = db.search_albums(q, page, per_page, storefront=storefront, discovered_only=discovered_only)
+        rows, total = db.search_albums(q, page, per_page, storefront=storefront, discovered_only=discovered_only, watched_only=watched_only)
     else:
-        rows, total = db.list_albums(page, per_page, storefront=storefront, discovered_only=discovered_only)
+        rows, total = db.list_albums(page, per_page, storefront=storefront, discovered_only=discovered_only, watched_only=watched_only)
 
     watched_ids = db.get_watched_artist_ids()
     result = []
@@ -463,11 +563,20 @@ def api_watchlist_get():
     """
     Get the current watchlist.
     ---
+    parameters:
+      - name: preferred_source
+        in: query
+        type: string
+        description: Filter by preferred metadata source country
     responses:
       200:
         description: List of watched artists
     """
-    return jsonify(db.get_watchlist())
+    raw_ps = request.args.get("preferred_source", "").strip().lower()
+    preferred_source = _validate_storefront(raw_ps) if raw_ps else ""
+    if raw_ps and not preferred_source:
+        return jsonify({"error": "invalid preferred_source"}), 400
+    return jsonify(db.get_watchlist(preferred_source=preferred_source))
 
 
 @app.route("/api/watchlist", methods=["POST"])
@@ -498,9 +607,12 @@ def api_watchlist_add():
     artist_id = body.get("artist_id", "").strip()
     name = body.get("name", "").strip()
     url = body.get("url", "").strip()
+    preferred_source = body.get("preferred_source", "").strip().lower() or None
+    if preferred_source and not _validate_storefront(preferred_source):
+        return jsonify({"error": "invalid preferred_source"}), 400
     if not artist_id or not name:
         return jsonify({"error": "artist_id and name required"}), 400
-    db.add_to_watchlist(artist_id, name, url)
+    db.add_to_watchlist(artist_id, name, url, preferred_source=preferred_source)
     return jsonify({"ok": True})
 
 
@@ -520,6 +632,69 @@ def api_watchlist_remove(artist_id):
     """
     db.remove_from_watchlist(artist_id)
     return jsonify({"ok": True})
+
+
+@app.route("/api/watchlist/export", methods=["GET"])
+def api_watchlist_export():
+    """
+    Export the watchlist as a downloadable JSON file.
+    ---
+    responses:
+      200:
+        description: JSON file download
+    """
+    from flask import Response
+    data = db.export_watchlist()
+    today = datetime.now().strftime("%Y-%m-%d")
+    filename = f"am_discovery_{today}.json"
+    content = json.dumps(data, indent=2, ensure_ascii=False)
+    return Response(
+        content,
+        mimetype="application/json",
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )
+
+
+@app.route("/api/watchlist/import", methods=["POST"])
+def api_watchlist_import():
+    """
+    Import artists into the watchlist from a JSON file or body.
+    ---
+    parameters:
+      - name: file
+        in: formData
+        type: file
+        description: JSON file with artist list
+      - name: body
+        in: body
+        schema:
+          type: array
+    responses:
+      200:
+        description: Import result
+      400:
+        description: Invalid data
+    """
+    if request.content_type and "multipart/form-data" in request.content_type:
+        f = request.files.get("file")
+        if not f:
+            return jsonify({"error": "No file provided"}), 400
+        try:
+            data = json.load(f)
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            return jsonify({"error": "Invalid JSON file"}), 400
+    else:
+        data = request.get_json(force=True)
+
+    if not isinstance(data, list):
+        return jsonify({"error": "Expected a JSON array of artists"}), 400
+
+    for item in data:
+        if not isinstance(item, dict) or not item.get("artist_id") or not item.get("name"):
+            return jsonify({"error": "Each artist must have artist_id and name"}), 400
+
+    db.import_watchlist(data)
+    return jsonify({"ok": True, "imported": len(data)})
 
 
 @app.route("/api/config", methods=["GET"])
@@ -593,6 +768,8 @@ def api_status():
         "is_running": _is_running,
         "poll_interval_minutes": cfg.get("poll_interval_minutes"),
         "total_albums": total,
+        "watchlist_poll_running": _watchlist_running,
+        "watchlist_poll_interval_minutes": cfg.get("watchlist_poll_interval_minutes"),
     })
 
 
@@ -650,6 +827,11 @@ def main():
     else:
         logger.info("Last poll was recent, scheduling next poll in %.1f minutes...", delay / 60)
         _schedule_next(override_delay=delay)
+
+    # Start watchlist background polling
+    watchlist_interval = cfg.get("watchlist_poll_interval_minutes", 10) * 60
+    logger.info("Starting watchlist polling (every %.1f minutes)...", watchlist_interval / 60)
+    _schedule_watchlist_next()
 
     port = int(os.environ.get("PORT", 5000))
     logger.info("Serving on http://localhost:%d", port)

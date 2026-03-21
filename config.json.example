@@ -1,5 +1,5 @@
 {
-  "cors_proxy": ""
+  "cors_proxy": "",
   "check_storefronts": [
     "jp",
     "tw",
@@ -10,6 +10,9 @@
   ],
   "home_storefront": "my",
   "poll_interval_minutes": 3600,
+  "watchlist_poll_interval_minutes": 10,
+  "watchlist_poll_batch_size": 5,
+  "watchlist_refresh_interval_days": 7,
   "rooms": {
     "hk": "https://music.apple.com/hk/room/6760511635",
     "jp": "https://music.apple.com/jp/room/6760491280",

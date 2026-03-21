@@ -337,25 +337,30 @@ async function loadWatchedIds() {
   } catch {}
 }
 
-async function toggleWatch(artistId, name, artistUrl) {
+async function toggleWatch(artistId, name, artistUrl, preferredSource) {
   if (state.watchedIds.has(artistId)) {
     await API.del(`/api/watchlist/${artistId}`);
     state.watchedIds.delete(artistId);
   } else {
-    await API.post("/api/watchlist", { artist_id: artistId, name, url: artistUrl });
+    const body = { artist_id: artistId, name, url: artistUrl };
+    if (preferredSource) body.preferred_source = preferredSource;
+    await API.post("/api/watchlist", body);
     state.watchedIds.add(artistId);
     // Fetch artist metadata (artwork, genre) immediately, then refresh current page
-    API.post(`/api/artists/${artistId}/fetch`).then(() => route(location.hash)).catch(() => {});
+    const sf = preferredSource || state.metadataStorefront;
+    const qp = sf ? `?storefront=${sf}` : "";
+    API.post(`/api/artists/${artistId}/fetch${qp}`).then(() => route(location.hash)).catch(() => {});
   }
 }
 
 // ---------------------------------------------------------------------------
 // Page: New Releases
 // ---------------------------------------------------------------------------
-async function renderNewReleases(main, page = 1, query = "", storefront = "") {
+async function renderNewReleases(main, page = 1, query = "", storefront = "", watchedOnly = false) {
   state.currentPage = page;
   state.currentQuery = query;
   state.currentStorefront = storefront;
+  state.currentWatchedOnly = watchedOnly;
 
   // Load config once
   if (state.configuredStorefronts === null) {
@@ -400,9 +405,16 @@ async function renderNewReleases(main, page = 1, query = "", storefront = "") {
   sfButtons.forEach(([label, code]) => {
     const btn = el("button", "sf-filter-btn" + (code ? ` ${code}` : "") + (storefront === code ? " active" : ""));
     btn.textContent = label;
-    btn.addEventListener("click", () => renderNewReleases(main, 1, state.currentQuery, code));
+    btn.addEventListener("click", () => renderNewReleases(main, 1, state.currentQuery, code, state.currentWatchedOnly));
     filterBar.appendChild(btn);
   });
+
+  // Watched-only toggle
+  const watchedToggle = el("button", `sf-filter-btn watched-toggle${watchedOnly ? " active" : ""}`, "Watched");
+  watchedToggle.title = "Show only releases from watched artists";
+  watchedToggle.addEventListener("click", () => renderNewReleases(main, 1, state.currentQuery, state.currentStorefront, !watchedOnly));
+  filterBar.appendChild(watchedToggle);
+
   searchBar.after(filterBar);
 
   // Fetch
@@ -410,6 +422,7 @@ async function renderNewReleases(main, page = 1, query = "", storefront = "") {
   let data;
   try {
     const qp = new URLSearchParams({ page, per_page: state.perPage, view: "new" });
+    if (watchedOnly) qp.set("watched", "true");
     if (query) qp.set("q", query);
     if (storefront) qp.set("storefront", storefront);
     data = await API.get(`/api/releases?${qp}`);
@@ -433,7 +446,7 @@ async function renderNewReleases(main, page = 1, query = "", storefront = "") {
   // Pagination
   const totalPages = Math.ceil(data.total / state.perPage);
   if (totalPages > 1) {
-    gridWrap.appendChild(buildPagination(page, totalPages, p => renderNewReleases(main, p, state.currentQuery, state.currentStorefront)));
+    gridWrap.appendChild(buildPagination(page, totalPages, p => renderNewReleases(main, p, state.currentQuery, state.currentStorefront, state.currentWatchedOnly)));
   }
 }
 
@@ -617,7 +630,8 @@ async function renderArtist(main, artistId) {
   const isWatched = state.watchedIds.has(artistId);
   const watchBtn = el("button", `btn-watch${isWatched ? " watching" : ""}`, isWatched ? "⭐ Watching" : "☆ Watch");
   watchBtn.addEventListener("click", async () => {
-    await toggleWatch(artistId, data.artist_name, data.artist_url);
+    const ps = state.metadataStorefront || state.homeStorefront || null;
+    await toggleWatch(artistId, data.artist_name, data.artist_url, ps);
     watchBtn.textContent = state.watchedIds.has(artistId) ? "⭐ Watching" : "☆ Watch";
     watchBtn.classList.toggle("watching", state.watchedIds.has(artistId));
   });
@@ -712,21 +726,87 @@ async function renderArtist(main, artistId) {
 // ---------------------------------------------------------------------------
 // Page: Watchlist
 // ---------------------------------------------------------------------------
-async function renderWatchlist(main) {
+async function renderWatchlist(main, preferredSourceFilter = "") {
   main.innerHTML = "";
   const wrap = el("div", "page-enter");
   wrap.appendChild(buildHeader("⭐ Artist Watchlist", "Artists you're following"));
   main.appendChild(wrap);
 
+  // Action bar: import/export
+  const actionBar = el("div", "watchlist-action-bar");
+  actionBar.style.cssText = "display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;align-items:center;";
+
+  const exportBtn = el("button", "btn-secondary", "Export");
+  exportBtn.title = "Download watchlist as JSON";
+  exportBtn.addEventListener("click", () => {
+    window.location.href = "/api/watchlist/export";
+  });
+  actionBar.appendChild(exportBtn);
+
+  const importBtn = el("button", "btn-secondary", "Import");
+  importBtn.title = "Import watchlist from JSON file";
+  importBtn.addEventListener("click", () => {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = ".json";
+    input.addEventListener("change", async () => {
+      if (!input.files.length) return;
+      const file = input.files[0];
+      const formData = new FormData();
+      formData.append("file", file);
+      try {
+        const resp = await fetch("/api/watchlist/import", { method: "POST", body: formData });
+        const result = await resp.json();
+        if (result.ok) {
+          renderWatchlist(main, preferredSourceFilter);
+        } else {
+          alert(result.error || "Import failed");
+        }
+      } catch {
+        alert("Import failed");
+      }
+    });
+    input.click();
+  });
+  actionBar.appendChild(importBtn);
+
+  wrap.appendChild(actionBar);
+
+  const qp = preferredSourceFilter ? `?preferred_source=${preferredSourceFilter}` : "";
   let list;
   try {
-    list = await API.get("/api/watchlist");
+    list = await API.get(`/api/watchlist${qp}`);
   } catch {
     wrap.innerHTML += `<div class="empty-state"><div class="empty-icon">⚠️</div><div class="empty-title">Could not load watchlist</div></div>`;
     return;
   }
 
-  state.watchedIds = new Set(list.map(a => a.artist_id));
+  // Also load full watchlist for IDs (unfiltered)
+  try {
+    const full = await API.get("/api/watchlist");
+    state.watchedIds = new Set(full.map(a => a.artist_id));
+  } catch {
+    state.watchedIds = new Set(list.map(a => a.artist_id));
+  }
+
+  // Filter by preferred source
+  if (state.configuredStorefronts === null) {
+    try {
+      const cfg = await API.get("/api/config");
+      state.configuredStorefronts = cfg.check_storefronts || [];
+    } catch {
+      state.configuredStorefronts = [];
+    }
+  }
+  const psFilterBar = el("div", "sf-filter-bar");
+  const psButtons = [["All", ""], ...state.configuredStorefronts.map(sf => [sf.toUpperCase(), sf.toLowerCase()])];
+  psButtons.forEach(([label, code]) => {
+    const btn = el("button", "sf-filter-btn" + (code ? ` ${code}` : "") + (preferredSourceFilter === code ? " active" : ""));
+    btn.textContent = label;
+    btn.addEventListener("click", () => renderWatchlist(main, code));
+    psFilterBar.appendChild(btn);
+  });
+  actionBar.appendChild(psFilterBar);
 
   // Search bar
   const searchBar = el("div", "search-bar");
@@ -771,6 +851,13 @@ async function renderWatchlist(main) {
       ? new Date(artist.added_at * 1000).toISOString().slice(0, 10)
       : artist.added_at?.slice(0, 10);
     const date = el("div", "watchlist-date", `Added ${formatDate(_addedAt)}`);
+    if (artist.preferred_source) {
+      const psBadge = el("span", `sf-chip ${artist.preferred_source}`);
+      psBadge.textContent = artist.preferred_source.toUpperCase();
+      psBadge.style.marginLeft = "6px";
+      psBadge.style.fontSize = "9px";
+      date.appendChild(psBadge);
+    }
     info.appendChild(date);
     card.appendChild(info);
 
@@ -819,9 +906,10 @@ async function renderWatchlist(main) {
 
     const watchBtn = el("button", "btn-watch", "Watch");
     watchBtn.addEventListener("click", async () => {
-      await toggleWatch(artist.id, artist.name, artist.url);
+      const ps = state.metadataStorefront || state.homeStorefront || null;
+      await toggleWatch(artist.id, artist.name, artist.url, ps);
       state.watchedIds.add(artist.id);
-      list.push({ artist_id: artist.id, name: artist.name, url: artist.url, added_at: new Date().toISOString() });
+      list.push({ artist_id: artist.id, name: artist.name, url: artist.url, preferred_source: ps, added_at: new Date().toISOString() });
       renderGrid(searchInput.value.trim());
     });
     card.appendChild(watchBtn);
@@ -1265,7 +1353,8 @@ async function openModal(storeAdamId) {
   const watchBtn = el("button", `btn-secondary${isWatched ? " watching" : ""}`, isWatched ? "⭐ Watching" : "☆ Watch Artist");
   if (album.artist_id) {
     watchBtn.addEventListener("click", async () => {
-      await toggleWatch(album.artist_id, album.artist, album.artist_url);
+      const ps = state.metadataStorefront || state.homeStorefront || null;
+      await toggleWatch(album.artist_id, album.artist, album.artist_url, ps);
       const w = state.watchedIds.has(album.artist_id);
       watchBtn.textContent = w ? "⭐ Watching" : "☆ Watch Artist";
     });

@@ -84,6 +84,12 @@ MIGRATIONS = {
         -- Version 5: track how an album entered the DB (room discovery vs artist page fetch).
         ALTER TABLE albums ADD COLUMN source TEXT;
     """,
+
+    6: """
+        -- Version 6: add preferred metadata source and last refresh timestamp to watched_artists.
+        ALTER TABLE watched_artists ADD COLUMN preferred_source TEXT;
+        ALTER TABLE watched_artists ADD COLUMN last_refreshed INTEGER;
+    """,
 }
 
 
