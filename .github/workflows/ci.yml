@@ -26,5 +26,18 @@ jobs:
       - name: Install dependencies
         run: uv sync --all-groups
 
-      - name: Run tests
+      - name: Run Python tests
         run: uv run pytest -v
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install frontend dependencies
+        run: npm ci
+        working-directory: frontend
+
+      - name: Run JavaScript tests
+        run: npm test
+        working-directory: frontend
