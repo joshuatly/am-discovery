@@ -468,8 +468,8 @@ class TestGetArtistAllReleases(unittest.TestCase):
         self.client = _make_client()
 
     def test_returns_empty_for_invalid_url(self):
-        result = self.client.get_artist_all_releases("https://example.com/not-an-artist", "us")
-        self.assertEqual(result, [])
+        releases, artist_info = self.client.get_artist_all_releases("https://example.com/not-an-artist", "us")
+        self.assertEqual(releases, [])
 
     def test_extracts_albums_and_singles(self):
         api_data = _make_artist_views_response(
@@ -477,7 +477,7 @@ class TestGetArtistAllReleases(unittest.TestCase):
             singles=[("222", "Single One", "Artist A", "https://music.apple.com/us/album/s1/222")],
         )
         with patch.object(self.client, "_amp_api_get", return_value=api_data):
-            releases = self.client.get_artist_all_releases(_ARTIST_URL, "us")
+            releases, artist_info = self.client.get_artist_all_releases(_ARTIST_URL, "us")
         self.assertEqual(len(releases), 2)
         titles = {r["title"] for r in releases}
         self.assertIn("Album One", titles)
@@ -489,7 +489,7 @@ class TestGetArtistAllReleases(unittest.TestCase):
             singles=[("222", "Single One", "Artist", "https://music.apple.com/us/album/s1/222")],
         )
         with patch.object(self.client, "_amp_api_get", return_value=api_data):
-            releases = self.client.get_artist_all_releases(_ARTIST_URL, "us")
+            releases, artist_info = self.client.get_artist_all_releases(_ARTIST_URL, "us")
         by_id = {r["storeAdamID"]: r for r in releases}
         self.assertEqual(by_id["111"]["release_type"], "main-albums")
         self.assertEqual(by_id["222"]["release_type"], "singles-eps")
@@ -507,13 +507,14 @@ class TestGetArtistAllReleases(unittest.TestCase):
             }]
         }
         with patch.object(self.client, "_amp_api_get", return_value=api_data):
-            releases = self.client.get_artist_all_releases(_ARTIST_URL, "us")
+            releases, artist_info = self.client.get_artist_all_releases(_ARTIST_URL, "us")
         ids = [r["storeAdamID"] for r in releases]
         self.assertEqual(len(ids), len(set(ids)))
 
     def test_returns_empty_on_api_failure(self):
         with patch.object(self.client, "_amp_api_get", return_value={}):
-            self.assertEqual(self.client.get_artist_all_releases(_ARTIST_URL, "us"), [])
+            releases, artist_info = self.client.get_artist_all_releases(_ARTIST_URL, "us")
+            self.assertEqual(releases, [])
 
 
 # ---------------------------------------------------------------------------

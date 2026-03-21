@@ -55,7 +55,8 @@ function isFutureDate(d) {
 
 function timeAgo(isoStr) {
   if (!isoStr) return "never";
-  const diff = Date.now() - new Date(isoStr + "Z").getTime();
+  const ts = typeof isoStr === "number" ? isoStr * 1000 : new Date(isoStr + "Z").getTime();
+  const diff = Date.now() - ts;
   const m = Math.floor(diff / 60000);
   if (m < 1)  return "just now";
   if (m < 60) return `${m}m ago`;
@@ -149,6 +150,7 @@ const state = {
   currentStorefront: "",
   perPage: 48,
   configuredStorefronts: null,
+  configuredRooms: null,
   metadataStorefront: localStorage.getItem("metadataStorefront") || "",
   alwaysIncludeMY: localStorage.getItem("alwaysIncludeMY") === "true",
   homeStorefront: "",
@@ -203,6 +205,17 @@ async function triggerRefresh() {
 // ---------------------------------------------------------------------------
 // Metadata source widget
 // ---------------------------------------------------------------------------
+function updateArtistExtLink() {
+  const extLink = document.querySelector(".artist-ext-link");
+  if (!extLink) return;
+  const base = extLink.dataset.baseUrl;
+  const sf = state.metadataStorefront;
+  extLink.href = sf
+    ? base.replace(/music\.apple\.com\/[a-z]{2}\//, `music.apple.com/${sf}/`)
+    : base;
+}
+
+// ---------------------------------------------------------------------------
 function updateFetchArtistBtn() {
   const fetchBtn = document.querySelector(".btn-fetch-artist");
   if (!fetchBtn || fetchBtn.disabled) return;
@@ -225,6 +238,7 @@ function renderMetaSourceWidget() {
     localStorage.setItem("metadataStorefront", "");
     renderMetaSourceWidget();
     updateFetchArtistBtn();
+    updateArtistExtLink();
   });
   chips.appendChild(offBtn);
 
@@ -237,6 +251,7 @@ function renderMetaSourceWidget() {
       localStorage.setItem("metadataStorefront", sf);
       renderMetaSourceWidget();
       updateFetchArtistBtn();
+      updateArtistExtLink();
     });
     chips.appendChild(btn);
   });
@@ -329,6 +344,8 @@ async function toggleWatch(artistId, name, artistUrl) {
   } else {
     await API.post("/api/watchlist", { artist_id: artistId, name, url: artistUrl });
     state.watchedIds.add(artistId);
+    // Fetch artist metadata (artwork, genre) immediately, then refresh current page
+    API.post(`/api/artists/${artistId}/fetch`).then(() => route(location.hash)).catch(() => {});
   }
 }
 
@@ -340,10 +357,26 @@ async function renderNewReleases(main, page = 1, query = "", storefront = "") {
   state.currentQuery = query;
   state.currentStorefront = storefront;
 
+  // Load config once
+  if (state.configuredStorefronts === null) {
+    try {
+      const cfg = await API.get("/api/config");
+      state.configuredStorefronts = cfg.check_storefronts || [];
+      state.configuredRooms = Object.keys(cfg.rooms || {});
+    } catch {
+      state.configuredStorefronts = [];
+      state.configuredRooms = [];
+    }
+  }
+
+  const sfSubtitle = state.configuredRooms.length
+    ? "Latest albums discovered across " + state.configuredRooms.map(s => s.toUpperCase()).join(" · ")
+    : "Latest albums discovered";
+
   // Skeleton
   main.innerHTML = "";
   const wrap = el("div", "page-enter");
-  wrap.appendChild(buildHeader("🎵 New Releases", "Latest albums discovered across HK · JP · MY · TW"));
+  wrap.appendChild(buildHeader("🎵 New Releases", sfSubtitle));
 
   // Search
   const searchBar = el("div", "search-bar");
@@ -362,16 +395,6 @@ async function renderNewReleases(main, page = 1, query = "", storefront = "") {
   gridWrap.appendChild(skeletonGrid(12));
   wrap.appendChild(gridWrap);
   main.appendChild(wrap);
-
-  // Load config once, then insert the filter bar
-  if (state.configuredStorefronts === null) {
-    try {
-      const cfg = await API.get("/api/config");
-      state.configuredStorefronts = cfg.check_storefronts || [];
-    } catch {
-      state.configuredStorefronts = [];
-    }
-  }
   const filterBar = el("div", "sf-filter-bar");
   const sfButtons = [["All", ""], ...state.configuredStorefronts.map(sf => [sf.toUpperCase(), sf.toLowerCase()])];
   sfButtons.forEach(([label, code]) => {
@@ -386,7 +409,7 @@ async function renderNewReleases(main, page = 1, query = "", storefront = "") {
   await loadWatchedIds();
   let data;
   try {
-    const qp = new URLSearchParams({ page, per_page: state.perPage });
+    const qp = new URLSearchParams({ page, per_page: state.perPage, view: "new" });
     if (query) qp.set("q", query);
     if (storefront) qp.set("storefront", storefront);
     data = await API.get(`/api/releases?${qp}`);
@@ -470,12 +493,12 @@ async function renderAllReleases(main, page = 1, query = "", storefront = "") {
 
   gridWrap.innerHTML = "";
   if (!data.items.length) {
-    gridWrap.innerHTML = `<div class="empty-state"><div class="empty-icon">📀</div><div class="empty-title">No albums yet</div><div class="empty-desc">Run a refresh to populate the database</div></div>`;
+    gridWrap.innerHTML = `<div class="empty-state"><div class="empty-icon">📀</div><div class="empty-title">No albums yet</div><div class="empty-desc">Go to <a href="#/watchlist" style="color:var(--accent)">Artist Watchlist</a>, search for an artist, and fetch their releases from the artist page</div></div>`;
     return;
   }
 
   const grid = el("div", "album-grid");
-  data.items.forEach(album => grid.appendChild(albumCard(album, true)));
+  data.items.forEach(album => grid.appendChild(albumCard(album)));
   gridWrap.appendChild(grid);
 
   const totalPages = Math.ceil(data.total / state.perPage);
@@ -546,23 +569,46 @@ async function renderArtist(main, artistId) {
     return;
   }
 
+  // Use hint from watchlist search if the artist isn't in DB yet
+  const hint = (state.artistHint?.id === artistId) ? state.artistHint : null;
+  if (!data.artist_name && hint?.name)   data.artist_name       = hint.name;
+  if (!data.artist_url  && hint?.url)    data.artist_url        = hint.url;
+  if (!data.artist_artwork_url && hint?.artwork_url) data.artist_artwork_url = hint.artwork_url;
+
   await loadWatchedIds();
   wrap.innerHTML = "";
 
   // Header
   const header = el("div", "artist-header");
   const avatar = el("div", "artist-avatar");
-  avatar.textContent = (data.artist_name || "?")[0].toUpperCase();
+  if (data.artist_artwork_url) {
+    const img = el("img", "artist-avatar-img");
+    img.src = data.artist_artwork_url;
+    img.alt = "";
+    img.onerror = () => { img.remove(); avatar.textContent = (data.artist_name || "?")[0].toUpperCase(); };
+    avatar.appendChild(img);
+  } else {
+    avatar.textContent = (data.artist_name || "?")[0].toUpperCase();
+  }
   header.appendChild(avatar);
 
   const meta = el("div", "artist-meta");
   const nameBig = el("h1", "artist-name-big", data.artist_name || "Unknown Artist");
   meta.appendChild(nameBig);
 
+  if (data.artist_artwork_url && data.artist_genre) {
+    const genreEl = el("div", "artist-genre", data.artist_genre);
+    meta.appendChild(genreEl);
+  }
+
   const links = el("div", "artist-links");
   if (data.artist_url) {
     const extLink = el("a", "artist-ext-link", "Open in Apple Music ↗");
-    extLink.href = data.artist_url;
+    extLink.dataset.baseUrl = data.artist_url;
+    const sf = state.metadataStorefront;
+    extLink.href = sf
+      ? data.artist_url.replace(/music\.apple\.com\/[a-z]{2}\//, `music.apple.com/${sf}/`)
+      : data.artist_url;
     extLink.target = "_blank";
     extLink.rel = "noopener";
     links.appendChild(extLink);
@@ -669,7 +715,7 @@ async function renderArtist(main, artistId) {
 async function renderWatchlist(main) {
   main.innerHTML = "";
   const wrap = el("div", "page-enter");
-  wrap.appendChild(buildHeader("⭐ Watchlist", "Artists you're following"));
+  wrap.appendChild(buildHeader("⭐ Artist Watchlist", "Artists you're following"));
   main.appendChild(wrap);
 
   let list;
@@ -680,23 +726,40 @@ async function renderWatchlist(main) {
     return;
   }
 
-  if (!list.length) {
-    wrap.innerHTML += `<div class="empty-state"><div class="empty-icon">⭐</div><div class="empty-title">No artists watched yet</div><div class="empty-desc">Click an artist's name on the New Releases page, then press Watch</div></div>`;
-    return;
-  }
-
   state.watchedIds = new Set(list.map(a => a.artist_id));
 
+  // Search bar
+  const searchBar = el("div", "search-bar");
+  const searchInput = el("input", "search-input");
+  searchInput.type = "text";
+  searchInput.placeholder = "Search artists…";
+  searchBar.appendChild(searchInput);
+  wrap.appendChild(searchBar);
+
+  // Results area: watched list + AM search suggestions
   const grid = el("div", "watchlist-grid");
-  list.forEach(artist => {
+  wrap.appendChild(grid);
+
+  function makeWatchedCard(artist) {
     const card = el("div", "watchlist-card");
+    card.dataset.artistId = artist.artist_id;
 
     const avatar = el("div", "watchlist-avatar");
-    avatar.textContent = (artist.name || "?")[0].toUpperCase();
+    if (artist.artwork_url) {
+      const img = el("img", "watchlist-avatar-img");
+      img.src = artist.artwork_url;
+      img.alt = "";
+      img.loading = "lazy";
+      img.onerror = () => { img.remove(); avatar.textContent = (artist.name || "?")[0].toUpperCase(); };
+      avatar.appendChild(img);
+    } else {
+      avatar.textContent = (artist.name || "?")[0].toUpperCase();
+    }
     card.appendChild(avatar);
 
     const info = el("div", "watchlist-info");
     const name = el("a", "watchlist-name", artist.name);
+    name.title = artist.name;
     name.href = `#/artist/${artist.artist_id}`;
     name.addEventListener("click", e => {
       e.preventDefault();
@@ -704,22 +767,119 @@ async function renderWatchlist(main) {
     });
     info.appendChild(name);
 
-    const date = el("div", "watchlist-date", `Added ${formatDate(artist.added_at?.slice(0, 10))}`);
+    const _addedAt = typeof artist.added_at === "number"
+      ? new Date(artist.added_at * 1000).toISOString().slice(0, 10)
+      : artist.added_at?.slice(0, 10);
+    const date = el("div", "watchlist-date", `Added ${formatDate(_addedAt)}`);
     info.appendChild(date);
     card.appendChild(info);
 
     const unwatchBtn = el("button", "btn-unwatch", "Remove");
     unwatchBtn.addEventListener("click", async () => {
       await toggleWatch(artist.artist_id, artist.name, artist.url);
+      state.watchedIds.delete(artist.artist_id);
+      list = list.filter(a => a.artist_id !== artist.artist_id);
       card.remove();
-      if (!grid.children.length) {
-        grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1"><div class="empty-icon">⭐</div><div class="empty-title">Watchlist is empty</div></div>`;
-      }
+      renderGrid(searchInput.value.trim());
     });
     card.appendChild(unwatchBtn);
-    grid.appendChild(card);
+    return card;
+  }
+
+  function makeSuggestionCard(artist) {
+    const card = el("div", "watchlist-card watchlist-card--suggestion");
+    card.dataset.artistId = artist.id;
+
+    const avatar = el("div", "watchlist-avatar");
+    if (artist.artwork_url) {
+      const img = el("img", "watchlist-avatar-img");
+      img.src = artist.artwork_url;
+      img.alt = "";
+      img.loading = "lazy";
+      img.onerror = () => { img.remove(); avatar.textContent = (artist.name || "?")[0].toUpperCase(); };
+      avatar.appendChild(img);
+    } else {
+      avatar.textContent = (artist.name || "?")[0].toUpperCase();
+    }
+    card.appendChild(avatar);
+
+    const info = el("div", "watchlist-info");
+    const name = el("a", "watchlist-name", artist.name);
+    name.title = artist.name;
+    name.href = `#/artist/${artist.id}`;
+    name.addEventListener("click", e => {
+      e.preventDefault();
+      state.artistHint = { id: artist.id, name: artist.name, url: artist.url, artwork_url: artist.artwork_url };
+      location.hash = `#/artist/${artist.id}`;
+    });
+    info.appendChild(name);
+    const sub = el("div", "watchlist-date", "Apple Music");
+    info.appendChild(sub);
+    card.appendChild(info);
+
+    const watchBtn = el("button", "btn-watch", "Watch");
+    watchBtn.addEventListener("click", async () => {
+      await toggleWatch(artist.id, artist.name, artist.url);
+      state.watchedIds.add(artist.id);
+      list.push({ artist_id: artist.id, name: artist.name, url: artist.url, added_at: new Date().toISOString() });
+      renderGrid(searchInput.value.trim());
+    });
+    card.appendChild(watchBtn);
+    return card;
+  }
+
+  let _searchTimer = null;
+  let _lastSuggestions = [];
+
+  function renderGrid(q) {
+    grid.innerHTML = "";
+
+    const filtered = q
+      ? list.filter(a => a.name.toLowerCase().includes(q.toLowerCase()))
+      : list;
+
+    filtered.forEach(a => grid.appendChild(makeWatchedCard(a)));
+
+    // Show AM suggestions (already-watched ones excluded)
+    const suggestions = _lastSuggestions.filter(a => !state.watchedIds.has(a.id));
+    if (suggestions.length) {
+      if (filtered.length) {
+        const sep = el("div", "watchlist-separator", "Also on Apple Music");
+        sep.style.cssText = "grid-column:1/-1;font-size:11px;color:var(--text-dim);text-transform:uppercase;letter-spacing:.06em;padding:4px 0;";
+        grid.appendChild(sep);
+      }
+      suggestions.forEach(a => grid.appendChild(makeSuggestionCard(a)));
+    }
+
+    if (!grid.children.length) {
+      if (q) {
+        grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1"><div class="empty-icon">🔍</div><div class="empty-title">No results for "${q}"</div></div>`;
+      } else {
+        grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1"><div class="empty-icon">⭐</div><div class="empty-title">Watchlist is empty</div></div>`;
+      }
+    }
+  }
+
+  searchInput.addEventListener("input", () => {
+    const q = searchInput.value.trim();
+    _lastSuggestions = [];
+    renderGrid(q);
+
+    clearTimeout(_searchTimer);
+    if (!q) return;
+    _searchTimer = setTimeout(async () => {
+      try {
+        const sf = state.metadataStorefront || state.homeStorefront || "us";
+        const data = await API.get(`/api/search/artists?term=${encodeURIComponent(q)}&limit=10&storefront=${sf}`);
+        _lastSuggestions = data.results || [];
+      } catch {
+        _lastSuggestions = [];
+      }
+      renderGrid(q);
+    }, 350);
   });
-  wrap.appendChild(grid);
+
+  renderGrid("");
 }
 
 // ---------------------------------------------------------------------------
@@ -863,7 +1023,7 @@ async function renderSettings(main) {
 // ---------------------------------------------------------------------------
 // Album card
 // ---------------------------------------------------------------------------
-function albumCard(album, showGenre = false) {
+function albumCard(album) {
   const card = el("div", `album-card${album.watched ? " watched" : ""}`);
   card.dataset.id = album.store_adam_id;
 
@@ -890,7 +1050,7 @@ function albumCard(album, showGenre = false) {
   }
   info.appendChild(artist);
 
-  if (showGenre && album.genre) {
+  if (album.genre) {
     const genre = el("div", "release-date", album.genre);
     genre.style.color = "var(--text-dim)";
     info.appendChild(genre);

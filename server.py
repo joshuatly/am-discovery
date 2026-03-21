@@ -111,6 +111,7 @@ def _do_poll():
                 "artist_url": info.get("artist_url"),
                 "audio_formats": info.get("audio_formats"),
                 "info_fetched": 1,
+                "source": "discovered",
             }
             db.upsert_album(merged)
 
@@ -127,6 +128,7 @@ def _do_poll():
                 "url": r.get("url"),
                 "storefronts": r.get("storefronts", []),
                 "info_fetched": 1,
+                "source": "discovered",
             })
 
         total = db.list_albums()[1]
@@ -205,11 +207,12 @@ def api_releases():
     per_page = int(request.args.get("per_page", 50))
     q = request.args.get("q", "").strip()
     storefront = request.args.get("storefront", "").strip().lower()
+    discovered_only = request.args.get("view") == "new"
 
     if q:
-        rows, total = db.search_albums(q, page, per_page, storefront=storefront)
+        rows, total = db.search_albums(q, page, per_page, storefront=storefront, discovered_only=discovered_only)
     else:
-        rows, total = db.list_albums(page, per_page, storefront=storefront)
+        rows, total = db.list_albums(page, per_page, storefront=storefront, discovered_only=discovered_only)
 
     watched_ids = db.get_watched_artist_ids()
     result = []
@@ -317,19 +320,17 @@ def api_artist_fetch(artist_id):
 
     client = AppleMusicClient()
     artist_url = f"https://music.apple.com/{storefront}/artist/{artist_id}"
-    releases = client.get_artist_all_releases(artist_url, storefront)
+    releases, artist_info = client.get_artist_all_releases(artist_url, storefront)
 
     if not releases:
         return jsonify({"ok": True, "fetched": 0, "message": "No releases found on artist page"})
 
+    # Cache artist metadata (artwork, genre) for any artist that gets fetched
+    db.upsert_artist(artist_id, artwork_url=artist_info.get("artwork_url"), genre=artist_info.get("genre"))
+
     def fetch_one(r):
         aid = r["storeAdamID"]
         existing = db.get_album(aid)
-        if existing and existing.get("info_fetched"):
-            # Already fully fetched — just ensure this storefront is recorded
-            db.upsert_album({"store_adam_id": aid, "storefronts": r.get("storefronts", [storefront])})
-            return
-
         album_url = f"https://music.apple.com/{storefront}/album/{aid}"
         info = client.get_album_full_info(album_url)
 
@@ -347,6 +348,7 @@ def api_artist_fetch(artist_id):
             "audio_formats": info.get("audio_formats"),
             "release_type": r.get("release_type"),
             "info_fetched": 1,
+            "source": "artist_fetch",
         }
         if not existing:
             # New to DB — store localised title/artist from this storefront
@@ -385,13 +387,52 @@ def api_artist_releases(artist_id):
         result[0]["artist"] if result else None,
     )
     artist_url = next((r.get("artist_url") for r in result if r.get("artist_url")), None)
+    artist_info = db.get_artist_info(artist_id)
     return jsonify({
         "artist_id": artist_id,
         "artist_name": artist_name,
         "artist_url": artist_url,
+        "artist_artwork_url": artist_info.get("artwork_url"),
+        "artist_genre": artist_info.get("genre"),
         "watched": watched,
         "releases": result,
     })
+
+
+@app.route("/api/search/artists")
+def api_search_artists():
+    """
+    Search Apple Music catalog for artists.
+    ---
+    parameters:
+      - name: term
+        in: query
+        type: string
+        required: true
+      - name: storefront
+        in: query
+        type: string
+        default: us
+      - name: limit
+        in: query
+        type: integer
+        default: 25
+    responses:
+      200:
+        description: List of matching artists
+      400:
+        description: Missing term parameter
+    """
+    term = request.args.get("term", "").strip()
+    if not term:
+        return jsonify({"error": "term is required"}), 400
+
+    storefront = request.args.get("storefront", "us").strip().lower()
+    limit = min(int(request.args.get("limit", 25)), 50)
+
+    client = AppleMusicClient()
+    results = client.search_artists(term, storefront=storefront, limit=limit)
+    return jsonify({"results": results})
 
 
 @app.route("/api/watchlist", methods=["GET"])

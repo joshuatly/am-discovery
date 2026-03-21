@@ -297,7 +297,7 @@ class AppleMusicClient:
         """Fetch every release listed for an artist via the catalog API (paginated, grouped by type)."""
         m = re.search(r'music\.apple\.com/([a-z]{2})/artist/(?:[^/]+/)?(\d+)', url)
         if not m:
-            return []
+            return [], {}
         sf, artist_id = m.group(1), m.group(2)
 
         view_keys = list(self._VIEW_MAP.keys())
@@ -307,10 +307,17 @@ class AppleMusicClient:
         }
         data = self._amp_api_get(f"/v1/catalog/{sf}/artists/{artist_id}", params)
         if not data:
-            return []
+            return [], {}
 
         artist_item = (data.get("data") or [{}])[0]
+        artist_attrs = artist_item.get("attributes", {})
         views = artist_item.get("views") or {}
+
+        art_url = artist_attrs.get("artwork", {}).get("url", "")
+        artist_info = {
+            "artwork_url": re.sub(r'\{w\}x\{h\}bb\.[a-z]+', '200x200bb.jpg', art_url) if art_url else None,
+            "genre": (artist_attrs.get("genreNames") or [None])[0],
+        }
 
         releases = []
         seen = set()
@@ -365,7 +372,7 @@ class AppleMusicClient:
                         })
                 next_link = page_data.get("next")
 
-        return releases
+        return releases, artist_info
 
     def get_artist_new_releases(self, url, storefront):
         """Fetch latest releases for an artist via the catalog API (first page only)."""
@@ -396,6 +403,38 @@ class AppleMusicClient:
                 })
         return releases
 
+
+    def search(
+        self,
+        term: str,
+        storefront: str = "us",
+        types: str = "songs,music-videos,albums,playlists,artists",
+        limit: int = 50,
+        offset: int = 0,
+    ) -> dict:
+        """Search the Apple Music catalog. Returns the raw API response dict."""
+        return self._amp_api_get(
+            f"/v1/catalog/{storefront}/search",
+            {"term": term, "types": types, "limit": limit, "offset": offset},
+        )
+
+    def search_artists(self, term: str, storefront: str = "us", limit: int = 25) -> list:
+        """Search for artists by name. Returns a list of artist dicts with id, name, url, and artwork_url."""
+        data = self.search(term, storefront=storefront, types="artists", limit=limit)
+        artists = []
+        for item in (data.get("results", {}).get("artists", {}).get("data") or []):
+            attrs = item.get("attributes", {})
+            art_url = attrs.get("artwork", {}).get("url", "")
+            artwork_url = re.sub(r'\{w\}x\{h\}bb\.[a-z]+', '200x200bb.jpg', art_url) if art_url else None
+            genre_names = attrs.get("genreNames") or []
+            artists.append({
+                "id": item.get("id"),
+                "name": attrs.get("name"),
+                "url": attrs.get("url"),
+                "artwork_url": artwork_url,
+                "genre": genre_names[0] if genre_names else None,
+            })
+        return artists
 
     def check_storefront_availability(self, adam_id: str, storefronts: list) -> dict:
         """

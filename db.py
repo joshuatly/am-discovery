@@ -28,44 +28,75 @@ def get_conn():
         conn.close()
 
 
+SCHEMA_VERSION = 5
+
+
 def init_db():
     with get_conn() as conn:
-        conn.executescript("""
-            CREATE TABLE IF NOT EXISTS albums (
-                store_adam_id  TEXT PRIMARY KEY,
-                title          TEXT NOT NULL,
-                artist         TEXT,
-                artist_id      TEXT,
-                artist_url     TEXT,
-                url            TEXT,
-                storefronts    TEXT DEFAULT '[]',
-                release_date   TEXT,
-                artwork_url    TEXT,
-                track_count    INTEGER,
-                genre          TEXT,
-                description    TEXT,
-                info_fetched   INTEGER DEFAULT 0,
-                audio_formats  TEXT,
-                release_type   TEXT,
-                first_seen     INTEGER,
-                last_seen      INTEGER
-            );
+        version = conn.execute("PRAGMA user_version").fetchone()[0]
 
+        if version == 0:
+            # Check whether this is a fresh DB or a pre-versioning DB
+            tables = {r[0] for r in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            ).fetchall()}
+            if tables:
+                raise RuntimeError(
+                    f"Database exists but has no version stamp (pre-versioning schema). "
+                    f"Run:  uv run migrate.py"
+                )
+            # Fresh install — create at current version
+            conn.executescript(f"""
+                CREATE TABLE IF NOT EXISTS albums (
+                    store_adam_id  TEXT PRIMARY KEY,
+                    title          TEXT NOT NULL,
+                    artist         TEXT,
+                    artist_id      TEXT,
+                    artist_url     TEXT,
+                    url            TEXT,
+                    storefronts    TEXT DEFAULT '[]',
+                    release_date   TEXT,
+                    artwork_url    TEXT,
+                    track_count    INTEGER,
+                    genre          TEXT,
+                    description    TEXT,
+                    info_fetched   INTEGER DEFAULT 0,
+                    audio_formats  TEXT,
+                    release_type   TEXT,
+                    first_seen     INTEGER,
+                    last_seen      INTEGER,
+                    source         TEXT
+                );
 
-            CREATE TABLE IF NOT EXISTS watched_artists (
-                artist_id TEXT PRIMARY KEY,
-                name      TEXT NOT NULL,
-                url       TEXT,
-                added_at  INTEGER
-            );
+                CREATE TABLE IF NOT EXISTS watched_artists (
+                    artist_id TEXT PRIMARY KEY,
+                    name      TEXT NOT NULL,
+                    url       TEXT,
+                    added_at  INTEGER
+                );
 
-            CREATE TABLE IF NOT EXISTS discovery_runs (
-                id          INTEGER PRIMARY KEY AUTOINCREMENT,
-                ran_at      INTEGER,
-                new_count   INTEGER DEFAULT 0,
-                total_count INTEGER DEFAULT 0
-            );
-        """)
+                CREATE TABLE IF NOT EXISTS artists (
+                    artist_id   TEXT PRIMARY KEY,
+                    artwork_url TEXT,
+                    genre       TEXT,
+                    updated_at  INTEGER
+                );
+
+                CREATE TABLE IF NOT EXISTS discovery_runs (
+                    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                    ran_at      INTEGER,
+                    new_count   INTEGER DEFAULT 0,
+                    total_count INTEGER DEFAULT 0
+                );
+
+                PRAGMA user_version = {SCHEMA_VERSION};
+            """)
+
+        elif version != SCHEMA_VERSION:
+            raise RuntimeError(
+                f"Database schema version {version} does not match expected {SCHEMA_VERSION}. "
+                f"Run:  uv run migrate.py"
+            )
 
 
 def get_album(store_adam_id: str):
@@ -86,9 +117,9 @@ def upsert_album(data: dict):
         # (from polling multiple storefronts) don't raise a UNIQUE constraint error.
         conn.execute(
             """INSERT OR IGNORE INTO albums
-                (store_adam_id, title, storefronts, first_seen, last_seen)
-               VALUES (?, ?, ?, ?, ?)""",
-            (data["store_adam_id"], data.get("title", ""), json.dumps(new_sf), now, now),
+                (store_adam_id, title, storefronts, first_seen, last_seen, source)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (data["store_adam_id"], data.get("title", ""), json.dumps(new_sf), now, now, data.get("source")),
         )
         # Fetch current storefronts to merge
         existing = conn.execute(
@@ -113,6 +144,7 @@ def upsert_album(data: dict):
                 info_fetched=max(info_fetched, ?),
                 audio_formats=coalesce(?, audio_formats),
                 release_type=coalesce(?, release_type),
+                source=CASE WHEN ? = 'discovered' THEN 'discovered' ELSE source END,
                 last_seen=?
             WHERE store_adam_id=?""",
             (
@@ -130,28 +162,29 @@ def upsert_album(data: dict):
                 1 if data.get("info_fetched") else 0,
                 audio_formats,
                 data.get("release_type"),
+                data.get("source"),
                 now,
                 data["store_adam_id"],
             ),
         )
 
 
-def list_albums(page: int = 1, per_page: int = 50, storefront: str = ""):
+def list_albums(page: int = 1, per_page: int = 50, storefront: str = "", discovered_only: bool = False):
     offset = (page - 1) * per_page
     with get_conn() as conn:
+        conditions = []
+        params: list = []
         if storefront:
-            sf = f'%"{storefront.lower()}"%'
-            total = conn.execute("SELECT COUNT(*) FROM albums WHERE storefronts LIKE ?", (sf,)).fetchone()[0]
-            rows = conn.execute(
-                "SELECT * FROM albums WHERE storefronts LIKE ? ORDER BY release_date DESC, first_seen DESC LIMIT ? OFFSET ?",
-                (sf, per_page, offset),
-            ).fetchall()
-        else:
-            total = conn.execute("SELECT COUNT(*) FROM albums").fetchone()[0]
-            rows = conn.execute(
-                "SELECT * FROM albums ORDER BY release_date DESC, first_seen DESC LIMIT ? OFFSET ?",
-                (per_page, offset),
-            ).fetchall()
+            conditions.append("storefronts LIKE ?")
+            params.append(f'%"{storefront.lower()}"%')
+        if discovered_only:
+            conditions.append("source = 'discovered'")
+        where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
+        total = conn.execute(f"SELECT COUNT(*) FROM albums {where}", params).fetchone()[0]
+        rows = conn.execute(
+            f"SELECT * FROM albums {where} ORDER BY release_date DESC, first_seen DESC LIMIT ? OFFSET ?",
+            params + [per_page, offset],
+        ).fetchall()
         return [dict(r) for r in rows], total
 
 
@@ -168,7 +201,10 @@ def get_artist_albums(artist_id: str):
 def get_watchlist():
     with get_conn() as conn:
         rows = conn.execute(
-            "SELECT * FROM watched_artists ORDER BY name"
+            """SELECT w.*, a.artwork_url, a.genre
+               FROM watched_artists w
+               LEFT JOIN artists a USING (artist_id)
+               ORDER BY w.name"""
         ).fetchall()
         return [dict(r) for r in rows]
 
@@ -189,6 +225,36 @@ def remove_from_watchlist(artist_id: str):
         conn.execute(
             "DELETE FROM watched_artists WHERE artist_id = ?", (artist_id,)
         )
+
+
+def upsert_artist(artist_id: str, artwork_url: str = None, genre: str = None):
+    now = int(time.time())
+    with get_conn() as conn:
+        conn.execute(
+            """INSERT INTO artists (artist_id, artwork_url, genre, updated_at)
+               VALUES (?, ?, ?, ?)
+               ON CONFLICT(artist_id) DO UPDATE SET
+                   artwork_url = coalesce(excluded.artwork_url, artwork_url),
+                   genre       = coalesce(excluded.genre, genre),
+                   updated_at  = excluded.updated_at""",
+            (artist_id, artwork_url, genre, now),
+        )
+
+
+def get_artist_artwork(artist_id: str):
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT artwork_url FROM artists WHERE artist_id = ?", (artist_id,)
+        ).fetchone()
+        return row["artwork_url"] if row else None
+
+
+def get_artist_info(artist_id: str):
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT artwork_url, genre FROM artists WHERE artist_id = ?", (artist_id,)
+        ).fetchone()
+        return dict(row) if row else {}
 
 
 def get_watched_artist_ids() -> set:
@@ -214,28 +280,22 @@ def get_last_run():
         return dict(row) if row else None
 
 
-def search_albums(query: str, page: int = 1, per_page: int = 50, storefront: str = ""):
+def search_albums(query: str, page: int = 1, per_page: int = 50, storefront: str = "", discovered_only: bool = False):
     offset = (page - 1) * per_page
     q = f"%{query}%"
     with get_conn() as conn:
+        conditions = ["(title LIKE ? OR artist LIKE ?)"]
+        params: list = [q, q]
         if storefront:
-            sf = f'%"{storefront.lower()}"%'
-            total = conn.execute(
-                "SELECT COUNT(*) FROM albums WHERE (title LIKE ? OR artist LIKE ?) AND storefronts LIKE ?", (q, q, sf)
-            ).fetchone()[0]
-            rows = conn.execute(
-                """SELECT * FROM albums WHERE (title LIKE ? OR artist LIKE ?) AND storefronts LIKE ?
-                   ORDER BY release_date DESC LIMIT ? OFFSET ?""",
-                (q, q, sf, per_page, offset),
-            ).fetchall()
-        else:
-            total = conn.execute(
-                "SELECT COUNT(*) FROM albums WHERE title LIKE ? OR artist LIKE ?", (q, q)
-            ).fetchone()[0]
-            rows = conn.execute(
-                """SELECT * FROM albums WHERE title LIKE ? OR artist LIKE ?
-                   ORDER BY release_date DESC LIMIT ? OFFSET ?""",
-                (q, q, per_page, offset),
-            ).fetchall()
+            conditions.append("storefronts LIKE ?")
+            params.append(f'%"{storefront.lower()}"%')
+        if discovered_only:
+            conditions.append("source = 'discovered'")
+        where = "WHERE " + " AND ".join(conditions)
+        total = conn.execute(f"SELECT COUNT(*) FROM albums {where}", params).fetchone()[0]
+        rows = conn.execute(
+            f"SELECT * FROM albums {where} ORDER BY release_date DESC LIMIT ? OFFSET ?",
+            params + [per_page, offset],
+        ).fetchall()
         return [dict(r) for r in rows], total
 
