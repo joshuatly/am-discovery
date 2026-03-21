@@ -210,6 +210,34 @@ class TestApiReleases(ServerTestCase):
         self.assertEqual(data["items"], [])
         self.assertEqual(data["total"], 0)
 
+    @patch("server.db")
+    def test_invalid_page_returns_400(self, mock_db):
+        resp = self.client.get("/api/releases?page=abc")
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn("error", resp.get_json())
+
+    @patch("server.db")
+    def test_invalid_per_page_returns_400(self, mock_db):
+        resp = self.client.get("/api/releases?per_page=xyz")
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn("error", resp.get_json())
+
+    @patch("server.db")
+    def test_invalid_storefront_returns_400(self, mock_db):
+        resp = self.client.get("/api/releases?storefront=not_valid!")
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn("error", resp.get_json())
+
+    @patch("server.db")
+    def test_numeric_storefront_returns_400(self, mock_db):
+        resp = self.client.get("/api/releases?storefront=123")
+        self.assertEqual(resp.status_code, 400)
+
+    @patch("server.db")
+    def test_too_long_storefront_returns_400(self, mock_db):
+        resp = self.client.get("/api/releases?storefront=usaa")
+        self.assertEqual(resp.status_code, 400)
+
 
 # ---------------------------------------------------------------------------
 # GET /api/releases/<store_adam_id>
@@ -330,6 +358,17 @@ class TestApiLookup(ServerTestCase):
         call_url = mock_client.get_album_full_info.call_args[0][0]
         self.assertIn("/jp/album/", call_url)
 
+    @patch("server.AppleMusicClient")
+    def test_invalid_storefront_returns_400(self, MockClient):
+        resp = self.client.get("/api/lookup/A1?storefront=not_valid!")
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn("error", resp.get_json())
+
+    @patch("server.AppleMusicClient")
+    def test_traversal_storefront_rejected(self, MockClient):
+        resp = self.client.get("/api/lookup/A1?storefront=../etc")
+        self.assertEqual(resp.status_code, 400)
+
 
 # ---------------------------------------------------------------------------
 # GET /api/search/artists
@@ -379,6 +418,18 @@ class TestApiSearchArtists(ServerTestCase):
         call_kwargs = mock_client.search_artists.call_args
         storefront = call_kwargs[1].get("storefront") if call_kwargs[1] else call_kwargs[0][1]
         self.assertEqual(storefront, "us")
+
+    @patch("server.AppleMusicClient")
+    def test_invalid_limit_returns_400(self, MockClient):
+        resp = self.client.get("/api/search/artists?term=test&limit=abc")
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn("error", resp.get_json())
+
+    @patch("server.AppleMusicClient")
+    def test_invalid_storefront_returns_400(self, MockClient):
+        resp = self.client.get("/api/search/artists?term=test&storefront=bad!")
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn("error", resp.get_json())
 
 
 # ---------------------------------------------------------------------------
@@ -698,6 +749,13 @@ class TestApiArtistFetch(ServerTestCase):
         # Should use first storefront from check_storefronts config (default: "jp")
         self.assertIn("/artist/ART1", call_url)
 
+    @patch("server.db")
+    @patch("server.AppleMusicClient")
+    def test_fetch_artist_invalid_storefront_returns_400(self, MockClient, mock_db):
+        resp = self.client.post("/api/artists/ART1/fetch?storefront=bad!")
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn("error", resp.get_json())
+
 
 # ---------------------------------------------------------------------------
 # Frontend serving
@@ -724,6 +782,23 @@ class TestFrontendServing(ServerTestCase):
         # This route is excluded from the frontend handler; flasgger may or may not serve it
         resp = self.client.get("/apidocs/")
         self.assertNotEqual(resp.status_code, 500)
+
+    def test_path_traversal_does_not_expose_files(self):
+        """Traversal sequences must not serve files outside the frontend dir."""
+        resp = self.client.get("/../config.json")
+        # Flask normalises the path before routing, so this arrives as /config.json
+        # which won't exist in the frontend dir → falls back to index.html (200/404) or 404.
+        # What it must NOT do is return a 200 with config.json contents from the project root.
+        if resp.status_code == 200:
+            body = resp.data.decode(errors="replace")
+            self.assertNotIn("poll_interval_minutes", body)
+
+    def test_path_traversal_encoded_rejected(self):
+        """URL-encoded traversal sequences must not expose files outside frontend dir."""
+        resp = self.client.get("/..%2Fconfig.json")
+        if resp.status_code == 200:
+            body = resp.data.decode(errors="replace")
+            self.assertNotIn("poll_interval_minutes", body)
 
 
 # ---------------------------------------------------------------------------
