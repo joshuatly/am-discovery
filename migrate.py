@@ -92,7 +92,7 @@ def get_version(conn: sqlite3.Connection) -> int:
 
 
 def set_version(conn: sqlite3.Connection, version: int):
-    conn.execute(f"PRAGMA user_version = {version}")
+    conn.execute(f"PRAGMA user_version = {int(version)}")
 
 
 def run_migrations():

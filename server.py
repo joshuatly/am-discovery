@@ -29,6 +29,12 @@ CONFIG_PATH = os.path.join(BASE_DIR, "config.json")
 
 logger = logging.getLogger(__name__)
 
+_STOREFRONT_RE = re.compile(r'^[a-z]{2,3}$')
+
+def _validate_storefront(sf: str):
+    """Return sf if it looks like a valid ISO storefront code, else None."""
+    return sf if _STOREFRONT_RE.match(sf) else None
+
 app = Flask(__name__, static_folder=FRONTEND_DIR, static_url_path="")
 swagger = Swagger(app)
 
@@ -203,10 +209,16 @@ def api_releases():
       200:
         description: A list of releases
     """
-    page = int(request.args.get("page", 1))
-    per_page = int(request.args.get("per_page", 50))
+    try:
+        page = int(request.args.get("page", 1))
+        per_page = int(request.args.get("per_page", 50))
+    except (ValueError, TypeError):
+        return jsonify({"error": "page and per_page must be integers"}), 400
     q = request.args.get("q", "").strip()
-    storefront = request.args.get("storefront", "").strip().lower()
+    raw_sf = request.args.get("storefront", "").strip().lower()
+    storefront = _validate_storefront(raw_sf) if raw_sf else ""
+    if raw_sf and not storefront:
+        return jsonify({"error": "invalid storefront"}), 400
     discovered_only = request.args.get("view") == "new"
 
     if q:
@@ -288,7 +300,9 @@ def api_lookup(store_adam_id):
       200:
         description: Fresh metadata from the specified storefront
     """
-    storefront = request.args.get("storefront", "us").strip().lower()
+    storefront = _validate_storefront(request.args.get("storefront", "us").strip().lower())
+    if not storefront:
+        return jsonify({"error": "invalid storefront"}), 400
     url = f"https://music.apple.com/{storefront}/album/{store_adam_id}"
     client = AppleMusicClient()
     info = client.get_album_full_info(url)
@@ -313,8 +327,12 @@ def api_artist_fetch(artist_id):
       200:
         description: Fetch result with count
     """
-    storefront = request.args.get("storefront", "").strip().lower()
-    if not storefront:
+    raw_sf = request.args.get("storefront", "").strip().lower()
+    if raw_sf:
+        storefront = _validate_storefront(raw_sf)
+        if not storefront:
+            return jsonify({"error": "invalid storefront"}), 400
+    else:
         cfg = load_config()
         storefront = (cfg.get("check_storefronts") or ["us"])[0]
 
@@ -427,8 +445,13 @@ def api_search_artists():
     if not term:
         return jsonify({"error": "term is required"}), 400
 
-    storefront = request.args.get("storefront", "us").strip().lower()
-    limit = min(int(request.args.get("limit", 25)), 50)
+    storefront = _validate_storefront(request.args.get("storefront", "us").strip().lower())
+    if not storefront:
+        return jsonify({"error": "invalid storefront"}), 400
+    try:
+        limit = min(int(request.args.get("limit", 25)), 50)
+    except (ValueError, TypeError):
+        return jsonify({"error": "limit must be an integer"}), 400
 
     client = AppleMusicClient()
     results = client.search_artists(term, storefront=storefront, limit=limit)
@@ -584,10 +607,13 @@ def serve_frontend(path="index.html"):
     if path.startswith("api/") or path.startswith("apidocs") or "apispec" in path or path.startswith("flasgger_static"):
         return jsonify({"error": "Not found"}), 404
     
-    target = os.path.join(FRONTEND_DIR, path)
-    if os.path.exists(target) and os.path.isfile(target):
+    # Use send_from_directory's built-in safe_join for path validation.
+    # Do NOT use os.path.join + os.path.exists here — that resolves traversal
+    # sequences and leaks whether files outside FRONTEND_DIR exist.
+    try:
         return send_from_directory(FRONTEND_DIR, path)
-    return send_from_directory(FRONTEND_DIR, "index.html")
+    except Exception:
+        return send_from_directory(FRONTEND_DIR, "index.html")
 
 
 # ---------------------------------------------------------------------------
