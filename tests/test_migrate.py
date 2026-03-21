@@ -9,6 +9,7 @@ Strategy:
 
 import json
 import os
+import shutil
 import sqlite3
 import sys
 import tempfile
@@ -82,15 +83,12 @@ def _get_tables(path: str) -> set:
 class TestVersionHelpers(unittest.TestCase):
 
     def setUp(self):
-        fd, self.db_path = tempfile.mkstemp(suffix=".db")
-        os.close(fd)
+        self.db_dir = tempfile.mkdtemp()
+        self.db_path = os.path.join(self.db_dir, "test.db")
         _create_db(self.db_path, version=0)
 
     def tearDown(self):
-        try:
-            os.unlink(self.db_path)
-        except FileNotFoundError:
-            pass
+        shutil.rmtree(self.db_dir, ignore_errors=True)
 
     def test_get_version_zero(self):
         from migrate import get_version
@@ -125,14 +123,11 @@ class TestVersionHelpers(unittest.TestCase):
 class TestRunMigrations(unittest.TestCase):
 
     def setUp(self):
-        fd, self.db_path = tempfile.mkstemp(suffix=".db")
-        os.close(fd)
+        self.db_dir = tempfile.mkdtemp()
+        self.db_path = os.path.join(self.db_dir, "test.db")
 
     def tearDown(self):
-        try:
-            os.unlink(self.db_path)
-        except FileNotFoundError:
-            pass
+        shutil.rmtree(self.db_dir, ignore_errors=True)
 
     def _patch_db_path(self):
         """Return a context manager that patches DB_PATH in migrate module."""

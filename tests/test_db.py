@@ -9,6 +9,7 @@ Strategy:
 
 import json
 import os
+import shutil
 import sqlite3
 import tempfile
 import time
@@ -20,11 +21,15 @@ import unittest
 # ---------------------------------------------------------------------------
 
 def _make_temp_db():
-    """Return a path to a fresh, initialised database in a temp file."""
-    fd, path = tempfile.mkstemp(suffix=".db")
-    os.close(fd)
-    os.unlink(path)          # remove so init_db sees a clean slate
-    return path
+    """Return (tmpdir, db_path) for an isolated, fresh database.
+
+    Each call produces a unique temp directory so tearDown can safely
+    shutil.rmtree the whole directory — removing the main .db file plus
+    any SQLite WAL artefacts (.db-wal, .db-shm) without risking touching
+    files that belong to other tests.
+    """
+    tmpdir = tempfile.mkdtemp()
+    return tmpdir, os.path.join(tmpdir, "test.db")
 
 
 def _reinit_db(path: str):
@@ -42,7 +47,7 @@ class DBTestCase(unittest.TestCase):
     """Creates a fresh temp DB before every test and removes it afterwards."""
 
     def setUp(self):
-        self.db_path = _make_temp_db()
+        self.db_dir, self.db_path = _make_temp_db()
         os.environ["AM_DB_PATH"] = self.db_path
         # Re-import to pick up the new path
         import importlib, db
@@ -51,10 +56,7 @@ class DBTestCase(unittest.TestCase):
         self.db = db
 
     def tearDown(self):
-        try:
-            os.unlink(self.db_path)
-        except FileNotFoundError:
-            pass
+        shutil.rmtree(self.db_dir, ignore_errors=True)
 
 
 # ---------------------------------------------------------------------------
