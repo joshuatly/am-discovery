@@ -580,5 +580,248 @@ class TestGetConn(DBTestCase):
         self.assertEqual(fk, 1)
 
 
+# ---------------------------------------------------------------------------
+# Watchlist — preferred_source and last_refreshed
+# ---------------------------------------------------------------------------
+
+class TestWatchlistPreferredSource(DBTestCase):
+
+    def test_add_with_preferred_source(self):
+        self.db.add_to_watchlist("ART1", "Artist One", "https://url", preferred_source="jp")
+        wl = self.db.get_watchlist()
+        self.assertEqual(wl[0]["preferred_source"], "jp")
+
+    def test_add_without_preferred_source(self):
+        self.db.add_to_watchlist("ART1", "Artist One")
+        wl = self.db.get_watchlist()
+        self.assertIsNone(wl[0]["preferred_source"])
+
+    def test_update_preserves_preferred_source_when_not_provided(self):
+        self.db.add_to_watchlist("ART1", "Artist One", preferred_source="jp")
+        self.db.add_to_watchlist("ART1", "Artist One Updated")
+        wl = self.db.get_watchlist()
+        self.assertEqual(wl[0]["preferred_source"], "jp")
+
+    def test_update_overrides_preferred_source_when_provided(self):
+        self.db.add_to_watchlist("ART1", "Artist One", preferred_source="jp")
+        self.db.add_to_watchlist("ART1", "Artist One", preferred_source="us")
+        wl = self.db.get_watchlist()
+        self.assertEqual(wl[0]["preferred_source"], "us")
+
+    def test_filter_by_preferred_source(self):
+        self.db.add_to_watchlist("ART1", "Artist One", preferred_source="jp")
+        self.db.add_to_watchlist("ART2", "Artist Two", preferred_source="us")
+        self.db.add_to_watchlist("ART3", "Artist Three")
+
+        jp_list = self.db.get_watchlist(preferred_source="jp")
+        self.assertEqual(len(jp_list), 1)
+        self.assertEqual(jp_list[0]["artist_id"], "ART1")
+
+        us_list = self.db.get_watchlist(preferred_source="us")
+        self.assertEqual(len(us_list), 1)
+        self.assertEqual(us_list[0]["artist_id"], "ART2")
+
+    def test_filter_empty_returns_all(self):
+        self.db.add_to_watchlist("ART1", "Artist One", preferred_source="jp")
+        self.db.add_to_watchlist("ART2", "Artist Two")
+        wl = self.db.get_watchlist(preferred_source="")
+        self.assertEqual(len(wl), 2)
+
+
+# ---------------------------------------------------------------------------
+# update_preferred_source
+# ---------------------------------------------------------------------------
+
+class TestUpdatePreferredSource(DBTestCase):
+
+    def test_set_preferred_source(self):
+        self.db.add_to_watchlist("ART1", "Artist One")
+        self.db.update_preferred_source("ART1", "jp")
+        wl = self.db.get_watchlist()
+        self.assertEqual(wl[0]["preferred_source"], "jp")
+
+    def test_change_preferred_source(self):
+        self.db.add_to_watchlist("ART1", "Artist One", preferred_source="jp")
+        self.db.update_preferred_source("ART1", "us")
+        wl = self.db.get_watchlist()
+        self.assertEqual(wl[0]["preferred_source"], "us")
+
+    def test_clear_preferred_source(self):
+        """Setting to None explicitly clears the value."""
+        self.db.add_to_watchlist("ART1", "Artist One", preferred_source="jp")
+        self.db.update_preferred_source("ART1", None)
+        wl = self.db.get_watchlist()
+        self.assertIsNone(wl[0]["preferred_source"])
+
+    def test_noop_for_nonexistent_artist(self):
+        """Updating a non-existent artist should not raise."""
+        self.db.update_preferred_source("NONEXISTENT", "jp")
+
+
+# ---------------------------------------------------------------------------
+# get_artists_needing_refresh / mark_artist_refreshed
+# ---------------------------------------------------------------------------
+
+class TestArtistRefresh(DBTestCase):
+
+    def test_returns_unrefreshed_artists(self):
+        self.db.add_to_watchlist("ART1", "Artist One")
+        self.db.add_to_watchlist("ART2", "Artist Two")
+        artists = self.db.get_artists_needing_refresh(batch_size=10, refresh_interval_days=7)
+        self.assertEqual(len(artists), 2)
+
+    def test_respects_batch_size(self):
+        self.db.add_to_watchlist("ART1", "Alice")
+        self.db.add_to_watchlist("ART2", "Bob")
+        self.db.add_to_watchlist("ART3", "Charlie")
+        artists = self.db.get_artists_needing_refresh(batch_size=2, refresh_interval_days=7)
+        self.assertEqual(len(artists), 2)
+
+    def test_skips_recently_refreshed(self):
+        self.db.add_to_watchlist("ART1", "Artist One")
+        self.db.mark_artist_refreshed("ART1")
+        artists = self.db.get_artists_needing_refresh(batch_size=10, refresh_interval_days=7)
+        self.assertEqual(len(artists), 0)
+
+    def test_includes_stale_artists(self):
+        self.db.add_to_watchlist("ART1", "Artist One")
+        # Set last_refreshed to 8 days ago
+        with self.db.get_conn() as conn:
+            old_ts = int(time.time()) - (8 * 86400)
+            conn.execute("UPDATE watched_artists SET last_refreshed = ? WHERE artist_id = ?", (old_ts, "ART1"))
+        artists = self.db.get_artists_needing_refresh(batch_size=10, refresh_interval_days=7)
+        self.assertEqual(len(artists), 1)
+
+    def test_mark_artist_refreshed(self):
+        self.db.add_to_watchlist("ART1", "Artist One")
+        self.db.mark_artist_refreshed("ART1")
+        with self.db.get_conn() as conn:
+            row = conn.execute("SELECT last_refreshed FROM watched_artists WHERE artist_id = ?", ("ART1",)).fetchone()
+        self.assertIsNotNone(row["last_refreshed"])
+        self.assertGreater(row["last_refreshed"], 0)
+
+    def test_null_refreshed_ordered_first(self):
+        """Artists with NULL last_refreshed should come before those with old timestamps."""
+        self.db.add_to_watchlist("ART1", "Alice")
+        self.db.add_to_watchlist("ART2", "Bob")
+        # ART1 refreshed 10 days ago, ART2 never
+        with self.db.get_conn() as conn:
+            old_ts = int(time.time()) - (10 * 86400)
+            conn.execute("UPDATE watched_artists SET last_refreshed = ? WHERE artist_id = ?", (old_ts, "ART1"))
+        artists = self.db.get_artists_needing_refresh(batch_size=10, refresh_interval_days=7)
+        self.assertEqual(artists[0]["artist_id"], "ART2")
+
+    def test_preferred_source_returned(self):
+        self.db.add_to_watchlist("ART1", "Artist One", preferred_source="jp")
+        artists = self.db.get_artists_needing_refresh(batch_size=10, refresh_interval_days=7)
+        self.assertEqual(artists[0]["preferred_source"], "jp")
+
+
+# ---------------------------------------------------------------------------
+# export_watchlist / import_watchlist
+# ---------------------------------------------------------------------------
+
+class TestWatchlistImportExport(DBTestCase):
+
+    def test_export_empty(self):
+        result = self.db.export_watchlist()
+        self.assertEqual(result, [])
+
+    def test_export_returns_correct_fields(self):
+        self.db.add_to_watchlist("ART1", "Artist One", "https://url", preferred_source="jp")
+        result = self.db.export_watchlist()
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]["artist_id"], "ART1")
+        self.assertEqual(result[0]["name"], "Artist One")
+        self.assertEqual(result[0]["url"], "https://url")
+        self.assertEqual(result[0]["preferred_source"], "jp")
+
+    def test_export_sorted_by_name(self):
+        self.db.add_to_watchlist("C", "Charlie")
+        self.db.add_to_watchlist("A", "Alice")
+        self.db.add_to_watchlist("B", "Bob")
+        result = self.db.export_watchlist()
+        names = [r["name"] for r in result]
+        self.assertEqual(names, ["Alice", "Bob", "Charlie"])
+
+    def test_import_adds_artists(self):
+        artists = [
+            {"artist_id": "ART1", "name": "Artist One", "url": "https://url1", "preferred_source": "jp"},
+            {"artist_id": "ART2", "name": "Artist Two", "url": "https://url2"},
+        ]
+        self.db.import_watchlist(artists)
+        wl = self.db.get_watchlist()
+        self.assertEqual(len(wl), 2)
+
+    def test_import_upsert_semantics(self):
+        self.db.add_to_watchlist("ART1", "Old Name", preferred_source="jp")
+        artists = [{"artist_id": "ART1", "name": "New Name"}]
+        self.db.import_watchlist(artists)
+        wl = self.db.get_watchlist()
+        self.assertEqual(len(wl), 1)
+        self.assertEqual(wl[0]["name"], "New Name")
+        # preferred_source preserved when not provided in import
+        self.assertEqual(wl[0]["preferred_source"], "jp")
+
+    def test_roundtrip_export_import(self):
+        self.db.add_to_watchlist("ART1", "Artist One", "https://url1", preferred_source="jp")
+        self.db.add_to_watchlist("ART2", "Artist Two", "https://url2", preferred_source="us")
+        exported = self.db.export_watchlist()
+        # Clear and reimport
+        self.db.remove_from_watchlist("ART1")
+        self.db.remove_from_watchlist("ART2")
+        self.assertEqual(self.db.get_watchlist(), [])
+        self.db.import_watchlist(exported)
+        wl = self.db.get_watchlist()
+        self.assertEqual(len(wl), 2)
+        by_id = {a["artist_id"]: a for a in wl}
+        self.assertEqual(by_id["ART1"]["preferred_source"], "jp")
+        self.assertEqual(by_id["ART2"]["preferred_source"], "us")
+
+
+# ---------------------------------------------------------------------------
+# list_albums / search_albums — watched_only filter
+# ---------------------------------------------------------------------------
+
+class TestWatchedOnlyFilter(DBTestCase):
+
+    def setUp(self):
+        super().setUp()
+        self.db.upsert_album(_minimal_album("A1", artist_id="ART1", title="Alpha"))
+        self.db.upsert_album(_minimal_album("A2", artist_id="ART2", title="Beta"))
+        self.db.upsert_album(_minimal_album("A3", artist_id="ART3", title="Gamma"))
+        self.db.add_to_watchlist("ART1", "Artist One")
+        self.db.add_to_watchlist("ART3", "Artist Three")
+
+    def test_list_albums_watched_only(self):
+        rows, total = self.db.list_albums(watched_only=True)
+        self.assertEqual(total, 2)
+        ids = {r["artist_id"] for r in rows}
+        self.assertIn("ART1", ids)
+        self.assertIn("ART3", ids)
+        self.assertNotIn("ART2", ids)
+
+    def test_list_albums_watched_only_false(self):
+        rows, total = self.db.list_albums(watched_only=False)
+        self.assertEqual(total, 3)
+
+    def test_search_albums_watched_only(self):
+        rows, total = self.db.search_albums("a", watched_only=True)
+        for r in rows:
+            self.assertIn(r["artist_id"], {"ART1", "ART3"})
+
+    def test_list_albums_watched_only_combined_with_discovered(self):
+        # setUp has A1(ART1,discovered), A2(ART2,discovered), A3(ART3,discovered)
+        # Watchlist: ART1, ART3
+        # Add a non-discovered album for ART1
+        self.db.upsert_album(_minimal_album("D1", artist_id="ART1", source="artist_fetch"))
+        # watched_only + discovered_only: A1 (ART1,discovered) and A3 (ART3,discovered)
+        rows, total = self.db.list_albums(watched_only=True, discovered_only=True)
+        self.assertEqual(total, 2)
+        for r in rows:
+            self.assertEqual(r["source"], "discovered")
+            self.assertIn(r["artist_id"], {"ART1", "ART3"})
+
+
 if __name__ == "__main__":
     unittest.main()

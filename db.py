@@ -28,7 +28,7 @@ def get_conn():
         conn.close()
 
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 
 def init_db():
@@ -69,10 +69,12 @@ def init_db():
                 );
 
                 CREATE TABLE IF NOT EXISTS watched_artists (
-                    artist_id TEXT PRIMARY KEY,
-                    name      TEXT NOT NULL,
-                    url       TEXT,
-                    added_at  INTEGER
+                    artist_id        TEXT PRIMARY KEY,
+                    name             TEXT NOT NULL,
+                    url              TEXT,
+                    added_at         INTEGER,
+                    preferred_source TEXT,
+                    last_refreshed   INTEGER
                 );
 
                 CREATE TABLE IF NOT EXISTS artists (
@@ -169,7 +171,7 @@ def upsert_album(data: dict):
         )
 
 
-def list_albums(page: int = 1, per_page: int = 50, storefront: str = "", discovered_only: bool = False):
+def list_albums(page: int = 1, per_page: int = 50, storefront: str = "", discovered_only: bool = False, watched_only: bool = False):
     offset = (page - 1) * per_page
     with get_conn() as conn:
         conditions = []
@@ -179,6 +181,8 @@ def list_albums(page: int = 1, per_page: int = 50, storefront: str = "", discove
             params.append(f'%"{storefront.lower()}"%')
         if discovered_only:
             conditions.append("source = 'discovered'")
+        if watched_only:
+            conditions.append("artist_id IN (SELECT artist_id FROM watched_artists)")
         where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
         total = conn.execute(f"SELECT COUNT(*) FROM albums {where}", params).fetchone()[0]
         rows = conn.execute(
@@ -198,25 +202,36 @@ def get_artist_albums(artist_id: str):
         return [dict(r) for r in rows]
 
 
-def get_watchlist():
+def get_watchlist(preferred_source: str = ""):
     with get_conn() as conn:
+        conditions = []
+        params: list = []
+        if preferred_source:
+            conditions.append("w.preferred_source = ?")
+            params.append(preferred_source.lower())
+        where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
         rows = conn.execute(
-            """SELECT w.*, a.artwork_url, a.genre
+            f"""SELECT w.*, a.artwork_url, a.genre
                FROM watched_artists w
                LEFT JOIN artists a USING (artist_id)
-               ORDER BY w.name"""
+               {where}
+               ORDER BY w.name""",
+            params,
         ).fetchall()
         return [dict(r) for r in rows]
 
 
-def add_to_watchlist(artist_id: str, name: str, url: str = None):
+def add_to_watchlist(artist_id: str, name: str, url: str = None, preferred_source: str = None):
     now = int(time.time())
     with get_conn() as conn:
         conn.execute(
-            """INSERT INTO watched_artists (artist_id, name, url, added_at)
-               VALUES (?,?,?,?)
-               ON CONFLICT(artist_id) DO UPDATE SET name=excluded.name, url=excluded.url""",
-            (artist_id, name, url, now),
+            """INSERT INTO watched_artists (artist_id, name, url, added_at, preferred_source)
+               VALUES (?,?,?,?,?)
+               ON CONFLICT(artist_id) DO UPDATE SET
+                   name=excluded.name,
+                   url=excluded.url,
+                   preferred_source=coalesce(excluded.preferred_source, preferred_source)""",
+            (artist_id, name, url, now, preferred_source),
         )
 
 
@@ -263,6 +278,63 @@ def get_watched_artist_ids() -> set:
         return {r["artist_id"] for r in rows}
 
 
+def get_artists_needing_refresh(batch_size: int = 5, refresh_interval_days: int = 7) -> list:
+    """Return up to batch_size watched artists that haven't been refreshed within refresh_interval_days."""
+    cutoff = int(time.time()) - (refresh_interval_days * 86400)
+    with get_conn() as conn:
+        rows = conn.execute(
+            """SELECT * FROM watched_artists
+               WHERE last_refreshed IS NULL OR last_refreshed < ?
+               ORDER BY last_refreshed ASC NULLS FIRST
+               LIMIT ?""",
+            (cutoff, batch_size),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def update_preferred_source(artist_id: str, preferred_source):
+    """Set (or clear) the preferred metadata source for a watched artist."""
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE watched_artists SET preferred_source = ? WHERE artist_id = ?",
+            (preferred_source, artist_id),
+        )
+
+
+def mark_artist_refreshed(artist_id: str):
+    now = int(time.time())
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE watched_artists SET last_refreshed = ? WHERE artist_id = ?",
+            (now, artist_id),
+        )
+
+
+def export_watchlist() -> list:
+    """Export the full watchlist as a list of dicts suitable for JSON serialization."""
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT artist_id, name, url, preferred_source FROM watched_artists ORDER BY name"
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def import_watchlist(artists: list):
+    """Import a list of artist dicts into the watchlist. Uses upsert semantics."""
+    now = int(time.time())
+    with get_conn() as conn:
+        for a in artists:
+            conn.execute(
+                """INSERT INTO watched_artists (artist_id, name, url, added_at, preferred_source)
+                   VALUES (?,?,?,?,?)
+                   ON CONFLICT(artist_id) DO UPDATE SET
+                       name=excluded.name,
+                       url=excluded.url,
+                       preferred_source=coalesce(excluded.preferred_source, preferred_source)""",
+                (a["artist_id"], a["name"], a.get("url"), now, a.get("preferred_source")),
+            )
+
+
 def log_discovery_run(new_count: int, total_count: int):
     now = int(time.time())
     with get_conn() as conn:
@@ -280,7 +352,7 @@ def get_last_run():
         return dict(row) if row else None
 
 
-def search_albums(query: str, page: int = 1, per_page: int = 50, storefront: str = "", discovered_only: bool = False):
+def search_albums(query: str, page: int = 1, per_page: int = 50, storefront: str = "", discovered_only: bool = False, watched_only: bool = False):
     offset = (page - 1) * per_page
     q = f"%{query}%"
     with get_conn() as conn:
@@ -291,6 +363,8 @@ def search_albums(query: str, page: int = 1, per_page: int = 50, storefront: str
             params.append(f'%"{storefront.lower()}"%')
         if discovered_only:
             conditions.append("source = 'discovered'")
+        if watched_only:
+            conditions.append("artist_id IN (SELECT artist_id FROM watched_artists)")
         where = "WHERE " + " AND ".join(conditions)
         total = conn.execute(f"SELECT COUNT(*) FROM albums {where}", params).fetchone()[0]
         rows = conn.execute(

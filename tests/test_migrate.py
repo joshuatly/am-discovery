@@ -306,6 +306,55 @@ class TestRunMigrations(unittest.TestCase):
 # MIGRATIONS dict structure
 # ---------------------------------------------------------------------------
 
+class TestMigrationV6(unittest.TestCase):
+
+    def setUp(self):
+        self.db_dir = tempfile.mkdtemp()
+        self.db_path = os.path.join(self.db_dir, "test.db")
+
+    def tearDown(self):
+        shutil.rmtree(self.db_dir, ignore_errors=True)
+
+    def test_v6_adds_preferred_source_and_last_refreshed(self):
+        """After migration v6, watched_artists should have preferred_source and last_refreshed columns."""
+        _create_db(self.db_path, version=0, with_tables=True)
+        conn = sqlite3.connect(self.db_path)
+        conn.execute("PRAGMA user_version = 1")
+        conn.commit()
+        conn.close()
+
+        with patch("migrate.DB_PATH", self.db_path):
+            from migrate import run_migrations
+            run_migrations()
+
+        cols = _get_columns(self.db_path, "watched_artists")
+        self.assertIn("preferred_source", cols)
+        self.assertIn("last_refreshed", cols)
+
+    def test_v6_from_v5(self):
+        """Migration from v5 to v6 should add new columns to watched_artists."""
+        _create_db(self.db_path, version=0, with_tables=True)
+        conn = sqlite3.connect(self.db_path)
+        # Simulate already at v5
+        conn.execute("""CREATE TABLE IF NOT EXISTS artists (
+            artist_id TEXT PRIMARY KEY, artwork_url TEXT, genre TEXT, updated_at INTEGER
+        )""")
+        conn.execute("ALTER TABLE albums ADD COLUMN source TEXT")
+        conn.execute("PRAGMA user_version = 5")
+        conn.commit()
+        conn.close()
+
+        with patch("migrate.DB_PATH", self.db_path):
+            from migrate import run_migrations
+            run_migrations()
+
+        from migrate import SCHEMA_VERSION
+        self.assertEqual(_get_version(self.db_path), SCHEMA_VERSION)
+        cols = _get_columns(self.db_path, "watched_artists")
+        self.assertIn("preferred_source", cols)
+        self.assertIn("last_refreshed", cols)
+
+
 class TestMigrationsDict(unittest.TestCase):
 
     def test_migrations_are_sequential(self):

@@ -297,6 +297,30 @@ body {
 .search-input::placeholder { color: var(--text-dim); }
 .search-input:focus { border-color: var(--accent); }
 
+.artist-src-label {
+  font-size: 12px;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+
+.src-select {
+  font-size: 12px;
+  font-family: inherit;
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: #1e1e2a;
+  color: #f0f0f8;
+  cursor: pointer;
+  outline: none;
+  appearance: auto;
+}
+.src-select:focus { border-color: var(--accent); }
+.src-select option {
+  background: #1e1e2a;
+  color: #f0f0f8;
+}
+
 /* =========================================================
    Album Grid
    ========================================================= */

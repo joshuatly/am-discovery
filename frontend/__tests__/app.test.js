@@ -691,3 +691,160 @@ describe("state initial values", () => {
     expect(appWindow.__test_state.configuredStorefronts).toBeNull();
   });
 });
+
+// ---------------------------------------------------------------------------
+// API.patch
+// ---------------------------------------------------------------------------
+
+describe("API.patch", () => {
+  test("sends PATCH method", async () => {
+    appWindow.fetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({ ok: true }),
+    });
+    await appWindow.__test_API.patch("/api/watchlist/ART1", { preferred_source: "jp" });
+    const [, opts] = appWindow.fetch.mock.calls[0];
+    expect(opts.method).toBe("PATCH");
+  });
+
+  test("sends the correct URL", async () => {
+    appWindow.fetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({ ok: true }),
+    });
+    await appWindow.__test_API.patch("/api/watchlist/ART1", { preferred_source: "jp" });
+    const [url] = appWindow.fetch.mock.calls[0];
+    expect(url).toBe("/api/watchlist/ART1");
+  });
+
+  test("sends Content-Type: application/json", async () => {
+    appWindow.fetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({ ok: true }),
+    });
+    await appWindow.__test_API.patch("/api/watchlist/ART1", { preferred_source: "jp" });
+    const [, opts] = appWindow.fetch.mock.calls[0];
+    expect(opts.headers["Content-Type"]).toBe("application/json");
+  });
+
+  test("serialises body as JSON", async () => {
+    appWindow.fetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({ ok: true }),
+    });
+    const body = { preferred_source: "us" };
+    await appWindow.__test_API.patch("/api/watchlist/ART1", body);
+    const [, opts] = appWindow.fetch.mock.calls[0];
+    expect(JSON.parse(opts.body)).toEqual(body);
+  });
+
+  test("serialises null preferred_source correctly", async () => {
+    appWindow.fetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({ ok: true }),
+    });
+    await appWindow.__test_API.patch("/api/watchlist/ART1", { preferred_source: null });
+    const [, opts] = appWindow.fetch.mock.calls[0];
+    expect(JSON.parse(opts.body)).toEqual({ preferred_source: null });
+  });
+
+  test("returns parsed JSON response", async () => {
+    appWindow.fetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({ ok: true }),
+    });
+    const result = await appWindow.__test_API.patch("/api/watchlist/ART1", {});
+    expect(result.ok).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// tracklistsDiffer
+// ---------------------------------------------------------------------------
+
+describe("tracklistsDiffer", () => {
+  test("returns false for identical single-track lists", () => {
+    const t = [{ title: "Song A" }];
+    expect(appWindow.tracklistsDiffer(t, t)).toBe(false);
+  });
+
+  test("returns false for two equal lists", () => {
+    const a = [{ title: "Song A" }, { title: "Song B" }];
+    const b = [{ title: "Song A" }, { title: "Song B" }];
+    expect(appWindow.tracklistsDiffer(a, b)).toBe(false);
+  });
+
+  test("returns true when lengths differ", () => {
+    const a = [{ title: "Song A" }, { title: "Song B" }];
+    const b = [{ title: "Song A" }];
+    expect(appWindow.tracklistsDiffer(a, b)).toBe(true);
+  });
+
+  test("returns true when a track title differs", () => {
+    const a = [{ title: "Song A" }, { title: "Song B" }];
+    const b = [{ title: "Song A" }, { title: "Song C" }];
+    expect(appWindow.tracklistsDiffer(a, b)).toBe(true);
+  });
+
+  test("returns true when first track title differs", () => {
+    const a = [{ title: "Different" }];
+    const b = [{ title: "Original" }];
+    expect(appWindow.tracklistsDiffer(a, b)).toBe(true);
+  });
+
+  test("returns false for two empty lists", () => {
+    expect(appWindow.tracklistsDiffer([], [])).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// debounce
+// ---------------------------------------------------------------------------
+
+describe("debounce", () => {
+  beforeEach(() => jest.useFakeTimers());
+  afterEach(() => jest.useRealTimers());
+
+  test("does not call fn immediately", () => {
+    const fn = jest.fn();
+    const debounced = appWindow.debounce(fn, 200);
+    debounced();
+    expect(fn).not.toHaveBeenCalled();
+  });
+
+  test("calls fn after the delay", () => {
+    const fn = jest.fn();
+    const debounced = appWindow.debounce(fn, 200);
+    debounced();
+    jest.advanceTimersByTime(200);
+    expect(fn).toHaveBeenCalledTimes(1);
+  });
+
+  test("calls fn only once for multiple rapid calls", () => {
+    const fn = jest.fn();
+    const debounced = appWindow.debounce(fn, 200);
+    debounced(); debounced(); debounced();
+    jest.advanceTimersByTime(200);
+    expect(fn).toHaveBeenCalledTimes(1);
+  });
+
+  test("resets the timer on each call", () => {
+    const fn = jest.fn();
+    const debounced = appWindow.debounce(fn, 200);
+    debounced();
+    jest.advanceTimersByTime(100);
+    debounced();
+    jest.advanceTimersByTime(100);
+    expect(fn).not.toHaveBeenCalled();
+    jest.advanceTimersByTime(100);
+    expect(fn).toHaveBeenCalledTimes(1);
+  });
+
+  test("passes arguments to the wrapped function", () => {
+    const fn = jest.fn();
+    const debounced = appWindow.debounce(fn, 100);
+    debounced("hello", 42);
+    jest.advanceTimersByTime(100);
+    expect(fn).toHaveBeenCalledWith("hello", 42);
+  });
+});

@@ -45,10 +45,17 @@ uv run python server.py --debug
 
 Server runs on `http://localhost:5000` by default. Set `PORT` env var to change.
 
-**Run tests:**
+**Run Python tests:**
 ```bash
 uv run pytest
 ```
+
+**Run frontend (JS) tests:**
+```bash
+cd frontend && npm test
+```
+
+The frontend has Jest tests in `frontend/__tests__/app.test.js`. **All new frontend code must have corresponding Jest test cases.** All new Python code must have corresponding pytest cases in `tests/`.
 
 **Custom DB path:**
 ```bash
