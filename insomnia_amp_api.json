@@ -1,0 +1,209 @@
+{
+  "_type": "export",
+  "__export_format": 4,
+  "__export_date": "2026-03-22",
+  "__export_source": "am-discovery/client.py",
+  "resources": [
+    {
+      "_id": "wrk_amp_api",
+      "_type": "workspace",
+      "name": "Apple Music AMP API (client.py)",
+      "description": "Direct calls to amp-api.music.apple.com as made by AppleMusicClient",
+      "scope": "collection"
+    },
+    {
+      "_id": "env_amp_base",
+      "_type": "environment",
+      "parentId": "wrk_amp_api",
+      "name": "Base Environment",
+      "data": {
+        "amp_base": "https://amp-api.music.apple.com",
+        "music_base": "https://music.apple.com",
+        "bearer_token": "eyJ...",
+        "storefront": "us",
+        "adam_id": "123456789",
+        "artist_id": "987654321"
+      }
+    },
+    {
+      "_id": "fld_albums",
+      "_type": "request_group",
+      "parentId": "wrk_amp_api",
+      "name": "Albums"
+    },
+    {
+      "_id": "req_album_full_info",
+      "_type": "request",
+      "parentId": "fld_albums",
+      "name": "Get album full info",
+      "method": "GET",
+      "url": "{{ _.amp_base }}/v1/catalog/{{ _.storefront }}/albums/{{ _.adam_id }}",
+      "parameters": [
+        { "name": "include", "value": "tracks,artists" },
+        { "name": "extend", "value": "extendedAssetUrls" }
+      ],
+      "headers": [
+        { "name": "Authorization", "value": "Bearer {{ _.bearer_token }}" },
+        { "name": "Origin", "value": "{{ _.music_base }}" },
+        { "name": "Referer", "value": "{{ _.music_base }}/" },
+        { "name": "User-Agent", "value": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36" }
+      ]
+    },
+    {
+      "_id": "fld_artists",
+      "_type": "request_group",
+      "parentId": "wrk_amp_api",
+      "name": "Artists"
+    },
+    {
+      "_id": "req_artist_all_releases",
+      "_type": "request",
+      "parentId": "fld_artists",
+      "name": "Get artist all releases (grouped views)",
+      "method": "GET",
+      "url": "{{ _.amp_base }}/v1/catalog/{{ _.storefront }}/artists/{{ _.artist_id }}",
+      "parameters": [
+        { "name": "views", "value": "full-albums,compilation-albums,live-albums,singles" },
+        { "name": "limit[full-albums]", "value": "100" },
+        { "name": "limit[compilation-albums]", "value": "100" },
+        { "name": "limit[live-albums]", "value": "100" },
+        { "name": "limit[singles]", "value": "100" }
+      ],
+      "headers": [
+        { "name": "Authorization", "value": "Bearer {{ _.bearer_token }}" },
+        { "name": "Origin", "value": "{{ _.music_base }}" },
+        { "name": "Referer", "value": "{{ _.music_base }}/" },
+        { "name": "User-Agent", "value": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36" }
+      ]
+    },
+    {
+      "_id": "req_artist_albums_page",
+      "_type": "request",
+      "parentId": "fld_artists",
+      "name": "Get artist albums (first page)",
+      "method": "GET",
+      "url": "{{ _.amp_base }}/v1/catalog/{{ _.storefront }}/artists/{{ _.artist_id }}/albums",
+      "parameters": [
+        { "name": "limit", "value": "25" }
+      ],
+      "headers": [
+        { "name": "Authorization", "value": "Bearer {{ _.bearer_token }}" },
+        { "name": "Origin", "value": "{{ _.music_base }}" },
+        { "name": "Referer", "value": "{{ _.music_base }}/" },
+        { "name": "User-Agent", "value": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36" }
+      ]
+    },
+    {
+      "_id": "req_artist_albums_paginate",
+      "_type": "request",
+      "parentId": "fld_artists",
+      "name": "Paginate artist view (next page)",
+      "description": "Use the `next` path returned in a previous response. Set offset from the `next` URL.",
+      "method": "GET",
+      "url": "{{ _.amp_base }}/v1/catalog/{{ _.storefront }}/artists/{{ _.artist_id }}/views/full-albums",
+      "parameters": [
+        { "name": "limit", "value": "100" },
+        { "name": "offset", "value": "100" }
+      ],
+      "headers": [
+        { "name": "Authorization", "value": "Bearer {{ _.bearer_token }}" },
+        { "name": "Origin", "value": "{{ _.music_base }}" },
+        { "name": "Referer", "value": "{{ _.music_base }}/" },
+        { "name": "User-Agent", "value": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36" }
+      ]
+    },
+    {
+      "_id": "fld_search",
+      "_type": "request_group",
+      "parentId": "wrk_amp_api",
+      "name": "Search"
+    },
+    {
+      "_id": "req_search_all",
+      "_type": "request",
+      "parentId": "fld_search",
+      "name": "Search catalog (all types)",
+      "method": "GET",
+      "url": "{{ _.amp_base }}/v1/catalog/{{ _.storefront }}/search",
+      "parameters": [
+        { "name": "term", "value": "search term" },
+        { "name": "types", "value": "songs,music-videos,albums,playlists,artists" },
+        { "name": "limit", "value": "50" },
+        { "name": "offset", "value": "0", "disabled": true }
+      ],
+      "headers": [
+        { "name": "Authorization", "value": "Bearer {{ _.bearer_token }}" },
+        { "name": "Origin", "value": "{{ _.music_base }}" },
+        { "name": "Referer", "value": "{{ _.music_base }}/" },
+        { "name": "User-Agent", "value": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36" }
+      ]
+    },
+    {
+      "_id": "req_search_artists",
+      "_type": "request",
+      "parentId": "fld_search",
+      "name": "Search artists only",
+      "method": "GET",
+      "url": "{{ _.amp_base }}/v1/catalog/{{ _.storefront }}/search",
+      "parameters": [
+        { "name": "term", "value": "artist name" },
+        { "name": "types", "value": "artists" },
+        { "name": "limit", "value": "25" }
+      ],
+      "headers": [
+        { "name": "Authorization", "value": "Bearer {{ _.bearer_token }}" },
+        { "name": "Origin", "value": "{{ _.music_base }}" },
+        { "name": "Referer", "value": "{{ _.music_base }}/" },
+        { "name": "User-Agent", "value": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36" }
+      ]
+    },
+    {
+      "_id": "fld_storefront",
+      "_type": "request_group",
+      "parentId": "wrk_amp_api",
+      "name": "Storefront Availability"
+    },
+    {
+      "_id": "req_check_availability",
+      "_type": "request",
+      "parentId": "fld_storefront",
+      "name": "Check album availability in storefront",
+      "description": "A 200 response means the album is available. Repeat with different storefront values. client.py checks jp, tw, my, hk, sg by default.",
+      "method": "GET",
+      "url": "{{ _.music_base }}/{{ _.storefront }}/album/{{ _.adam_id }}",
+      "headers": [
+        { "name": "User-Agent", "value": "Mozilla/5.0" }
+      ]
+    },
+    {
+      "_id": "fld_token",
+      "_type": "request_group",
+      "parentId": "wrk_amp_api",
+      "name": "Bearer Token"
+    },
+    {
+      "_id": "req_browse_page",
+      "_type": "request",
+      "parentId": "fld_token",
+      "name": "Fetch browse page (to find JS bundle URL)",
+      "description": "Step 1: GET this page and find the `src` of the index JS bundle (matches /assets/index-*.js). The bundle contains the bearer JWT.",
+      "method": "GET",
+      "url": "{{ _.music_base }}/us/browse",
+      "headers": [
+        { "name": "User-Agent", "value": "Mozilla/5.0" }
+      ]
+    },
+    {
+      "_id": "req_js_bundle",
+      "_type": "request",
+      "parentId": "fld_token",
+      "name": "Fetch JS bundle (to extract bearer token)",
+      "description": "Step 2: paste the JS bundle URL found in the browse page. Search the response for `eyJ` to find the JWT bearer token.",
+      "method": "GET",
+      "url": "{{ _.music_base }}/assets/index-REPLACE_ME.js",
+      "headers": [
+        { "name": "User-Agent", "value": "Mozilla/5.0" }
+      ]
+    }
+  ]
+}
