@@ -616,6 +616,41 @@ def api_watchlist_add():
     return jsonify({"ok": True})
 
 
+@app.route("/api/watchlist/<artist_id>", methods=["PATCH"])
+def api_watchlist_patch(artist_id):
+    """
+    Update a watched artist's preferred metadata source.
+    ---
+    parameters:
+      - name: artist_id
+        in: path
+        type: string
+        required: true
+      - name: body
+        in: body
+        required: true
+        schema:
+          type: object
+          properties:
+            preferred_source:
+              type: string
+              description: Two/three-letter storefront code, or null to clear
+    responses:
+      200:
+        description: Success
+      400:
+        description: Invalid preferred_source
+    """
+    body = request.get_json(force=True)
+    raw_ps = body.get("preferred_source")
+    if raw_ps is not None:
+        raw_ps = str(raw_ps).strip().lower()
+        if not _validate_storefront(raw_ps):
+            return jsonify({"error": "invalid preferred_source"}), 400
+    db.update_preferred_source(artist_id, raw_ps)
+    return jsonify({"ok": True})
+
+
 @app.route("/api/watchlist/<artist_id>", methods=["DELETE"])
 def api_watchlist_remove(artist_id):
     """

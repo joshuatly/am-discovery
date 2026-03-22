@@ -629,6 +629,36 @@ class TestWatchlistPreferredSource(DBTestCase):
 
 
 # ---------------------------------------------------------------------------
+# update_preferred_source
+# ---------------------------------------------------------------------------
+
+class TestUpdatePreferredSource(DBTestCase):
+
+    def test_set_preferred_source(self):
+        self.db.add_to_watchlist("ART1", "Artist One")
+        self.db.update_preferred_source("ART1", "jp")
+        wl = self.db.get_watchlist()
+        self.assertEqual(wl[0]["preferred_source"], "jp")
+
+    def test_change_preferred_source(self):
+        self.db.add_to_watchlist("ART1", "Artist One", preferred_source="jp")
+        self.db.update_preferred_source("ART1", "us")
+        wl = self.db.get_watchlist()
+        self.assertEqual(wl[0]["preferred_source"], "us")
+
+    def test_clear_preferred_source(self):
+        """Setting to None explicitly clears the value."""
+        self.db.add_to_watchlist("ART1", "Artist One", preferred_source="jp")
+        self.db.update_preferred_source("ART1", None)
+        wl = self.db.get_watchlist()
+        self.assertIsNone(wl[0]["preferred_source"])
+
+    def test_noop_for_nonexistent_artist(self):
+        """Updating a non-existent artist should not raise."""
+        self.db.update_preferred_source("NONEXISTENT", "jp")
+
+
+# ---------------------------------------------------------------------------
 # get_artists_needing_refresh / mark_artist_refreshed
 # ---------------------------------------------------------------------------
 

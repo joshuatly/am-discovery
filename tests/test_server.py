@@ -881,6 +881,57 @@ class TestApiWatchlistPreferredSource(ServerTestCase):
 
 
 # ---------------------------------------------------------------------------
+# PATCH /api/watchlist/<artist_id>
+# ---------------------------------------------------------------------------
+
+class TestApiWatchlistPatch(ServerTestCase):
+
+    @patch("server.db")
+    def test_patch_sets_preferred_source(self, mock_db):
+        mock_db.update_preferred_source.return_value = None
+        resp = self.client.patch(
+            "/api/watchlist/ART1",
+            data=json.dumps({"preferred_source": "jp"}),
+            content_type="application/json",
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(resp.get_json()["ok"])
+        mock_db.update_preferred_source.assert_called_once_with("ART1", "jp")
+
+    @patch("server.db")
+    def test_patch_clears_preferred_source(self, mock_db):
+        mock_db.update_preferred_source.return_value = None
+        resp = self.client.patch(
+            "/api/watchlist/ART1",
+            data=json.dumps({"preferred_source": None}),
+            content_type="application/json",
+        )
+        self.assertEqual(resp.status_code, 200)
+        mock_db.update_preferred_source.assert_called_once_with("ART1", None)
+
+    @patch("server.db")
+    def test_patch_invalid_storefront_returns_400(self, mock_db):
+        resp = self.client.patch(
+            "/api/watchlist/ART1",
+            data=json.dumps({"preferred_source": "bad!"}),
+            content_type="application/json",
+        )
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn("error", resp.get_json())
+
+    @patch("server.db")
+    def test_patch_normalises_uppercase(self, mock_db):
+        mock_db.update_preferred_source.return_value = None
+        resp = self.client.patch(
+            "/api/watchlist/ART1",
+            data=json.dumps({"preferred_source": "JP"}),
+            content_type="application/json",
+        )
+        self.assertEqual(resp.status_code, 200)
+        mock_db.update_preferred_source.assert_called_once_with("ART1", "jp")
+
+
+# ---------------------------------------------------------------------------
 # GET /api/releases — watched filter
 # ---------------------------------------------------------------------------
 

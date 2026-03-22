@@ -25,6 +25,10 @@ const API = {
     const r = await fetch(path, { method: "DELETE" });
     return r.json();
   },
+  async patch(path, body) {
+    const r = await fetch(path, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    return r.json();
+  },
 };
 
 // ---------------------------------------------------------------------------
@@ -629,13 +633,59 @@ async function renderArtist(main, artistId) {
 
   const isWatched = state.watchedIds.has(artistId);
   const watchBtn = el("button", `btn-watch${isWatched ? " watching" : ""}`, isWatched ? "⭐ Watching" : "☆ Watch");
+
+  // Preferred source selector — only visible when watched
+  const srcWrap = el("div", "artist-src-wrap");
+  srcWrap.style.cssText = `display:${isWatched ? "flex" : "none"};align-items:center;gap:6px;flex-wrap:wrap;`;
+  const srcLabel = el("span", "artist-src-label", "Preferred source:");
+  srcWrap.appendChild(srcLabel);
+  const srcSelect = document.createElement("select");
+  srcSelect.className = "src-select";
+
+  function buildSrcOptions(currentPs) {
+    srcSelect.innerHTML = "";
+    const noneOpt = document.createElement("option");
+    noneOpt.value = "";
+    noneOpt.textContent = "None (uses home)";
+    noneOpt.selected = !currentPs;
+    srcSelect.appendChild(noneOpt);
+    (state.configuredStorefronts || []).forEach(sf => {
+      const opt = document.createElement("option");
+      opt.value = sf;
+      opt.textContent = sf.toUpperCase();
+      opt.selected = currentPs === sf;
+      srcSelect.appendChild(opt);
+    });
+  }
+
+  buildSrcOptions(null); // placeholder until async load
+
+  srcSelect.addEventListener("change", async () => {
+    const val = srcSelect.value || null;
+    await API.patch(`/api/watchlist/${artistId}`, { preferred_source: val });
+  });
+
+  srcWrap.appendChild(srcSelect);
+  links.appendChild(srcWrap);
+
   watchBtn.addEventListener("click", async () => {
     const ps = state.metadataStorefront || state.homeStorefront || null;
     await toggleWatch(artistId, data.artist_name, data.artist_url, ps);
-    watchBtn.textContent = state.watchedIds.has(artistId) ? "⭐ Watching" : "☆ Watch";
-    watchBtn.classList.toggle("watching", state.watchedIds.has(artistId));
+    const nowWatched = state.watchedIds.has(artistId);
+    watchBtn.textContent = nowWatched ? "⭐ Watching" : "☆ Watch";
+    watchBtn.classList.toggle("watching", nowWatched);
+    srcWrap.style.display = nowWatched ? "flex" : "none";
+    if (nowWatched) buildSrcOptions(ps);
   });
   links.appendChild(watchBtn);
+
+  if (isWatched) {
+    // Load current preferred_source and pre-select
+    API.get("/api/watchlist").then(wl => {
+      const entry = wl.find(a => a.artist_id === artistId);
+      buildSrcOptions(entry?.preferred_source || null);
+    }).catch(() => {});
+  }
 
   const sfLabel = state.metadataStorefront ? state.metadataStorefront.toUpperCase() : "";
   const fetchBtn = el("button", "btn-fetch-artist", sfLabel ? `↓ Fetch from ${sfLabel}` : "↓ Fetch All");

@@ -292,6 +292,15 @@ def get_artists_needing_refresh(batch_size: int = 5, refresh_interval_days: int 
         return [dict(r) for r in rows]
 
 
+def update_preferred_source(artist_id: str, preferred_source):
+    """Set (or clear) the preferred metadata source for a watched artist."""
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE watched_artists SET preferred_source = ? WHERE artist_id = ?",
+            (preferred_source, artist_id),
+        )
+
+
 def mark_artist_refreshed(artist_id: str):
     now = int(time.time())
     with get_conn() as conn:
