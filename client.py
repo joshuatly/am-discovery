@@ -183,10 +183,22 @@ class AppleMusicClient:
         result['audio_formats'] = formats if formats else None
 
         artists_data = rels.get('artists', {}).get('data') or []
-        if artists_data:
-            artist_item = artists_data[0]
-            result['artist_id'] = artist_item.get('id')
-            result['artist_url'] = (artist_item.get('attributes') or {}).get('url')
+        artists = []
+        for a in artists_data:
+            attrs = a.get('attributes') or {}
+            art_url = attrs.get('artwork', {}).get('url')
+            genre_names = attrs.get('genreNames') or []
+            artists.append({
+                'id': a.get('id'),
+                'name': attrs.get('name'),
+                'url': attrs.get('url'),
+                'artwork_url': re.sub(r'\{w\}x\{h\}bb\.[a-z]+', '200x200bb.jpg', art_url) if art_url else None,
+                'genre': genre_names[0] if genre_names else None,
+            })
+        result['artists'] = artists
+        if artists:
+            result['artist_id'] = artists[0]['id']
+            result['artist_url'] = artists[0]['url']
 
         tracks = []
         for t in (rels.get('tracks', {}).get('data') or []):
@@ -315,6 +327,7 @@ class AppleMusicClient:
 
         art_url = artist_attrs.get("artwork", {}).get("url", "")
         artist_info = {
+            "name": artist_attrs.get("name"),
             "artwork_url": re.sub(r'\{w\}x\{h\}bb\.[a-z]+', '200x200bb.jpg', art_url) if art_url else None,
             "genre": (artist_attrs.get("genreNames") or [None])[0],
         }

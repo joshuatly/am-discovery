@@ -848,3 +848,177 @@ describe("debounce", () => {
     expect(fn).toHaveBeenCalledWith("hello", 42);
   });
 });
+
+// ---------------------------------------------------------------------------
+// makeArtistLinks
+// ---------------------------------------------------------------------------
+
+describe("makeArtistLinks", () => {
+  const makeArtistLinks = (...args) => appWindow.makeArtistLinks(...args);
+
+  test("falls back to single artist text when artists_json is absent", () => {
+    const album = { artist: "Test Artist", artist_id: "A1", artists_json: null };
+    const el = makeArtistLinks(album, "album-artist");
+    expect(el.className).toBe("album-artist");
+    expect(el.textContent).toBe("Test Artist");
+  });
+
+  test("falls back to dash when artist is absent and no artists_json", () => {
+    const album = { artist: null, artist_id: null, artists_json: null };
+    const el = makeArtistLinks(album, "album-artist");
+    expect(el.textContent).toBe("—");
+  });
+
+  test("renders single artist-link span for single-artist artists_json", () => {
+    const album = {
+      artist: "Jay Chou",
+      artist_id: "300117743",
+      artists_json: [{ id: "300117743", name: "Jay Chou", url: "https://music.apple.com/tw/artist/1" }],
+    };
+    const wrap = makeArtistLinks(album, "album-artist");
+    const links = wrap.querySelectorAll(".artist-link");
+    expect(links.length).toBe(1);
+    expect(links[0].textContent).toBe("Jay Chou");
+  });
+
+  test("renders multiple artist-link spans for multi-artist albums", () => {
+    const album = {
+      artist: "Artist A & Artist B",
+      artist_id: "A1",
+      artists_json: [
+        { id: "A1", name: "Artist A", url: null },
+        { id: "A2", name: "Artist B", url: null },
+      ],
+    };
+    const wrap = makeArtistLinks(album, "album-artist");
+    const links = wrap.querySelectorAll(".artist-link");
+    expect(links.length).toBe(2);
+    expect(links[0].textContent).toBe("Artist A");
+    expect(links[1].textContent).toBe("Artist B");
+  });
+
+  test("separates multiple artists with commas", () => {
+    const album = {
+      artist: "A & B",
+      artist_id: "A1",
+      artists_json: [
+        { id: "A1", name: "A", url: null },
+        { id: "A2", name: "B", url: null },
+      ],
+    };
+    const wrap = makeArtistLinks(album, "album-artist");
+    expect(wrap.textContent).toContain(", ");
+  });
+
+  test("sets title to combined artist string when using artists_json", () => {
+    const album = {
+      artist: "A & B",
+      artist_id: "A1",
+      artists_json: [
+        { id: "A1", name: "A", url: null },
+        { id: "A2", name: "B", url: null },
+      ],
+    };
+    const wrap = makeArtistLinks(album, "album-artist");
+    expect(wrap.title).toBe("A & B");
+  });
+
+  test("calls onNav callback when artist-link is clicked in multi-artist mode", () => {
+    const album = {
+      artist: "A & B",
+      artist_id: "A1",
+      artists_json: [
+        { id: "A1", name: "A", url: null },
+        { id: "A2", name: "B", url: null },
+      ],
+    };
+    let called = false;
+    const wrap = makeArtistLinks(album, "album-artist", () => { called = true; });
+    wrap.querySelectorAll(".artist-link")[0].click();
+    expect(called).toBe(true);
+  });
+
+  test("sets state.artistHint with full artist data when artist-link is clicked", () => {
+    const album = {
+      artist: "A & B",
+      artist_id: "A1",
+      artists_json: [
+        { id: "A1", name: "Artist A", url: "https://music.apple.com/tw/artist/1", artwork_url: "https://example.com/a.jpg", genre: "Pop" },
+        { id: "A2", name: "Artist B", url: "https://music.apple.com/tw/artist/2", artwork_url: "https://example.com/b.jpg", genre: "Rock" },
+      ],
+    };
+    const wrap = makeArtistLinks(album, "album-artist");
+    wrap.querySelectorAll(".artist-link")[1].click();
+    const hint = appWindow.__test_state.artistHint;
+    expect(hint.id).toBe("A2");
+    expect(hint.name).toBe("Artist B");
+    expect(hint.artwork_url).toBe("https://example.com/b.jpg");
+    expect(hint.genre).toBe("Rock");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// artistHint id type coercion (regression: Watch button from watchlist search)
+// ---------------------------------------------------------------------------
+
+describe("artistHint id type coercion", () => {
+  // The artist id from the URL hash is always a string (e.g. "#/artist/300117743").
+  // Search results return numeric ids. Storing the hint id as String() ensures
+  // the strict equality check in renderArtist matches.
+
+  test("String(numericId) matches string artistId from URL", () => {
+    const numericId = 300117743;
+    const hintId = String(numericId);
+    const artistIdFromUrl = "300117743";
+    expect(hintId === artistIdFromUrl).toBe(true);
+  });
+
+  test("numeric id does not match string artistId from URL (pre-fix behaviour)", () => {
+    const numericId = 300117743;
+    const artistIdFromUrl = "300117743";
+    expect(numericId === artistIdFromUrl).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// innerHTML += vs insertAdjacentHTML (regression: buttons lose listeners)
+// ---------------------------------------------------------------------------
+
+describe("insertAdjacentHTML preserves existing event listeners", () => {
+  // Regression: renderArtist used `wrap.innerHTML +=` to append the empty-state
+  // for artists with no releases. `innerHTML +=` re-serialises the whole subtree
+  // and replaces all nodes, destroying any click listeners that were already
+  // attached to Watch / Fetch buttons in the same container.
+
+  test("innerHTML += destroys existing event listeners", () => {
+    const doc = appWindow.document;
+    const div = doc.createElement("div");
+    const btn = doc.createElement("button");
+    let clicked = false;
+    btn.addEventListener("click", () => { clicked = true; });
+    div.appendChild(btn);
+
+    // Simulate the buggy pattern
+    div.innerHTML += "<span>appended</span>";
+
+    // The button node was replaced — listener is gone
+    div.querySelector("button").click();
+    expect(clicked).toBe(false);
+  });
+
+  test("insertAdjacentHTML preserves existing event listeners", () => {
+    const doc = appWindow.document;
+    const div = doc.createElement("div");
+    const btn = doc.createElement("button");
+    let clicked = false;
+    btn.addEventListener("click", () => { clicked = true; });
+    div.appendChild(btn);
+
+    // The fixed pattern
+    div.insertAdjacentHTML("beforeend", "<span>appended</span>");
+
+    // The button node is untouched — listener still works
+    div.querySelector("button").click();
+    expect(clicked).toBe(true);
+  });
+});

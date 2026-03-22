@@ -658,27 +658,27 @@ class TestApiArtistReleases(ServerTestCase):
         self.assertTrue(data["watched"])
 
     @patch("server.db")
-    def test_skips_year_artist_names(self, mock_db):
-        """Artist names that look like years (e.g. '1997') should be skipped."""
+    def test_artist_name_from_artists_table(self, mock_db):
+        """artist_name should come from the artists table, not album data."""
         mock_db.get_artist_albums.return_value = [
-            _make_album("A1", artist_id="ART1", artist="1997"),
-            _make_album("A2", artist_id="ART1", artist="Real Artist"),
+            _make_album("A1", artist_id="ART1", artist="周杰倫, 言承旭 & 五月天 阿信"),
         ]
         mock_db.get_watched_artist_ids.return_value = set()
-        mock_db.get_artist_info.return_value = {}
+        mock_db.get_artist_info.return_value = {"name": "周杰倫"}
 
         resp = self.client.get("/api/artists/ART1/releases")
         data = resp.get_json()
-        self.assertEqual(data["artist_name"], "Real Artist")
+        self.assertEqual(data["artist_name"], "周杰倫")
 
     @patch("server.db")
     def test_artist_info_included(self, mock_db):
         mock_db.get_artist_albums.return_value = []
         mock_db.get_watched_artist_ids.return_value = set()
-        mock_db.get_artist_info.return_value = {"artwork_url": "https://art.jpg", "genre": "Pop"}
+        mock_db.get_artist_info.return_value = {"name": "Jay Chou", "artwork_url": "https://art.jpg", "genre": "Pop"}
 
         resp = self.client.get("/api/artists/ART1/releases")
         data = resp.get_json()
+        self.assertEqual(data["artist_name"], "Jay Chou")
         self.assertEqual(data["artist_artwork_url"], "https://art.jpg")
         self.assertEqual(data["artist_genre"], "Pop")
 

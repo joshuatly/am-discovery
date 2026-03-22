@@ -585,12 +585,17 @@ async function renderArtist(main, artistId) {
     wrap.innerHTML = `<div class="empty-state"><div class="empty-icon">⚠️</div><div class="empty-title">Could not load artist</div></div>`;
     return;
   }
+  if (!data || !Array.isArray(data.releases)) {
+    wrap.innerHTML = `<div class="empty-state"><div class="empty-icon">⚠️</div><div class="empty-title">Could not load artist</div></div>`;
+    return;
+  }
 
   // Use hint from watchlist search if the artist isn't in DB yet
   const hint = (state.artistHint?.id === artistId) ? state.artistHint : null;
-  if (!data.artist_name && hint?.name)   data.artist_name       = hint.name;
-  if (!data.artist_url  && hint?.url)    data.artist_url        = hint.url;
+  if (!data.artist_name        && hint?.name)        data.artist_name        = hint.name;
+  if (!data.artist_url         && hint?.url)         data.artist_url         = hint.url;
   if (!data.artist_artwork_url && hint?.artwork_url) data.artist_artwork_url = hint.artwork_url;
+  if (!data.artist_genre       && hint?.genre)       data.artist_genre       = hint.genre;
 
   await loadWatchedIds();
   wrap.innerHTML = "";
@@ -719,7 +724,7 @@ async function renderArtist(main, artistId) {
   wrap.appendChild(subtitle);
 
   if (!data.releases.length) {
-    wrap.innerHTML += `<div class="empty-state"><div class="empty-icon">🎵</div><div class="empty-title">No releases found</div><div class="empty-desc">This artist's releases will appear here after a refresh</div></div>`;
+    wrap.insertAdjacentHTML("beforeend", `<div class="empty-state"><div class="empty-icon">🎵</div><div class="empty-title">No releases found</div><div class="empty-desc">This artist's releases will appear here after a refresh</div></div>`);
     return;
   }
 
@@ -946,7 +951,7 @@ async function renderWatchlist(main, preferredSourceFilter = "") {
     name.href = `#/artist/${artist.id}`;
     name.addEventListener("click", e => {
       e.preventDefault();
-      state.artistHint = { id: artist.id, name: artist.name, url: artist.url, artwork_url: artist.artwork_url };
+      state.artistHint = { id: String(artist.id), name: artist.name, url: artist.url, artwork_url: artist.artwork_url, genre: artist.genre };
       location.hash = `#/artist/${artist.id}`;
     });
     info.appendChild(name);
@@ -1159,6 +1164,43 @@ async function renderSettings(main) {
 
 
 // ---------------------------------------------------------------------------
+// Artist links helper — renders multiple linked artist names or falls back
+// to a single artist name/link when artists_json is not available.
+// ---------------------------------------------------------------------------
+function makeArtistLinks(album, cls, onNav) {
+  const wrap = el("span", cls);
+  const artists = album.artists_json;
+  if (Array.isArray(artists) && artists.length) {
+    wrap.classList.add("multi");
+    artists.forEach((a, i) => {
+      if (i > 0) wrap.appendChild(document.createTextNode(", "));
+      const span = el("span", "artist-link", a.name || "—");
+      if (a.id) {
+        span.addEventListener("click", e => {
+          e.stopPropagation();
+          state.artistHint = { id: String(a.id), name: a.name, url: a.url, artwork_url: a.artwork_url, genre: a.genre };
+          if (onNav) onNav();
+          location.hash = `#/artist/${a.id}`;
+        });
+      }
+      wrap.appendChild(span);
+    });
+    wrap.title = album.artist || "";
+  } else {
+    wrap.textContent = album.artist || "—";
+    wrap.title = album.artist || "";
+    if (album.artist_id) {
+      wrap.addEventListener("click", e => {
+        e.stopPropagation();
+        if (onNav) onNav();
+        location.hash = `#/artist/${album.artist_id}`;
+      });
+    }
+  }
+  return wrap;
+}
+
+// ---------------------------------------------------------------------------
 // Album card
 // ---------------------------------------------------------------------------
 function albumCard(album) {
@@ -1178,15 +1220,7 @@ function albumCard(album) {
   title.title = album.title || "";
   info.appendChild(title);
 
-  const artist = el("span", "album-artist", album.artist || "—");
-  artist.title = album.artist || "";
-  if (album.artist_id) {
-    artist.addEventListener("click", e => {
-      e.stopPropagation();
-      location.hash = `#/artist/${album.artist_id}`;
-    });
-  }
-  info.appendChild(artist);
+  info.appendChild(makeArtistLinks(album, "album-artist"));
 
   if (album.genre) {
     const genre = el("div", "release-date", album.genre);
@@ -1252,6 +1286,7 @@ async function openModal(storeAdamId) {
         const fresh = await lookupPromise;
         if (fresh.title)        album.title        = fresh.title;
         if (fresh.artist)       album.artist       = fresh.artist;
+        if (fresh.artists?.length) album.artists_json = fresh.artists;
         if (fresh.artwork_url)  album.artwork_url  = fresh.artwork_url;
         if (fresh.genre)        album.genre        = fresh.genre;
         if (fresh.description)  album.description  = fresh.description;
@@ -1285,15 +1320,8 @@ async function openModal(storeAdamId) {
     details.appendChild(sfBadge);
   }
 
-  if (album.artist) {
-    const artist = el("span", "modal-artist", album.artist);
-    if (album.artist_id) {
-      artist.addEventListener("click", () => {
-        closeModal();
-        location.hash = `#/artist/${album.artist_id}`;
-      });
-    }
-    details.appendChild(artist);
+  if (album.artist || (Array.isArray(album.artists_json) && album.artists_json.length)) {
+    details.appendChild(makeArtistLinks(album, "modal-artist", closeModal));
   }
 
   // Tags

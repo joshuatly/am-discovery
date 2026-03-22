@@ -28,7 +28,7 @@ def get_conn():
         conn.close()
 
 
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 8
 
 
 def init_db():
@@ -53,6 +53,7 @@ def init_db():
                     artist         TEXT,
                     artist_id      TEXT,
                     artist_url     TEXT,
+                    artists_json   TEXT,
                     url            TEXT,
                     storefronts    TEXT DEFAULT '[]',
                     release_date   TEXT,
@@ -79,6 +80,7 @@ def init_db():
 
                 CREATE TABLE IF NOT EXISTS artists (
                     artist_id   TEXT PRIMARY KEY,
+                    name        TEXT,
                     artwork_url TEXT,
                     genre       TEXT,
                     updated_at  INTEGER
@@ -114,6 +116,7 @@ def upsert_album(data: dict):
     now = int(time.time())
     new_sf = data.get("storefronts", [])
     audio_formats = json.dumps(data["audio_formats"]) if data.get("audio_formats") is not None else None
+    artists_json = json.dumps(data["artists_json"]) if data.get("artists_json") is not None else None
     with get_conn() as conn:
         # INSERT OR IGNORE ensures concurrent inserts for the same store_adam_id
         # (from polling multiple storefronts) don't raise a UNIQUE constraint error.
@@ -136,6 +139,7 @@ def upsert_album(data: dict):
                 artist=coalesce(?, artist),
                 artist_id=coalesce(?, artist_id),
                 artist_url=coalesce(?, artist_url),
+                artists_json=coalesce(?, artists_json),
                 url=coalesce(?, url),
                 storefronts=?,
                 release_date=coalesce(?, release_date),
@@ -154,6 +158,7 @@ def upsert_album(data: dict):
                 data.get("artist"),
                 data.get("artist_id"),
                 data.get("artist_url"),
+                artists_json,
                 data.get("url"),
                 json.dumps(merged),
                 data.get("release_date"),
@@ -242,17 +247,18 @@ def remove_from_watchlist(artist_id: str):
         )
 
 
-def upsert_artist(artist_id: str, artwork_url: str = None, genre: str = None):
+def upsert_artist(artist_id: str, name: str = None, artwork_url: str = None, genre: str = None):
     now = int(time.time())
     with get_conn() as conn:
         conn.execute(
-            """INSERT INTO artists (artist_id, artwork_url, genre, updated_at)
-               VALUES (?, ?, ?, ?)
+            """INSERT INTO artists (artist_id, name, artwork_url, genre, updated_at)
+               VALUES (?, ?, ?, ?, ?)
                ON CONFLICT(artist_id) DO UPDATE SET
+                   name        = coalesce(excluded.name, name),
                    artwork_url = coalesce(excluded.artwork_url, artwork_url),
                    genre       = coalesce(excluded.genre, genre),
                    updated_at  = excluded.updated_at""",
-            (artist_id, artwork_url, genre, now),
+            (artist_id, name, artwork_url, genre, now),
         )
 
 
@@ -267,7 +273,7 @@ def get_artist_artwork(artist_id: str):
 def get_artist_info(artist_id: str):
     with get_conn() as conn:
         row = conn.execute(
-            "SELECT artwork_url, genre FROM artists WHERE artist_id = ?", (artist_id,)
+            "SELECT name, artwork_url, genre FROM artists WHERE artist_id = ?", (artist_id,)
         ).fetchone()
         return dict(row) if row else {}
 

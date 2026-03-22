@@ -90,6 +90,16 @@ MIGRATIONS = {
         ALTER TABLE watched_artists ADD COLUMN preferred_source TEXT;
         ALTER TABLE watched_artists ADD COLUMN last_refreshed INTEGER;
     """,
+
+    7: """
+        -- Version 7: add canonical artist name to artists table.
+        ALTER TABLE artists ADD COLUMN name TEXT;
+    """,
+
+    8: """
+        -- Version 8: store all artists for an album as a JSON array of {id, name, url} objects.
+        ALTER TABLE albums ADD COLUMN artists_json TEXT;
+    """,
 }
 
 

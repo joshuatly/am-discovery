@@ -123,6 +123,7 @@ def _do_poll():
                 "description": info.get("description"),
                 "artist_id": info.get("artist_id"),
                 "artist_url": info.get("artist_url"),
+                "artists_json": info.get("artists"),
                 "audio_formats": info.get("audio_formats"),
                 "info_fetched": 1,
                 "source": "discovered",
@@ -215,7 +216,7 @@ def _do_watchlist_poll():
 
             try:
                 releases, artist_info = client.get_artist_all_releases(artist_url, storefront)
-                db.upsert_artist(artist_id, artwork_url=artist_info.get("artwork_url"), genre=artist_info.get("genre"))
+                db.upsert_artist(artist_id, name=artist_info.get("name"), artwork_url=artist_info.get("artwork_url"), genre=artist_info.get("genre"))
 
                 def fetch_one(r):
                     aid = r["storeAdamID"]
@@ -233,6 +234,7 @@ def _do_watchlist_poll():
                         "description": info.get("description"),
                         "artist_id": info.get("artist_id") or artist_id,
                         "artist_url": info.get("artist_url"),
+                        "artists_json": info.get("artists"),
                         "audio_formats": info.get("audio_formats"),
                         "release_type": r.get("release_type"),
                         "info_fetched": 1,
@@ -278,11 +280,13 @@ def _schedule_watchlist_next(override_delay=None):
 # ---------------------------------------------------------------------------
 
 def _serialize(row: dict) -> dict:
-    """Ensure storefronts and audio_formats are lists (stored as JSON strings in SQLite)."""
+    """Ensure storefronts, audio_formats, and artists_json are lists (stored as JSON strings in SQLite)."""
     if isinstance(row.get("storefronts"), str):
         row["storefronts"] = json.loads(row["storefronts"])
     if isinstance(row.get("audio_formats"), str):
         row["audio_formats"] = json.loads(row["audio_formats"])
+    if isinstance(row.get("artists_json"), str):
+        row["artists_json"] = json.loads(row["artists_json"])
     return row
 
 
@@ -443,8 +447,8 @@ def api_artist_fetch(artist_id):
     if not releases:
         return jsonify({"ok": True, "fetched": 0, "message": "No releases found on artist page"})
 
-    # Cache artist metadata (artwork, genre) for any artist that gets fetched
-    db.upsert_artist(artist_id, artwork_url=artist_info.get("artwork_url"), genre=artist_info.get("genre"))
+    # Cache artist metadata (name, artwork, genre) for any artist that gets fetched
+    db.upsert_artist(artist_id, name=artist_info.get("name"), artwork_url=artist_info.get("artwork_url"), genre=artist_info.get("genre"))
 
     def fetch_one(r):
         aid = r["storeAdamID"]
@@ -463,6 +467,7 @@ def api_artist_fetch(artist_id):
             "description": info.get("description"),
             "artist_id": info.get("artist_id") or artist_id,
             "artist_url": info.get("artist_url"),
+            "artists_json": info.get("artists"),
             "audio_formats": info.get("audio_formats"),
             "release_type": r.get("release_type"),
             "info_fetched": 1,
@@ -499,16 +504,11 @@ def api_artist_releases(artist_id):
     watched_ids = db.get_watched_artist_ids()
     result = [_serialize(r) for r in rows]
     watched = artist_id in watched_ids
-    # Pick the first non-year artist name (years like "1997" are bad data from parsing)
-    artist_name = next(
-        (r["artist"] for r in result if r.get("artist") and not re.match(r'^\d{4}$', r["artist"])),
-        result[0]["artist"] if result else None,
-    )
     artist_url = next((r.get("artist_url") for r in result if r.get("artist_url")), None)
     artist_info = db.get_artist_info(artist_id)
     return jsonify({
         "artist_id": artist_id,
-        "artist_name": artist_name,
+        "artist_name": artist_info.get("name"),
         "artist_url": artist_url,
         "artist_artwork_url": artist_info.get("artwork_url"),
         "artist_genre": artist_info.get("genre"),

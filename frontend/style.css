@@ -400,6 +400,8 @@ body {
   cursor: pointer;
 }
 .album-artist:hover { text-decoration: underline; }
+.album-artist.multi { color: var(--text-dim); cursor: default; font-weight: normal; }
+.album-artist.multi:hover { text-decoration: none; }
 
 .album-meta {
   display: flex;
@@ -769,6 +771,15 @@ body {
   display: inline-block;
 }
 .modal-artist:hover { text-decoration: underline; }
+.modal-artist.multi { color: var(--text-dim); cursor: default; font-weight: normal; }
+.modal-artist.multi:hover { text-decoration: none; }
+
+.artist-link {
+  color: var(--accent);
+  font-weight: 500;
+  cursor: pointer;
+}
+.artist-link:hover { text-decoration: underline; }
 .modal-tags {
   display: flex;
   gap: 8px;

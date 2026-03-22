@@ -215,6 +215,44 @@ class TestUpsertAlbum(DBTestCase):
         row = self.db.get_album("123456")
         self.assertEqual(row["info_fetched"], 1)
 
+    def test_artists_json_stored_as_json_string(self):
+        """artists_json is serialized to a JSON string in the DB."""
+        artists = [{
+            "id": "A1", "name": "Artist One",
+            "url": "https://music.apple.com/us/artist/1",
+            "artwork_url": "https://example.com/art.jpg",
+            "genre": "Pop",
+        }]
+        self.db.upsert_album(_minimal_album(artists_json=artists))
+        row = self.db.get_album("123456")
+        parsed = json.loads(row["artists_json"])
+        self.assertEqual(len(parsed), 1)
+        self.assertEqual(parsed[0]["id"], "A1")
+        self.assertEqual(parsed[0]["name"], "Artist One")
+        self.assertEqual(parsed[0]["artwork_url"], "https://example.com/art.jpg")
+        self.assertEqual(parsed[0]["genre"], "Pop")
+
+    def test_artists_json_multiple_artists(self):
+        """artists_json stores all artists for a collab album."""
+        artists = [
+            {"id": "A1", "name": "Artist One", "url": "https://music.apple.com/us/artist/1"},
+            {"id": "A2", "name": "Artist Two", "url": "https://music.apple.com/us/artist/2"},
+        ]
+        self.db.upsert_album(_minimal_album(artists_json=artists))
+        row = self.db.get_album("123456")
+        parsed = json.loads(row["artists_json"])
+        self.assertEqual(len(parsed), 2)
+        self.assertEqual(parsed[1]["id"], "A2")
+
+    def test_artists_json_coalesce_does_not_overwrite_with_none(self):
+        """artists_json=None in an upsert should not overwrite existing value."""
+        artists = [{"id": "A1", "name": "Artist One", "url": None}]
+        self.db.upsert_album(_minimal_album(artists_json=artists))
+        self.db.upsert_album(_minimal_album(artists_json=None))
+        row = self.db.get_album("123456")
+        parsed = json.loads(row["artists_json"])
+        self.assertEqual(parsed[0]["id"], "A1")
+
     def test_coalesce_does_not_overwrite_with_none(self):
         """Fields set to None in an upsert should not overwrite existing values."""
         self.db.upsert_album(_minimal_album(genre="Pop"))
@@ -471,8 +509,9 @@ class TestWatchlist(DBTestCase):
 class TestArtist(DBTestCase):
 
     def test_upsert_and_get_artist_info(self):
-        self.db.upsert_artist("ART1", artwork_url="https://art.jpg", genre="Pop")
+        self.db.upsert_artist("ART1", name="Jay Chou", artwork_url="https://art.jpg", genre="Pop")
         info = self.db.get_artist_info("ART1")
+        self.assertEqual(info["name"], "Jay Chou")
         self.assertEqual(info["artwork_url"], "https://art.jpg")
         self.assertEqual(info["genre"], "Pop")
 
@@ -487,10 +526,11 @@ class TestArtist(DBTestCase):
         self.assertEqual(info["artwork_url"], "https://new.jpg")
 
     def test_upsert_artist_coalesce_none(self):
-        """Upserting with None artwork should not overwrite existing value."""
-        self.db.upsert_artist("ART1", artwork_url="https://art.jpg")
-        self.db.upsert_artist("ART1", artwork_url=None)
+        """Upserting with None values should not overwrite existing values."""
+        self.db.upsert_artist("ART1", name="Jay Chou", artwork_url="https://art.jpg")
+        self.db.upsert_artist("ART1", name=None, artwork_url=None)
         info = self.db.get_artist_info("ART1")
+        self.assertEqual(info["name"], "Jay Chou")
         self.assertEqual(info["artwork_url"], "https://art.jpg")
 
     def test_get_artist_artwork(self):
