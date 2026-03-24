@@ -411,7 +411,7 @@ class TestGetRoomNewReleases(unittest.TestCase):
     @patch.object(AppleMusicClient, "_web_get")
     def test_extracts_releases_from_new_section(self, mock_web_get):
         sections = [{
-            "header": "New in Music",
+            "header": "New Releases",
             "items": [{
                 "item": {
                     "attributes": {

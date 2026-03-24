@@ -33,7 +33,7 @@ uv sync
 **First-time setup:**
 ```bash
 cp config.json.example config.json
-# Edit config.json with your rooms and settings
+# Edit config.json with your storefronts and settings
 ```
 
 **Start the server:**
@@ -96,10 +96,9 @@ AM_DB_PATH=/path/to/custom.db uv run python server.py
 
 | Key | Type | Description |
 |-----|------|-------------|
-| `rooms` | object | Map of storefront code → Apple Music Room URL to poll |
-| `check_storefronts` | array | Storefronts to check for album availability |
+| `check_storefronts` | array | Storefronts to poll for new releases and check availability |
 | `home_storefront` | string | Default storefront for metadata lookups |
-| `poll_interval_minutes` | integer | How often to poll rooms (default: 60) |
+| `newrelease_poll_interval_days` | integer | How often to poll for new releases (default: 1) |
 | `cors_proxy` | string | Optional URL prefix for proxying requests |
 
 The config is live-reloaded on every poll, so changes take effect on the next cycle without restarting.

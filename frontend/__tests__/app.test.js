@@ -624,7 +624,7 @@ describe("API helper", () => {
       ok: true,
       json: () => Promise.resolve({ ok: true }),
     });
-    await appWindow.__test_API.put("/api/config", { poll_interval_minutes: 30 });
+    await appWindow.__test_API.put("/api/config", { newrelease_poll_interval_days: 1 });
     const [, opts] = appWindow.fetch.mock.calls[0];
     expect(opts.method).toBe("PUT");
   });

@@ -521,13 +521,12 @@ class TestApiConfig(ServerTestCase):
         resp = self.client.get("/api/config")
         self.assertEqual(resp.status_code, 200)
         data = resp.get_json()
-        self.assertIn("poll_interval_minutes", data)
-        self.assertIn("rooms", data)
+        self.assertIn("newrelease_poll_interval_days", data)
         self.assertIn("check_storefronts", data)
 
     @patch("server._schedule_next")
     def test_put_config_saves_and_reschedules(self, mock_schedule):
-        new_cfg = {"poll_interval_minutes": 30, "rooms": {}, "check_storefronts": ["us"]}
+        new_cfg = {"newrelease_poll_interval_days": 1, "check_storefronts": ["us"]}
         resp = self.client.put(
             "/api/config",
             data=json.dumps(new_cfg),
@@ -539,7 +538,7 @@ class TestApiConfig(ServerTestCase):
 
     @patch("server._schedule_next")
     def test_put_config_persists(self, mock_schedule):
-        new_cfg = {"poll_interval_minutes": 15, "rooms": {"us": "https://music.apple.com/us/room/123"}, "check_storefronts": ["us"]}
+        new_cfg = {"newrelease_poll_interval_days": 2, "check_storefronts": ["us"]}
         self.client.put(
             "/api/config",
             data=json.dumps(new_cfg),
@@ -547,7 +546,7 @@ class TestApiConfig(ServerTestCase):
         )
         resp = self.client.get("/api/config")
         data = resp.get_json()
-        self.assertEqual(data["poll_interval_minutes"], 15)
+        self.assertEqual(data["newrelease_poll_interval_days"], 2)
 
 
 # ---------------------------------------------------------------------------
@@ -593,7 +592,7 @@ class TestApiStatus(ServerTestCase):
         self.assertIn("last_run", data)
         self.assertIn("next_run_at", data)
         self.assertIn("is_running", data)
-        self.assertIn("poll_interval_minutes", data)
+        self.assertIn("newrelease_poll_interval_days", data)
         self.assertIn("total_albums", data)
 
     @patch("server.db")
@@ -791,14 +790,14 @@ class TestFrontendServing(ServerTestCase):
         # What it must NOT do is return a 200 with config.json contents from the project root.
         if resp.status_code == 200:
             body = resp.data.decode(errors="replace")
-            self.assertNotIn("poll_interval_minutes", body)
+            self.assertNotIn("newrelease_poll_interval_days", body)
 
     def test_path_traversal_encoded_rejected(self):
         """URL-encoded traversal sequences must not expose files outside frontend dir."""
         resp = self.client.get("/..%2Fconfig.json")
         if resp.status_code == 200:
             body = resp.data.decode(errors="replace")
-            self.assertNotIn("poll_interval_minutes", body)
+            self.assertNotIn("newrelease_poll_interval_days", body)
 
 
 # ---------------------------------------------------------------------------
@@ -810,24 +809,21 @@ class TestConfigHelpers(ServerTestCase):
     def test_load_config_returns_defaults_when_no_file(self):
         import server
         cfg = server.load_config()
-        self.assertEqual(cfg["poll_interval_minutes"], 60)
-        self.assertEqual(cfg["rooms"], {})
+        self.assertEqual(cfg["newrelease_poll_interval_days"], 1)
         self.assertIsInstance(cfg["check_storefronts"], list)
 
     def test_save_and_load_config(self):
         import server
-        custom = {"poll_interval_minutes": 30, "rooms": {"us": "https://music.apple.com/us/room/123"}}
+        custom = {"newrelease_poll_interval_days": 3, "check_storefronts": ["us"]}
         server.save_config(custom)
         loaded = server.load_config()
-        self.assertEqual(loaded["poll_interval_minutes"], 30)
+        self.assertEqual(loaded["newrelease_poll_interval_days"], 3)
 
     def test_load_config_merges_defaults(self):
         """Config on disk should be merged with defaults (missing keys filled in)."""
         import server
-        server.save_config({"poll_interval_minutes": 120})
+        server.save_config({"newrelease_poll_interval_days": 2})
         loaded = server.load_config()
-        # 'rooms' should still be present from defaults
-        self.assertIn("rooms", loaded)
         self.assertIn("check_storefronts", loaded)
 
 

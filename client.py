@@ -215,6 +215,75 @@ class AppleMusicClient:
         return result
 
 
+    _NEW_RELEASE_TITLES = ['new release', 'new releases', '新發行', 'ニューリリース', 'Rilisan Baru', 'keluaran baharu']
+
+    def discover_room_url(self, storefront):
+        """Discover the New Release room URL from the /{storefront}/new page.
+
+        Returns the full room URL (e.g. https://music.apple.com/jp/room/6760868920)
+        or None if no matching section is found.
+        """
+        url = f"{_MUSIC_BASE}/{storefront}/new"
+        html = self._web_get(url)
+        if not html:
+            return None
+
+        match = re.search(r'<script type="application/json" id="serialized-server-data">(.*?)</script>', html)
+        if not match:
+            return None
+        data = json.loads(match.group(1))
+
+        try:
+            if isinstance(data, dict) and 'data' in data:
+                content = data['data'][0]['data']
+                sections = content.get('sections', [])
+            elif isinstance(data, list):
+                content = data[0]['data']['data'][0]['data']
+                sections = content.get('sections', [])
+            else:
+                sections = []
+        except Exception as e:
+            logger.warning("Error extracting sections for room discovery: %s %s", type(e), e)
+            return None
+
+        for sec in sections:
+            title = sec.get('header', '')
+            room_url = None
+
+            if isinstance(title, dict):
+                title_link = title.get('item', {}).get('titleLink', {})
+                title_text = title_link.get('title', '')
+                link_url = title_link.get('url', '')
+                if link_url:
+                    room_url = f"{_MUSIC_BASE}{link_url}" if link_url.startswith('/') else link_url
+            elif not title and 'dictionary' in sec and 'title' in sec['dictionary']:
+                title_text = sec['dictionary']['title']
+            else:
+                title_text = title if isinstance(title, str) else str(title)
+
+            title_lower = title_text.lower() if isinstance(title_text, str) else ''
+            if any(t in title_lower for t in self._NEW_RELEASE_TITLES):
+                if room_url:
+                    logger.info("[%s] Discovered new release room: %s", storefront.upper(), room_url)
+                    return room_url
+                else:
+                    logger.error("[%s] Found new release section '%s' but no room URL", storefront.upper(), title_text)
+                    return None
+
+        logger.error("[%s] No new release section found on /new page", storefront.upper())
+        return None
+
+    def discover_new_releases(self, storefront):
+        """Discover new releases from the /{storefront}/new browse page.
+
+        Discovers the room URL from the /new page, then fetches releases from that room.
+        Returns an empty list if no room URL is found.
+        """
+        room_url = self.discover_room_url(storefront)
+        if not room_url:
+            return []
+        return self.get_room_new_releases(room_url, storefront)
+
     def get_room_new_releases(self, url, storefront):
         html = self._web_get(url)
         if not html:
@@ -255,7 +324,7 @@ class AppleMusicClient:
             logger.debug("Checking section: %s", title)
 
             title_lower = title.lower() if isinstance(title, str) else str(title).lower()
-            if any(kw in title_lower for kw in ['new', '新', 'release', 'terbaru', '最新', 'リリース']):
+            if any(t in title_lower for t in self._NEW_RELEASE_TITLES):
                 items = sec.get('items', [])
                 for item in items:
                     actual_item = item.get('item', item)

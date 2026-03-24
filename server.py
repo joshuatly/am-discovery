@@ -44,8 +44,7 @@ swagger = Swagger(app)
 
 def load_config() -> dict:
     defaults = {
-        "poll_interval_minutes": 60,
-        "rooms": {},
+        "newrelease_poll_interval_days": 1,
         "check_storefronts": ["jp", "tw", "my", "hk", "sg"],
         "home_storefront": "my",
         "watchlist_poll_interval_minutes": 10,
@@ -78,13 +77,13 @@ def _do_poll():
     _is_running = True
     try:
         cfg = load_config()
-        rooms: dict = cfg.get("rooms", {})
+        storefronts = cfg.get("check_storefronts", [])
         client = AppleMusicClient()
 
-        # 1. Fetch all room releases
+        # 1. Discover new releases from each storefront's /new page
         all_releases: dict[str, dict] = {}
-        for sf, url in rooms.items():
-            rels = client.get_room_new_releases(url, sf)
+        for sf in storefronts:
+            rels = client.discover_new_releases(sf)
             logger.info("[Poll] [%s] %d releases", sf.upper(), len(rels))
             for r in rels:
                 aid = r["storeAdamID"]
@@ -160,7 +159,7 @@ def _do_poll():
 def _schedule_next(override_delay=None):
     global _next_run_at, _poll_timer
     cfg = load_config()
-    interval_sec = cfg.get("poll_interval_minutes", 60) * 60
+    interval_sec = cfg.get("newrelease_poll_interval_days", 1) * 86400
     delay = override_delay if override_delay is not None else interval_sec
     _next_run_at = time.time() + delay
     with _scheduler_lock:
@@ -801,7 +800,7 @@ def api_status():
         "last_run": last,
         "next_run_at": next_dt,
         "is_running": _is_running,
-        "poll_interval_minutes": cfg.get("poll_interval_minutes"),
+        "newrelease_poll_interval_days": cfg.get("newrelease_poll_interval_days"),
         "total_albums": total,
         "watchlist_poll_running": _watchlist_running,
         "watchlist_poll_interval_minutes": cfg.get("watchlist_poll_interval_minutes"),
@@ -844,8 +843,8 @@ def main():
     db.init_db()
 
     cfg = load_config()
-    interval_sec = cfg.get("poll_interval_minutes", 60) * 60
-    
+    interval_sec = cfg.get("newrelease_poll_interval_days", 1) * 86400
+
     last_run = db.get_last_run()
     should_poll_now = True
     delay = interval_sec

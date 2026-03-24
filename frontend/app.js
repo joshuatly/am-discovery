@@ -154,7 +154,7 @@ const state = {
   currentStorefront: "",
   perPage: 48,
   configuredStorefronts: null,
-  configuredRooms: null,
+  discoveryStorefronts: null,
   metadataStorefront: localStorage.getItem("metadataStorefront") || "",
   alwaysIncludeMY: localStorage.getItem("alwaysIncludeMY") === "true",
   homeStorefront: "",
@@ -371,15 +371,15 @@ async function renderNewReleases(main, page = 1, query = "", storefront = "", wa
     try {
       const cfg = await API.get("/api/config");
       state.configuredStorefronts = cfg.check_storefronts || [];
-      state.configuredRooms = Object.keys(cfg.rooms || {});
+      state.discoveryStorefronts = cfg.check_storefronts || [];
     } catch {
       state.configuredStorefronts = [];
-      state.configuredRooms = [];
+      state.discoveryStorefronts = [];
     }
   }
 
-  const sfSubtitle = state.configuredRooms.length
-    ? "Latest albums discovered across " + state.configuredRooms.map(s => s.toUpperCase()).join(" · ")
+  const sfSubtitle = state.discoveryStorefronts.length
+    ? "Latest albums discovered across " + state.discoveryStorefronts.map(s => s.toUpperCase()).join(" · ")
     : "Latest albums discovered";
 
   // Skeleton
@@ -1088,30 +1088,14 @@ async function renderSettings(main) {
   pollGroup.style.display = "flex";
   pollGroup.style.flexDirection = "column";
   pollGroup.style.gap = "8px";
-  const pollLabel = el("label", "", "Poll Interval (minutes)");
+  const pollLabel = el("label", "", "New Release Poll Interval (days)");
   pollLabel.style.fontWeight = "600";
   pollGroup.appendChild(pollLabel);
   const pollInput = el("input", "search-input");
   pollInput.type = "number";
-  pollInput.value = cfg.poll_interval_minutes || 60;
+  pollInput.value = cfg.newrelease_poll_interval_days || 1;
   pollGroup.appendChild(pollInput);
   form.appendChild(pollGroup);
-
-  // Rooms
-  const roomsGroup = el("div");
-  roomsGroup.style.display = "flex";
-  roomsGroup.style.flexDirection = "column";
-  roomsGroup.style.gap = "8px";
-  const roomsLabel = el("label", "", "Rooms Configuration (JSON)");
-  roomsLabel.style.fontWeight = "600";
-  roomsGroup.appendChild(roomsLabel);
-  const roomsInput = el("textarea", "search-input");
-  roomsInput.style.fontFamily = "monospace";
-  roomsInput.style.minHeight = "200px";
-  roomsInput.style.resize = "vertical";
-  roomsInput.value = JSON.stringify(cfg.rooms || {}, null, 2);
-  roomsGroup.appendChild(roomsInput);
-  form.appendChild(roomsGroup);
 
   const errorMsg = el("div", "");
   errorMsg.style.color = "red";
@@ -1129,14 +1113,11 @@ async function renderSettings(main) {
       const parsedSfs = sfsInput.value.split(",").map(s => s.trim().toLowerCase()).filter(s => s);
       const parsedHome = homeInput.value.trim().toLowerCase();
       const parsedPoll = parseInt(pollInput.value, 10);
-      const parsedRooms = JSON.parse(roomsInput.value);
-
       const newCfg = {
         ...cfg,
         check_storefronts: parsedSfs,
         home_storefront: parsedHome || "my",
-        poll_interval_minutes: isNaN(parsedPoll) ? 60 : parsedPoll,
-        rooms: parsedRooms
+        newrelease_poll_interval_days: isNaN(parsedPoll) ? 1 : parsedPoll,
       };
 
       await API.put("/api/config", newCfg);
