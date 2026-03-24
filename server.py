@@ -70,10 +70,11 @@ _scheduler_lock = threading.Lock()
 _next_run_at: float = 0.0
 _poll_timer: threading.Timer | None = None
 _is_running = False
+_last_room_errors: list[str] = []
 
 
 def _do_poll():
-    global _next_run_at, _is_running
+    global _next_run_at, _is_running, _last_room_errors
     _is_running = True
     try:
         cfg = load_config()
@@ -82,8 +83,14 @@ def _do_poll():
 
         # 1. Discover new releases from each storefront's /new page
         all_releases: dict[str, dict] = {}
+        room_errors = []
         for sf in storefronts:
-            rels = client.discover_new_releases(sf)
+            room_url = client.discover_room_url(sf)
+            if not room_url:
+                room_errors.append(sf)
+                rels = []
+            else:
+                rels = client.get_room_new_releases(room_url, sf)
             logger.info("[Poll] [%s] %d releases", sf.upper(), len(rels))
             for r in rels:
                 aid = r["storeAdamID"]
@@ -92,6 +99,7 @@ def _do_poll():
                         all_releases[aid]["storefronts"].append(sf)
                 else:
                     all_releases[aid] = r
+        _last_room_errors = room_errors
 
         # 2. Separate new (need full info fetch) vs known (skip fetch)
         new_ids = []
@@ -804,6 +812,7 @@ def api_status():
         "total_albums": total,
         "watchlist_poll_running": _watchlist_running,
         "watchlist_poll_interval_minutes": cfg.get("watchlist_poll_interval_minutes"),
+        "room_errors": _last_room_errors,
     })
 
 

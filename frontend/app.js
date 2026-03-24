@@ -170,12 +170,29 @@ async function refreshStatus() {
     const s = await API.get("/api/status");
     const dot = $("status-dot");
     const val = $("status-last-run");
+    const roomErrors = s.room_errors || [];
     if (s.is_running) {
       dot.className = "status-dot spin";
       val.textContent = "Scanning…";
+    } else if (roomErrors.length > 0) {
+      dot.className = "status-dot warn";
+      val.textContent = s.last_run ? timeAgo(s.last_run.ran_at) : "never";
     } else {
       dot.className = "status-dot ok";
       val.textContent = s.last_run ? timeAgo(s.last_run.ran_at) : "never";
+    }
+    let warn = $("status-room-errors");
+    if (roomErrors.length > 0) {
+      if (!warn) {
+        warn = document.createElement("div");
+        warn.id = "status-room-errors";
+        warn.className = "status-room-errors";
+        $("status-card").insertAdjacentElement("afterend", warn);
+      }
+      const sfList = roomErrors.map(sf => sf.toUpperCase()).join(", ");
+      warn.textContent = `⚠ Room fetch failed: ${sfList}`;
+    } else if (warn) {
+      warn.remove();
     }
   } catch {}
 }
@@ -227,10 +244,25 @@ function updateFetchArtistBtn() {
   fetchBtn.textContent = sf ? `↓ Fetch from ${sf.toUpperCase()}` : "↓ Fetch All";
 }
 
+function updateSrcBadge() {
+  const badge = $("sidebar-src-badge");
+  if (!badge) return;
+  const sf = state.metadataStorefront;
+  const home = state.homeStorefront;
+  const showHome = state.alwaysIncludeMY && sf && home && sf !== home;
+  if (sf && showHome) {
+    badge.innerHTML = `${sf.toUpperCase()}<span class="badge-home">+${home.toUpperCase()}</span>`;
+  } else {
+    badge.textContent = sf ? sf.toUpperCase() : "—";
+  }
+  badge.className = `sidebar-src-badge${sf ? ` ${sf}` : ""}`;
+}
+
 function renderMetaSourceWidget() {
   const chips = $("meta-source-chips");
   if (!chips) return;
   chips.innerHTML = "";
+  updateSrcBadge();
 
   const storefronts = state.configuredStorefronts || [];
 
@@ -1563,6 +1595,22 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // Metadata source widget
   initMetaSourceWidget();
+
+  // Sidebar expand/collapse for small screens
+  function expandSidebar() {
+    $("sidebar").classList.add("expanded");
+    $("sidebar-backdrop").classList.add("active");
+  }
+  function collapseSidebar() {
+    $("sidebar").classList.remove("expanded");
+    $("sidebar-backdrop").classList.remove("active");
+  }
+  $("sidebar-expand-btn").addEventListener("click", () => {
+    $("sidebar").classList.contains("expanded") ? collapseSidebar() : expandSidebar();
+  });
+  $("sidebar-src-badge").addEventListener("click", expandSidebar);
+  $("status-card").addEventListener("click", expandSidebar);
+  $("sidebar-backdrop").addEventListener("click", collapseSidebar);
 
   // Initial status poll
   refreshStatus();

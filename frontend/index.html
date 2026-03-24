@@ -14,7 +14,7 @@
   <!-- Sidebar -->
   <nav class="sidebar" id="sidebar">
     <div class="sidebar-header">
-      <div class="app-logo">
+      <div class="app-logo" id="sidebar-expand-btn" title="Expand sidebar">
         <span class="logo-icon">♫</span>
         <span class="logo-text">AM Discovery</span>
       </div>
@@ -22,20 +22,21 @@
 
     <ul class="nav-list">
       <li><a href="#/" class="nav-link" id="nav-releases" data-page="releases">
-        <span class="nav-icon">🎵</span> New Releases
+        <span class="nav-icon">🎵</span><span class="nav-label">New Releases</span>
       </a></li>
       <li><a href="#/all" class="nav-link" id="nav-all" data-page="all">
-        <span class="nav-icon">📀</span> All Albums
+        <span class="nav-icon">📀</span><span class="nav-label">All Albums</span>
       </a></li>
       <li><a href="#/watchlist" class="nav-link" id="nav-watchlist" data-page="watchlist">
-        <span class="nav-icon">⭐</span> Artist Watchlist
+        <span class="nav-icon">⭐</span><span class="nav-label">Artist Watchlist</span>
       </a></li>
       <li><a href="#/settings" class="nav-link" id="nav-settings" data-page="settings">
-        <span class="nav-icon">⚙️</span> Settings
+        <span class="nav-icon">⚙️</span><span class="nav-label">Settings</span>
       </a></li>
     </ul>
 
     <div class="sidebar-footer">
+      <button class="sidebar-src-badge" id="sidebar-src-badge" title="Metadata source — click to expand"></button>
       <div class="meta-source-card" id="meta-source-card">
         <div class="meta-source-label">Metadata source</div>
         <div class="meta-source-chips" id="meta-source-chips"></div>
@@ -48,10 +49,12 @@
         </div>
       </div>
       <button class="btn-refresh" id="btn-refresh" title="Refresh now">
-        <span class="refresh-icon">↻</span> Refresh
+        <span class="refresh-icon">↻</span><span class="btn-label"> Refresh</span>
       </button>
     </div>
   </nav>
+
+  <div id="sidebar-backdrop"></div>
 
   <!-- Main content -->
   <main class="main-content" id="main-content">

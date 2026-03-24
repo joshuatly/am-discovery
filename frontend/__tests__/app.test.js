@@ -32,8 +32,10 @@ beforeAll(() => {
     <a class="nav-link" data-page="settings" href="#/settings">Settings</a>
   </nav>
   <main id="main-content"></main>
-  <div id="status-dot"></div>
-  <div id="status-last-run"></div>
+  <div id="status-card">
+    <div id="status-dot"></div>
+    <div class="status-info"><div id="status-last-run"></div></div>
+  </div>
   <button id="btn-refresh"></button>
   <div id="meta-source-chips"></div>
 </body>
@@ -72,6 +74,7 @@ beforeAll(() => {
     window.__test_API                 = API;
     window.__test_el                  = el;
     window.__test_dollar              = $;
+    window.__test_refreshStatus       = refreshStatus;
   `;
   appWindow.document.head.appendChild(exposeScript);
 });
@@ -1020,5 +1023,64 @@ describe("insertAdjacentHTML preserves existing event listeners", () => {
     // The button node is untouched — listener still works
     div.querySelector("button").click();
     expect(clicked).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// refreshStatus — room error warning
+// ---------------------------------------------------------------------------
+
+describe("refreshStatus room errors", () => {
+  beforeEach(() => {
+    appWindow.document.getElementById("status-room-errors")?.remove();
+  });
+
+  test("shows warning element when room_errors is non-empty", async () => {
+    appWindow.fetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({
+        is_running: false,
+        last_run: null,
+        room_errors: ["hk", "jp"],
+      }),
+    });
+    await appWindow.__test_refreshStatus();
+    const warn = appWindow.document.getElementById("status-room-errors");
+    expect(warn).not.toBeNull();
+    expect(warn.textContent).toContain("HK");
+    expect(warn.textContent).toContain("JP");
+    // warning element should be placed after status-card, not inside it
+    const card = appWindow.document.getElementById("status-card");
+    expect(warn.parentElement).toBe(card.parentElement);
+    // status dot should have warn class
+    const dot = appWindow.document.getElementById("status-dot");
+    expect(dot.className).toContain("warn");
+  });
+
+  test("removes warning element when room_errors is empty", async () => {
+    // First call creates the warning
+    appWindow.fetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({ is_running: false, last_run: null, room_errors: ["hk"] }),
+    });
+    await appWindow.__test_refreshStatus();
+    expect(appWindow.document.getElementById("status-room-errors")).not.toBeNull();
+
+    // Second call clears it
+    appWindow.fetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({ is_running: false, last_run: null, room_errors: [] }),
+    });
+    await appWindow.__test_refreshStatus();
+    expect(appWindow.document.getElementById("status-room-errors")).toBeNull();
+  });
+
+  test("no warning element when room_errors absent", async () => {
+    appWindow.fetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({ is_running: false, last_run: null }),
+    });
+    await appWindow.__test_refreshStatus();
+    expect(appWindow.document.getElementById("status-room-errors")).toBeNull();
   });
 });

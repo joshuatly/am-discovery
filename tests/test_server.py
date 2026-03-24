@@ -614,6 +614,27 @@ class TestApiStatus(ServerTestCase):
         data = resp.get_json()
         self.assertEqual(data["total_albums"], 42)
 
+    @patch("server.db")
+    def test_room_errors_included(self, mock_db):
+        mock_db.get_last_run.return_value = None
+        mock_db.list_albums.return_value = ([], 0)
+
+        import server
+        server._last_room_errors = ["hk", "jp"]
+        resp = self.client.get("/api/status")
+        data = resp.get_json()
+        self.assertEqual(data["room_errors"], ["hk", "jp"])
+        server._last_room_errors = []
+
+    @patch("server.db")
+    def test_room_errors_empty_by_default(self, mock_db):
+        mock_db.get_last_run.return_value = None
+        mock_db.list_albums.return_value = ([], 0)
+
+        resp = self.client.get("/api/status")
+        data = resp.get_json()
+        self.assertEqual(data["room_errors"], [])
+
 
 # ---------------------------------------------------------------------------
 # GET /api/artists/<artist_id>/releases
