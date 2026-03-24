@@ -118,7 +118,12 @@ function artworkEl(artworkUrl, cls) {
 }
 
 function placeholderEl(cls) {
-  const d = el("div", cls === "album-artwork" ? "album-artwork-placeholder" : (cls === "modal-artwork" ? "modal-artwork-placeholder" : "album-artwork-placeholder"));
+  const d = el("div",
+    cls === "album-artwork"       ? "album-artwork-placeholder" :
+    cls === "modal-artwork"       ? "modal-artwork-placeholder" :
+    cls === "modal-artwork-thumb" ? "modal-artwork-thumb-placeholder" :
+    "album-artwork-placeholder"
+  );
   d.textContent = "♫";
   return d;
 }
@@ -1319,22 +1324,65 @@ async function openModal(storeAdamId) {
 
   body.innerHTML = "";
 
-  // Artwork
-  body.appendChild(artworkEl(album.artwork_url, "modal-artwork"));
+  // Modal header: thumbnail + title/artist info side-by-side
+  const header = el("div", "modal-header");
+  const thumb = artworkEl(album.artwork_url, "modal-artwork-thumb");
+  if (album.artwork_url) {
+    thumb.title = "Click to view full size";
+    thumb.addEventListener("click", (e) => { e.stopPropagation(); showImageLightbox(album.artwork_url); });
+  }
+  header.appendChild(thumb);
 
-  const details = el("div", "modal-details");
-
+  const headerInfo = el("div", "modal-header-info");
   const title = el("h2", "modal-title", album.title || "—");
-  details.appendChild(title);
+  headerInfo.appendChild(title);
 
   if (album._metaSf) {
     const sfBadge = el("div", "modal-meta-sf-badge");
     sfBadge.innerHTML = `<span class="sf-chip ${album._metaSf}">${album._metaSf.toUpperCase()}</span> metadata`;
-    details.appendChild(sfBadge);
+    headerInfo.appendChild(sfBadge);
   }
 
   if (album.artist || (Array.isArray(album.artists_json) && album.artists_json.length)) {
-    details.appendChild(makeArtistLinks(album, "modal-artist", closeModal));
+    headerInfo.appendChild(makeArtistLinks(album, "modal-artist", closeModal));
+  }
+
+  if (album.artist_id) {
+    const headerActions = el("div", "modal-header-actions");
+
+    const artBtn = el("button", "btn-header-action", "View Artist →");
+    artBtn.addEventListener("click", () => { closeModal(); location.hash = `#/artist/${album.artist_id}`; });
+    headerActions.appendChild(artBtn);
+
+    const isWatched = state.watchedIds.has(album.artist_id);
+    const watchBtn = el("button", `btn-header-action${isWatched ? " watching" : ""}`, isWatched ? "⭐ Watching" : "☆ Watch");
+    watchBtn.addEventListener("click", async () => {
+      const ps = state.metadataStorefront || state.homeStorefront || null;
+      await toggleWatch(album.artist_id, album.artist, album.artist_url, ps);
+      const w = state.watchedIds.has(album.artist_id);
+      watchBtn.textContent = w ? "⭐ Watching" : "☆ Watch";
+      watchBtn.className = `btn-header-action${w ? " watching" : ""}`;
+    });
+    headerActions.appendChild(watchBtn);
+    headerInfo.appendChild(headerActions);
+  }
+
+  header.appendChild(headerInfo);
+  body.appendChild(header);
+
+  const details = el("div", "modal-details");
+
+  // Compute diff early so the banner can appear before the tags
+  const tracks = album.tracks || [];
+  const myTracks = myAlbumData?.tracks || [];
+  const hasDiff = tracks.length > 0 && myTracks.length > 0 && tracklistsDiffer(tracks, myTracks);
+  const homeForDiff = state.homeStorefront || "my";
+
+  if (hasDiff) {
+    const diffBanner = el("div", "tracklist-diff-banner");
+    const sfLabel = album._metaSf.toUpperCase();
+    diffBanner.innerHTML = `<span class="diff-warn-icon">⚠</span> Track titles differ between <span class="sf-chip ${album._metaSf}">${sfLabel}</span> and <span class="sf-chip ${homeForDiff}">${homeForDiff.toUpperCase()}</span>`;
+    details.appendChild(diffBanner);
   }
 
   // Tags
@@ -1369,9 +1417,19 @@ async function openModal(storeAdamId) {
   const badges = formatBadges(album.audio_formats);
   if (badges) details.appendChild(badges);
 
+  let descExpandBtn = null;
+  let descEl = null;
   if (album.description) {
-    const desc = el("p", "modal-desc", album.description);
-    details.appendChild(desc);
+    descEl = el("p", "modal-desc", album.description);
+    const expandBtn = el("button", "modal-desc-expand", "Show more");
+    expandBtn.style.display = "none";
+    expandBtn.addEventListener("click", () => {
+      const expanded = descEl.classList.toggle("expanded");
+      expandBtn.textContent = expanded ? "Show less" : "Show more";
+    });
+    details.appendChild(descEl);
+    details.appendChild(expandBtn);
+    descExpandBtn = expandBtn;
   }
 
   // Actions
@@ -1430,44 +1488,10 @@ async function openModal(storeAdamId) {
   });
   actions.appendChild(sfCheckBtn);
 
-  if (album.artist_id) {
-    const artBtn = el("button", "btn-secondary", "View Artist →");
-    artBtn.addEventListener("click", () => {
-      closeModal();
-      location.hash = `#/artist/${album.artist_id}`;
-    });
-    actions.appendChild(artBtn);
-  }
-
-  // Watch button in modal
-  const isWatched = state.watchedIds.has(album.artist_id);
-  const watchBtn = el("button", `btn-secondary${isWatched ? " watching" : ""}`, isWatched ? "⭐ Watching" : "☆ Watch Artist");
-  if (album.artist_id) {
-    watchBtn.addEventListener("click", async () => {
-      const ps = state.metadataStorefront || state.homeStorefront || null;
-      await toggleWatch(album.artist_id, album.artist, album.artist_url, ps);
-      const w = state.watchedIds.has(album.artist_id);
-      watchBtn.textContent = w ? "⭐ Watching" : "☆ Watch Artist";
-    });
-    actions.appendChild(watchBtn);
-  }
-
   details.appendChild(actions);
   details.appendChild(sfResultContainer);
 
   // Tracklist
-  const tracks = album.tracks || [];
-  const myTracks = myAlbumData?.tracks || [];
-  const hasDiff = tracks.length > 0 && myTracks.length > 0 && tracklistsDiffer(tracks, myTracks);
-
-  const homeForDiff = state.homeStorefront || "my";
-  if (hasDiff) {
-    const diffBanner = el("div", "tracklist-diff-banner");
-    const sfLabel = album._metaSf.toUpperCase();
-    diffBanner.innerHTML = `<span class="diff-warn-icon">⚠</span> Track titles differ between <span class="sf-chip ${album._metaSf}">${sfLabel}</span> and <span class="sf-chip ${homeForDiff}">${homeForDiff.toUpperCase()}</span>`;
-    details.appendChild(diffBanner);
-  }
-
   if (tracks.length) {
     const tl = el("div", "tracklist");
     const tlHead = el("div", "tracklist-header");
@@ -1517,10 +1541,29 @@ async function openModal(storeAdamId) {
   }
 
   body.appendChild(details);
+
+  // Show the expand button only if the description actually overflows 3 lines
+  if (descExpandBtn && descEl) {
+    requestAnimationFrame(() => {
+      if (descEl.scrollHeight > descEl.clientHeight + 2) {
+        descExpandBtn.style.display = "";
+      }
+    });
+  }
 }
 
 function closeModal() {
   $("modal-overlay").style.display = "none";
+}
+
+function showImageLightbox(url) {
+  const box = el("div", "image-lightbox");
+  const img = document.createElement("img");
+  img.src = url;
+  img.alt = "";
+  box.appendChild(img);
+  box.addEventListener("click", () => box.remove());
+  document.body.appendChild(box);
 }
 
 // ---------------------------------------------------------------------------

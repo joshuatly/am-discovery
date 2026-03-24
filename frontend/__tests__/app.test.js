@@ -492,12 +492,53 @@ describe("placeholderEl", () => {
     expect(appWindow.placeholderEl("modal-artwork").className).toBe("modal-artwork-placeholder");
   });
 
+  test("modal-artwork-thumb class gives modal-artwork-thumb-placeholder", () => {
+    expect(appWindow.placeholderEl("modal-artwork-thumb").className).toBe("modal-artwork-thumb-placeholder");
+  });
+
   test("any other class gives album-artwork-placeholder", () => {
     expect(appWindow.placeholderEl("something-else").className).toBe("album-artwork-placeholder");
   });
 
   test("text content is musical note", () => {
     expect(appWindow.placeholderEl("album-artwork").textContent).toBe("♫");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// showImageLightbox
+// ---------------------------------------------------------------------------
+
+describe("showImageLightbox", () => {
+  afterEach(() => {
+    // Clean up any lightbox appended to body
+    const boxes = appWindow.document.querySelectorAll(".image-lightbox");
+    boxes.forEach(b => b.remove());
+  });
+
+  test("appends an .image-lightbox div to body", () => {
+    appWindow.showImageLightbox("https://example.com/art.jpg");
+    expect(appWindow.document.querySelector(".image-lightbox")).not.toBeNull();
+  });
+
+  test("lightbox contains an img with the given src", () => {
+    appWindow.showImageLightbox("https://example.com/art.jpg");
+    const img = appWindow.document.querySelector(".image-lightbox img");
+    expect(img).not.toBeNull();
+    expect(img.src).toContain("art.jpg");
+  });
+
+  test("clicking the lightbox removes it from the DOM", () => {
+    appWindow.showImageLightbox("https://example.com/art.jpg");
+    const box = appWindow.document.querySelector(".image-lightbox");
+    box.click();
+    expect(appWindow.document.querySelector(".image-lightbox")).toBeNull();
+  });
+
+  test("creates a new lightbox each call", () => {
+    appWindow.showImageLightbox("https://example.com/a.jpg");
+    appWindow.showImageLightbox("https://example.com/b.jpg");
+    expect(appWindow.document.querySelectorAll(".image-lightbox").length).toBe(2);
   });
 });
 
