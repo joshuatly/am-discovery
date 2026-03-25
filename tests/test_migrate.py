@@ -1,5 +1,4 @@
-"""
-Tests for migrate.py — database migration runner.
+"""Tests for migrate.py — database migration runner.
 
 Uses a fake v999 migration injected at test time so tests never depend on
 the current real schema version and don't need to be updated on schema bumps.
@@ -12,10 +11,10 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _get_version(path: str) -> int:
     conn = sqlite3.connect(path)
@@ -40,12 +39,7 @@ def _get_columns(path: str, table: str) -> list:
 
 def _get_tables(path: str) -> list:
     conn = sqlite3.connect(path)
-    tables = [
-        row[0]
-        for row in conn.execute(
-            "SELECT name FROM sqlite_master WHERE type='table'"
-        ).fetchall()
-    ]
+    tables = [row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()]
     conn.close()
     return tables
 
@@ -82,8 +76,8 @@ def _make_db(path: str, version: int, extra_sql: str = ""):
 # get_version / set_version
 # ---------------------------------------------------------------------------
 
-class TestVersionHelpers(unittest.TestCase):
 
+class TestVersionHelpers(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp()
         self.db = os.path.join(self.tmp, "v.db")
@@ -94,12 +88,14 @@ class TestVersionHelpers(unittest.TestCase):
 
     def test_new_db_version_is_zero(self):
         from migrate import get_version
+
         conn = sqlite3.connect(self.db)
         self.assertEqual(get_version(conn), 0)
         conn.close()
 
     def test_set_then_get_roundtrip(self):
         from migrate import get_version, set_version
+
         conn = sqlite3.connect(self.db)
         set_version(conn, 42)
         conn.commit()
@@ -108,6 +104,7 @@ class TestVersionHelpers(unittest.TestCase):
 
     def test_set_version_persists_after_reopen(self):
         from migrate import set_version
+
         conn = sqlite3.connect(self.db)
         set_version(conn, 999)
         conn.commit()
@@ -116,6 +113,7 @@ class TestVersionHelpers(unittest.TestCase):
 
     def test_set_version_overwrites_previous(self):
         from migrate import get_version, set_version
+
         conn = sqlite3.connect(self.db)
         set_version(conn, 10)
         set_version(conn, 999)
@@ -128,8 +126,8 @@ class TestVersionHelpers(unittest.TestCase):
 # run_migrations — error and no-op paths
 # ---------------------------------------------------------------------------
 
-class TestRunMigrationsGuardClauses(unittest.TestCase):
 
+class TestRunMigrationsGuardClauses(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp()
         self.db = os.path.join(self.tmp, "guard.db")
@@ -144,36 +142,54 @@ class TestRunMigrationsGuardClauses(unittest.TestCase):
         missing = self.db + "_does_not_exist"
         with patch("migrate.DB_PATH", missing), patch("sys.exit") as mock_exit:
             from migrate import run_migrations
+
             run_migrations()
         mock_exit.assert_called_with(1)
 
     def test_exits_when_db_newer_than_target(self):
         _make_db(self.db, 999 + 1)  # DB claims to be ahead of v999
-        with self._patch(), \
-             patch("migrate.MIGRATIONS", _FAKE_MIGRATIONS), \
-             patch("migrate.SCHEMA_VERSION", 999), \
-             patch("sys.exit") as mock_exit:
+        with (
+            self._patch(),
+            patch("migrate.MIGRATIONS", _FAKE_MIGRATIONS),
+            patch("migrate.SCHEMA_VERSION", 999),
+            patch("sys.exit") as mock_exit,
+        ):
             from migrate import run_migrations
+
             run_migrations()
         mock_exit.assert_called_with(1)
 
     def test_no_op_when_already_at_target(self):
         # DB is already at 999 — nothing should change.
-        _make_db(self.db, 999, _BASE_SCHEMA + "ALTER TABLE canary ADD COLUMN label TEXT; ALTER TABLE canary ADD COLUMN marker TEXT;")
-        with self._patch(), \
-             patch("migrate.MIGRATIONS", _FAKE_MIGRATIONS), \
-             patch("migrate.SCHEMA_VERSION", 999):
+        _make_db(
+            self.db,
+            999,
+            _BASE_SCHEMA + "ALTER TABLE canary ADD COLUMN label TEXT; ALTER TABLE canary ADD COLUMN marker TEXT;",
+        )
+        with (
+            self._patch(),
+            patch("migrate.MIGRATIONS", _FAKE_MIGRATIONS),
+            patch("migrate.SCHEMA_VERSION", 999),
+        ):
             from migrate import run_migrations
+
             run_migrations()
         self.assertEqual(_get_version(self.db), 999)
 
     def test_no_op_does_not_change_version(self):
-        _make_db(self.db, 999, _BASE_SCHEMA + "ALTER TABLE canary ADD COLUMN label TEXT; ALTER TABLE canary ADD COLUMN marker TEXT;")
+        _make_db(
+            self.db,
+            999,
+            _BASE_SCHEMA + "ALTER TABLE canary ADD COLUMN label TEXT; ALTER TABLE canary ADD COLUMN marker TEXT;",
+        )
         before = _get_version(self.db)
-        with self._patch(), \
-             patch("migrate.MIGRATIONS", _FAKE_MIGRATIONS), \
-             patch("migrate.SCHEMA_VERSION", 999):
+        with (
+            self._patch(),
+            patch("migrate.MIGRATIONS", _FAKE_MIGRATIONS),
+            patch("migrate.SCHEMA_VERSION", 999),
+        ):
             from migrate import run_migrations
+
             run_migrations()
         self.assertEqual(_get_version(self.db), before)
 
@@ -182,8 +198,8 @@ class TestRunMigrationsGuardClauses(unittest.TestCase):
 # run_migrations — actual migration execution
 # ---------------------------------------------------------------------------
 
-class TestRunMigrationsExecution(unittest.TestCase):
 
+class TestRunMigrationsExecution(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp()
         self.db = os.path.join(self.tmp, "exec.db")
@@ -201,10 +217,13 @@ class TestRunMigrationsExecution(unittest.TestCase):
         elif from_version == 998:
             _make_db(self.db, 998, _BASE_SCHEMA + "ALTER TABLE canary ADD COLUMN label TEXT;")
 
-        with patch("migrate.DB_PATH", self.db), \
-             patch("migrate.MIGRATIONS", _FAKE_MIGRATIONS), \
-             patch("migrate.SCHEMA_VERSION", 999):
+        with (
+            patch("migrate.DB_PATH", self.db),
+            patch("migrate.MIGRATIONS", _FAKE_MIGRATIONS),
+            patch("migrate.SCHEMA_VERSION", 999),
+        ):
             from migrate import run_migrations
+
             run_migrations()
 
     def test_applies_all_pending_from_zero(self):
@@ -241,19 +260,25 @@ class TestRunMigrationsExecution(unittest.TestCase):
         # then finish to v999.
         partial = {997: _FAKE_MIGRATIONS[997], 998: _FAKE_MIGRATIONS[998]}
         _make_db(self.db, 0)
-        with patch("migrate.DB_PATH", self.db), \
-             patch("migrate.MIGRATIONS", partial), \
-             patch("migrate.SCHEMA_VERSION", 998):
+        with (
+            patch("migrate.DB_PATH", self.db),
+            patch("migrate.MIGRATIONS", partial),
+            patch("migrate.SCHEMA_VERSION", 998),
+        ):
             from migrate import run_migrations
+
             run_migrations()
         self.assertEqual(_get_version(self.db), 998)
 
     def test_idempotent_when_run_twice(self):
         self._run(from_version=997)
-        with patch("migrate.DB_PATH", self.db), \
-             patch("migrate.MIGRATIONS", _FAKE_MIGRATIONS), \
-             patch("migrate.SCHEMA_VERSION", 999):
+        with (
+            patch("migrate.DB_PATH", self.db),
+            patch("migrate.MIGRATIONS", _FAKE_MIGRATIONS),
+            patch("migrate.SCHEMA_VERSION", 999),
+        ):
             from migrate import run_migrations
+
             run_migrations()
         self.assertEqual(_get_version(self.db), 999)
 
@@ -262,9 +287,11 @@ class TestRunMigrationsExecution(unittest.TestCase):
 # Duplicate-column tolerance (ALTER TABLE idempotency)
 # ---------------------------------------------------------------------------
 
+
 class TestDuplicateColumnTolerance(unittest.TestCase):
     """run_migrations must survive re-running a migration that adds an
-    already-existing column (duplicate column error → skip, not crash)."""
+    already-existing column (duplicate column error → skip, not crash).
+    """
 
     def setUp(self):
         self.tmp = tempfile.mkdtemp()
@@ -277,16 +304,20 @@ class TestDuplicateColumnTolerance(unittest.TestCase):
         # canary already has `marker` but DB version says 998 — simulates
         # a migration that was partially applied manually.
         _make_db(
-            self.db, 998,
+            self.db,
+            998,
             _BASE_SCHEMA
             + "ALTER TABLE canary ADD COLUMN label TEXT;"
             + "ALTER TABLE canary ADD COLUMN marker TEXT;",  # already applied
         )
-        with patch("migrate.DB_PATH", self.db), \
-             patch("migrate.MIGRATIONS", _FAKE_MIGRATIONS), \
-             patch("migrate.SCHEMA_VERSION", 999), \
-             patch("sys.exit") as mock_exit:
+        with (
+            patch("migrate.DB_PATH", self.db),
+            patch("migrate.MIGRATIONS", _FAKE_MIGRATIONS),
+            patch("migrate.SCHEMA_VERSION", 999),
+            patch("sys.exit") as mock_exit,
+        ):
             from migrate import run_migrations
+
             run_migrations()
         mock_exit.assert_not_called()
         self.assertEqual(_get_version(self.db), 999)
@@ -296,19 +327,22 @@ class TestDuplicateColumnTolerance(unittest.TestCase):
 # MIGRATIONS dict structure
 # ---------------------------------------------------------------------------
 
-class TestMigrationsDictStructure(unittest.TestCase):
 
+class TestMigrationsDictStructure(unittest.TestCase):
     def test_keys_are_sequential_from_one(self):
         from migrate import MIGRATIONS
+
         keys = sorted(MIGRATIONS.keys())
         self.assertEqual(keys, list(range(1, len(keys) + 1)))
 
     def test_schema_version_present_in_migrations(self):
         from migrate import MIGRATIONS, SCHEMA_VERSION
+
         self.assertIn(SCHEMA_VERSION, MIGRATIONS)
 
     def test_all_values_are_non_empty_strings(self):
         from migrate import MIGRATIONS
+
         for v, sql in MIGRATIONS.items():
             self.assertIsInstance(sql, str, f"v{v} is not a string")
             self.assertTrue(sql.strip(), f"v{v} is an empty string")

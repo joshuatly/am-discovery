@@ -1,15 +1,13 @@
-import urllib.request
-import urllib.parse
-import json
-import re
-import logging
-import traceback
-from datetime import datetime
-import concurrent.futures
-
-import time
 import base64
+import concurrent.futures
+import json
+import logging
 import os
+import re
+import time
+import traceback
+import urllib.parse
+import urllib.request
 
 _BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -19,6 +17,23 @@ _BROWSE_PATH = "/us/browse"
 
 _UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36"
 _MINIMAL_HEADERS = {"User-Agent": "Mozilla/5.0"}
+
+_NEW_RELEASE_TITLES = [
+    "new release",
+    "new releases",
+    "新發行",
+    "ニューリリース",
+    "Rilisan Baru",
+    "keluaran baharu",
+]
+
+_VIEW_MAP = {
+    "full-albums": "main-albums",
+    "compilation-albums": "compilation-albums",
+    "live-albums": "live-albums",
+    "singles": "singles-eps",
+}
+
 
 logger = logging.getLogger(__name__)
 
@@ -61,7 +76,7 @@ class AppleMusicClient:
 
         # Check if exists and valid
         if os.path.exists(token_file):
-            with open(token_file, "r") as f:
+            with open(token_file) as f:
                 token = f.read().strip()
             if token and not self._is_jwt_expired(token):
                 return token
@@ -76,10 +91,10 @@ class AppleMusicClient:
 
     def _is_jwt_expired(self, token):
         try:
-            payload = token.split('.')[1]
-            payload += '=' * (-len(payload) % 4)
-            decoded = json.loads(base64.b64decode(payload).decode('utf-8'))
-            exp = decoded.get('exp', 0)
+            payload = token.split(".")[1]
+            payload += "=" * (-len(payload) % 4)
+            decoded = json.loads(base64.b64decode(payload).decode("utf-8"))
+            exp = decoded.get("exp", 0)
             return time.time() >= exp
         except Exception:
             return True
@@ -95,7 +110,7 @@ class AppleMusicClient:
         req = urllib.request.Request(url, headers=self._web_headers if headers is None else headers)
         try:
             with urllib.request.urlopen(req, timeout=timeout) as resp:
-                return resp.read().decode('utf-8')
+                return resp.read().decode("utf-8")
         except Exception:
             return None
 
@@ -114,7 +129,10 @@ class AppleMusicClient:
                 if not js_content:
                     logger.warning("Failed to fetch Apple Music JS bundle")
                     return None
-                tokens = re.findall(r'\"(eyJ[A-Za-z0-9-_]+[=]{0,2}\.[A-Za-z0-9-_]+[=]{0,2}\.[A-Za-z0-9-_.+/=]+)\"', js_content)
+                tokens = re.findall(
+                    r"\"(eyJ[A-Za-z0-9-_]+[=]{0,2}\.[A-Za-z0-9-_]+[=]{0,2}\.[A-Za-z0-9-_.+/=]+)\"",
+                    js_content,
+                )
                 if tokens:
                     return tokens[0]
         except Exception as e:
@@ -123,13 +141,13 @@ class AppleMusicClient:
 
     def _amp_api_get(self, path: str, params: dict = None) -> dict:
         """GET from amp-api.music.apple.com, returns parsed JSON or {}."""
-        query = ('?' + urllib.parse.urlencode(params)) if params else ''
+        query = ("?" + urllib.parse.urlencode(params)) if params else ""
         url = self._apply_proxy(f"{_AMP_API_BASE}{path}{query}")
         req = urllib.request.Request(url, headers=self._amp_headers)
         logger.debug("[amp-api] GET %s", url)
         try:
             with urllib.request.urlopen(req, timeout=10) as resp:
-                return json.loads(resp.read().decode('utf-8'))
+                return json.loads(resp.read().decode("utf-8"))
         except Exception as e:
             logger.warning("[amp-api] GET %s failed: %s", url, e)
             return {}
@@ -149,73 +167,74 @@ class AppleMusicClient:
             "tracks": [],
             "audio_formats": None,
         }
-        m = re.search(r'music\.apple\.com/([a-z]{2})/album/(?:[^/]+/)?(\d+)', url)
+        m = re.search(r"music\.apple\.com/([a-z]{2})/album/(?:[^/]+/)?(\d+)", url)
         if not m:
             return result
         storefront, adam_id = m.group(1), m.group(2)
 
         data = self._amp_api_get(
             f"/v1/catalog/{storefront}/albums/{adam_id}",
-            {"include": "tracks,artists", "extend": "extendedAssetUrls"}
+            {"include": "tracks,artists", "extend": "extendedAssetUrls"},
         )
 
-        item = (data.get('data') or [{}])[0]
-        attrs = item.get('attributes', {})
-        rels = item.get('relationships', {})
+        item = (data.get("data") or [{}])[0]
+        attrs = item.get("attributes", {})
+        rels = item.get("relationships", {})
 
-        result['title'] = attrs.get('name')
-        result['artist'] = attrs.get('artistName')
-        result['release_date'] = attrs.get('releaseDate')
-        result['track_count'] = attrs.get('trackCount')
+        result["title"] = attrs.get("name")
+        result["artist"] = attrs.get("artistName")
+        result["release_date"] = attrs.get("releaseDate")
+        result["track_count"] = attrs.get("trackCount")
 
-        art_url = attrs.get('artwork', {}).get('url')
+        art_url = attrs.get("artwork", {}).get("url")
         if art_url:
-            result['artwork_url'] = re.sub(r'\{w\}x\{h\}bb\.[a-z]+', '500x500bb.jpg', art_url)
+            result["artwork_url"] = re.sub(r"\{w\}x\{h\}bb\.[a-z]+", "500x500bb.jpg", art_url)
 
-        genre_names = attrs.get('genreNames') or []
-        result['genre'] = genre_names[0] if genre_names else None
+        genre_names = attrs.get("genreNames") or []
+        result["genre"] = genre_names[0] if genre_names else None
 
-        result['description'] = (attrs.get('editorialNotes') or {}).get('standard')
+        result["description"] = (attrs.get("editorialNotes") or {}).get("standard")
 
-        formats = list(attrs.get('audioTraits') or [])
-        if attrs.get('isMasteredForItunes'):
-            formats.append('adm')
-        result['audio_formats'] = formats if formats else None
+        formats = list(attrs.get("audioTraits") or [])
+        if attrs.get("isMasteredForItunes"):
+            formats.append("adm")
+        result["audio_formats"] = formats or None
 
-        artists_data = rels.get('artists', {}).get('data') or []
+        artists_data = rels.get("artists", {}).get("data") or []
         artists = []
         for a in artists_data:
-            attrs = a.get('attributes') or {}
-            art_url = attrs.get('artwork', {}).get('url')
-            genre_names = attrs.get('genreNames') or []
-            artists.append({
-                'id': a.get('id'),
-                'name': attrs.get('name'),
-                'url': attrs.get('url'),
-                'artwork_url': re.sub(r'\{w\}x\{h\}bb\.[a-z]+', '200x200bb.jpg', art_url) if art_url else None,
-                'genre': genre_names[0] if genre_names else None,
-            })
-        result['artists'] = artists
+            attrs = a.get("attributes") or {}
+            art_url = attrs.get("artwork", {}).get("url")
+            genre_names = attrs.get("genreNames") or []
+            artists.append(
+                {
+                    "id": a.get("id"),
+                    "name": attrs.get("name"),
+                    "url": attrs.get("url"),
+                    "artwork_url": re.sub(r"\{w\}x\{h\}bb\.[a-z]+", "200x200bb.jpg", art_url) if art_url else None,
+                    "genre": genre_names[0] if genre_names else None,
+                },
+            )
+        result["artists"] = artists
         if artists:
-            result['artist_id'] = artists[0]['id']
-            result['artist_url'] = artists[0]['url']
+            result["artist_id"] = artists[0]["id"]
+            result["artist_url"] = artists[0]["url"]
 
         tracks = []
-        for t in (rels.get('tracks', {}).get('data') or []):
-            tattrs = t.get('attributes') or {}
-            title = tattrs.get('name')
+        for t in rels.get("tracks", {}).get("data") or []:
+            tattrs = t.get("attributes") or {}
+            title = tattrs.get("name")
             if title:
-                tracks.append({
-                    'title': title,
-                    'track_number': tattrs.get('trackNumber'),
-                    'duration_ms': tattrs.get('durationInMillis'),
-                })
-        result['tracks'] = tracks
+                tracks.append(
+                    {
+                        "title": title,
+                        "track_number": tattrs.get("trackNumber"),
+                        "duration_ms": tattrs.get("durationInMillis"),
+                    },
+                )
+        result["tracks"] = tracks
 
         return result
-
-
-    _NEW_RELEASE_TITLES = ['new release', 'new releases', '新發行', 'ニューリリース', 'Rilisan Baru', 'keluaran baharu']
 
     def discover_room_url(self, storefront):
         """Discover the New Release room URL from the /{storefront}/new page.
@@ -228,18 +247,21 @@ class AppleMusicClient:
         if not html:
             return None
 
-        match = re.search(r'<script type="application/json" id="serialized-server-data">(.*?)</script>', html)
+        match = re.search(
+            r'<script type="application/json" id="serialized-server-data">(.*?)</script>',
+            html,
+        )
         if not match:
             return None
         data = json.loads(match.group(1))
 
         try:
-            if isinstance(data, dict) and 'data' in data:
-                content = data['data'][0]['data']
-                sections = content.get('sections', [])
+            if isinstance(data, dict) and "data" in data:
+                content = data["data"][0]["data"]
+                sections = content.get("sections", [])
             elif isinstance(data, list):
-                content = data[0]['data']['data'][0]['data']
-                sections = content.get('sections', [])
+                content = data[0]["data"]["data"][0]["data"]
+                sections = content.get("sections", [])
             else:
                 sections = []
         except Exception as e:
@@ -247,28 +269,35 @@ class AppleMusicClient:
             return None
 
         for sec in sections:
-            title = sec.get('header', '')
+            title = sec.get("header", "")
             room_url = None
 
             if isinstance(title, dict):
-                title_link = title.get('item', {}).get('titleLink', {})
-                title_text = title_link.get('title', '')
-                link_url = title_link.get('url', '')
+                title_link = title.get("item", {}).get("titleLink", {})
+                title_text = title_link.get("title", "")
+                link_url = title_link.get("url", "")
                 if link_url:
-                    room_url = f"{_MUSIC_BASE}{link_url}" if link_url.startswith('/') else link_url
-            elif not title and 'dictionary' in sec and 'title' in sec['dictionary']:
-                title_text = sec['dictionary']['title']
+                    room_url = f"{_MUSIC_BASE}{link_url}" if link_url.startswith("/") else link_url
+            elif not title and "dictionary" in sec and "title" in sec["dictionary"]:
+                title_text = sec["dictionary"]["title"]
             else:
                 title_text = title if isinstance(title, str) else str(title)
 
-            title_lower = title_text.lower() if isinstance(title_text, str) else ''
-            if any(t in title_lower for t in self._NEW_RELEASE_TITLES):
+            title_lower = title_text.lower() if isinstance(title_text, str) else ""
+            if any(t in title_lower for t in _NEW_RELEASE_TITLES):
                 if room_url:
-                    logger.info("[%s] Discovered new release room: %s", storefront.upper(), room_url)
+                    logger.info(
+                        "[%s] Discovered new release room: %s",
+                        storefront.upper(),
+                        room_url,
+                    )
                     return room_url
-                else:
-                    logger.error("[%s] Found new release section '%s' but no room URL", storefront.upper(), title_text)
-                    return None
+                logger.error(
+                    "[%s] Found new release section '%s' but no room URL",
+                    storefront.upper(),
+                    title_text,
+                )
+                return None
 
         logger.error("[%s] No new release section found on /new page", storefront.upper())
         return None
@@ -289,19 +318,22 @@ class AppleMusicClient:
         if not html:
             return []
 
-        match = re.search(r'<script type="application/json" id="serialized-server-data">(.*?)</script>', html)
+        match = re.search(
+            r'<script type="application/json" id="serialized-server-data">(.*?)</script>',
+            html,
+        )
         if not match:
             return []
         data = json.loads(match.group(1))
 
         content = None
         try:
-            if isinstance(data, dict) and 'data' in data:
-                content = data['data'][0]['data']
-                sections = content.get('sections', [])
+            if isinstance(data, dict) and "data" in data:
+                content = data["data"][0]["data"]
+                sections = content.get("sections", [])
             elif isinstance(data, list):
-                content = data[0]['data']['data'][0]['data']
-                sections = content.get('sections', [])
+                content = data[0]["data"]["data"][0]["data"]
+                sections = content.get("sections", [])
             else:
                 sections = []
         except Exception as e:
@@ -315,73 +347,68 @@ class AppleMusicClient:
 
         new_releases = []
         for sec in sections:
-            title = sec.get('header', '')
+            title = sec.get("header", "")
             if isinstance(title, dict):
-                title = title.get('item', {}).get('titleLink', {}).get('title', str(title))
-            elif not title and 'dictionary' in sec and 'title' in sec['dictionary']:
-                title = sec['dictionary']['title']
+                title = title.get("item", {}).get("titleLink", {}).get("title", str(title))
+            elif not title and "dictionary" in sec and "title" in sec["dictionary"]:
+                title = sec["dictionary"]["title"]
 
             logger.debug("Checking section: %s", title)
 
             title_lower = title.lower() if isinstance(title, str) else str(title).lower()
-            if any(t in title_lower for t in self._NEW_RELEASE_TITLES):
-                items = sec.get('items', [])
+            if any(t in title_lower for t in _NEW_RELEASE_TITLES):
+                items = sec.get("items", [])
                 for item in items:
-                    actual_item = item.get('item', item)
+                    actual_item = item.get("item", item)
 
                     # Item fallback
-                    if not actual_item: continue
+                    if not actual_item:
+                        continue
 
                     title_val, artist_val, url_val, adam_id = None, None, None, None
 
-                    if 'attributes' in actual_item:
-                        attrs = actual_item['attributes']
-                        title_val = attrs.get('title') or attrs.get('name')
-                        artist_val = attrs.get('artistName')
-                        url_val = attrs.get('url')
+                    if "attributes" in actual_item:
+                        attrs = actual_item["attributes"]
+                        title_val = attrs.get("title") or attrs.get("name")
+                        artist_val = attrs.get("artistName")
+                        url_val = attrs.get("url")
                     else:
-                        if actual_item.get('titleLinks'):
-                            title_val = actual_item['titleLinks'][0].get('title')
+                        if actual_item.get("titleLinks"):
+                            title_val = actual_item["titleLinks"][0].get("title")
 
-                        if actual_item.get('subtitleLinks'):
-                            artist_val = actual_item['subtitleLinks'][0].get('title')
+                        if actual_item.get("subtitleLinks"):
+                            artist_val = actual_item["subtitleLinks"][0].get("title")
 
-                        desc = actual_item.get('contentDescriptor', {})
-                        url_val = desc.get('url')
-                        adam_id = desc.get('identifiers', {}).get('storeAdamID')
+                        desc = actual_item.get("contentDescriptor", {})
+                        url_val = desc.get("url")
+                        adam_id = desc.get("identifiers", {}).get("storeAdamID")
 
                     if not adam_id and url_val:
-                        adam_m = re.search(r'/(\d+)(?:\?.*)?$', url_val)
-                        adam_id = adam_m.group(1) if adam_m else actual_item.get('id')
-                        if adam_id and "-" in str(adam_id): adam_id = str(adam_id).split('-')[-1].strip()
+                        adam_m = re.search(r"/(\d+)(?:\?.*)?$", url_val)
+                        adam_id = adam_m.group(1) if adam_m else actual_item.get("id")
+                        if adam_id and "-" in str(adam_id):
+                            adam_id = str(adam_id).split("-")[-1].strip()
 
                     if title_val and url_val and adam_id:
                         release_info = {
-                            'storeAdamID': adam_id,
-                            'title': title_val,
-                            'artist': artist_val,
-                            'url': url_val,
-                            'storefronts': [storefront]
+                            "storeAdamID": adam_id,
+                            "title": title_val,
+                            "artist": artist_val,
+                            "url": url_val,
+                            "storefronts": [storefront],
                         }
                         new_releases.append(release_info)
                 break
         return new_releases
 
-    _VIEW_MAP = {
-        "full-albums":        "main-albums",
-        "compilation-albums": "compilation-albums",
-        "live-albums":        "live-albums",
-        "singles":            "singles-eps",
-    }
-
     def get_artist_all_releases(self, url, storefront):
         """Fetch every release listed for an artist via the catalog API (paginated, grouped by type)."""
-        m = re.search(r'music\.apple\.com/([a-z]{2})/artist/(?:[^/]+/)?(\d+)', url)
+        m = re.search(r"music\.apple\.com/([a-z]{2})/artist/(?:[^/]+/)?(\d+)", url)
         if not m:
             return [], {}
         sf, artist_id = m.group(1), m.group(2)
 
-        view_keys = list(self._VIEW_MAP.keys())
+        view_keys = list(_VIEW_MAP.keys())
         params = {
             "views": ",".join(view_keys),
             **{f"limit[{v}]": "100" for v in view_keys},
@@ -397,14 +424,14 @@ class AppleMusicClient:
         art_url = artist_attrs.get("artwork", {}).get("url", "")
         artist_info = {
             "name": artist_attrs.get("name"),
-            "artwork_url": re.sub(r'\{w\}x\{h\}bb\.[a-z]+', '200x200bb.jpg', art_url) if art_url else None,
+            "artwork_url": re.sub(r"\{w\}x\{h\}bb\.[a-z]+", "200x200bb.jpg", art_url) if art_url else None,
             "genre": (artist_attrs.get("genreNames") or [None])[0],
         }
 
         releases = []
         seen = set()
 
-        for view_key, release_type in self._VIEW_MAP.items():
+        for view_key, release_type in _VIEW_MAP.items():
             view_data = views.get(view_key) or {}
             items = view_data.get("data") or []
             next_link = view_data.get("next")
@@ -417,14 +444,16 @@ class AppleMusicClient:
                 item_url = attrs.get("url")
                 if adam_id and title_val and adam_id not in seen:
                     seen.add(adam_id)
-                    releases.append({
-                        "storeAdamID": adam_id,
-                        "title": title_val,
-                        "artist": artist_val,
-                        "url": item_url,
-                        "storefronts": [storefront],
-                        "release_type": release_type,
-                    })
+                    releases.append(
+                        {
+                            "storeAdamID": adam_id,
+                            "title": title_val,
+                            "artist": artist_val,
+                            "url": item_url,
+                            "storefronts": [storefront],
+                            "release_type": release_type,
+                        },
+                    )
 
             # Paginate this view independently
             while next_link:
@@ -444,47 +473,47 @@ class AppleMusicClient:
                     item_url = attrs.get("url")
                     if adam_id and title_val and adam_id not in seen:
                         seen.add(adam_id)
-                        releases.append({
-                            "storeAdamID": adam_id,
-                            "title": title_val,
-                            "artist": artist_val,
-                            "url": item_url,
-                            "storefronts": [storefront],
-                            "release_type": release_type,
-                        })
+                        releases.append(
+                            {
+                                "storeAdamID": adam_id,
+                                "title": title_val,
+                                "artist": artist_val,
+                                "url": item_url,
+                                "storefronts": [storefront],
+                                "release_type": release_type,
+                            },
+                        )
                 next_link = page_data.get("next")
 
         return releases, artist_info
 
     def get_artist_new_releases(self, url, storefront):
         """Fetch latest releases for an artist via the catalog API (first page only)."""
-        m = re.search(r'music\.apple\.com/([a-z]{2})/artist/(?:[^/]+/)?(\d+)', url)
+        m = re.search(r"music\.apple\.com/([a-z]{2})/artist/(?:[^/]+/)?(\d+)", url)
         if not m:
             return []
         sf, artist_id = m.group(1), m.group(2)
 
-        data = self._amp_api_get(
-            f"/v1/catalog/{sf}/artists/{artist_id}/albums",
-            {"limit": "25"}
-        )
+        data = self._amp_api_get(f"/v1/catalog/{sf}/artists/{artist_id}/albums", {"limit": "25"})
 
         releases = []
-        for item in data.get('data', []):
-            adam_id = item.get('id')
-            attrs = item.get('attributes', {})
-            title_val = attrs.get('name')
-            artist_val = attrs.get('artistName')
-            item_url = attrs.get('url')
+        for item in data.get("data", []):
+            adam_id = item.get("id")
+            attrs = item.get("attributes", {})
+            title_val = attrs.get("name")
+            artist_val = attrs.get("artistName")
+            item_url = attrs.get("url")
             if adam_id and title_val:
-                releases.append({
-                    'storeAdamID': adam_id,
-                    'title': title_val,
-                    'artist': artist_val,
-                    'url': item_url,
-                    'storefronts': [storefront],
-                })
+                releases.append(
+                    {
+                        "storeAdamID": adam_id,
+                        "title": title_val,
+                        "artist": artist_val,
+                        "url": item_url,
+                        "storefronts": [storefront],
+                    },
+                )
         return releases
-
 
     def search(
         self,
@@ -504,23 +533,24 @@ class AppleMusicClient:
         """Search for artists by name. Returns a list of artist dicts with id, name, url, and artwork_url."""
         data = self.search(term, storefront=storefront, types="artists", limit=limit)
         artists = []
-        for item in (data.get("results", {}).get("artists", {}).get("data") or []):
+        for item in data.get("results", {}).get("artists", {}).get("data") or []:
             attrs = item.get("attributes", {})
             art_url = attrs.get("artwork", {}).get("url", "")
-            artwork_url = re.sub(r'\{w\}x\{h\}bb\.[a-z]+', '200x200bb.jpg', art_url) if art_url else None
+            artwork_url = re.sub(r"\{w\}x\{h\}bb\.[a-z]+", "200x200bb.jpg", art_url) if art_url else None
             genre_names = attrs.get("genreNames") or []
-            artists.append({
-                "id": item.get("id"),
-                "name": attrs.get("name"),
-                "url": attrs.get("url"),
-                "artwork_url": artwork_url,
-                "genre": genre_names[0] if genre_names else None,
-            })
+            artists.append(
+                {
+                    "id": item.get("id"),
+                    "name": attrs.get("name"),
+                    "url": attrs.get("url"),
+                    "artwork_url": artwork_url,
+                    "genre": genre_names[0] if genre_names else None,
+                },
+            )
         return artists
 
     def check_storefront_availability(self, adam_id: str, storefronts: list) -> dict:
-        """
-        Concurrently checks availability of an album across multiple storefronts.
+        """Concurrently checks availability of an album across multiple storefronts.
         Returns a dictionary with 'available' and 'unavailable' lists.
         """
         available = []

@@ -1,5 +1,4 @@
-"""
-Comprehensive tests for server.py — Flask REST API endpoints.
+"""Comprehensive tests for server.py — Flask REST API endpoints.
 
 Strategy:
 - Use Flask's built-in test client (app.test_client()).
@@ -7,19 +6,17 @@ Strategy:
 - Each test class covers a logical group of endpoints.
 """
 
-import importlib
+import contextlib
 import json
 import os
-import sys
 import tempfile
-import time
 import unittest
-from unittest.mock import MagicMock, patch, PropertyMock
-
+from unittest.mock import patch
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_album(store_adam_id="A1", **kwargs):
     defaults = {
@@ -50,8 +47,8 @@ def _make_album(store_adam_id="A1", **kwargs):
 # Base class — sets up Flask test client with mocked config & db
 # ---------------------------------------------------------------------------
 
-class ServerTestCase(unittest.TestCase):
 
+class ServerTestCase(unittest.TestCase):
     def setUp(self):
         # Use a fresh temp config path to avoid touching real config.json
         self._cfg_fd, self._cfg_path = tempfile.mkstemp(suffix=".json")
@@ -60,6 +57,7 @@ class ServerTestCase(unittest.TestCase):
 
         # Patch config path in server module
         import server
+
         self._orig_config_path = server.CONFIG_PATH
         server.CONFIG_PATH = self._cfg_path
 
@@ -69,21 +67,21 @@ class ServerTestCase(unittest.TestCase):
 
     def tearDown(self):
         import server
+
         server.CONFIG_PATH = self._orig_config_path
-        try:
+        with contextlib.suppress(FileNotFoundError):
             os.unlink(self._cfg_path)
-        except FileNotFoundError:
-            pass
 
 
 # ---------------------------------------------------------------------------
 # _serialize helper
 # ---------------------------------------------------------------------------
 
-class TestSerialize(unittest.TestCase):
 
+class TestSerialize(unittest.TestCase):
     def setUp(self):
         import server
+
         self.serialize = server._serialize
 
     def test_deserializes_storefronts_string(self):
@@ -111,8 +109,8 @@ class TestSerialize(unittest.TestCase):
 # GET /api/releases
 # ---------------------------------------------------------------------------
 
-class TestApiReleases(ServerTestCase):
 
+class TestApiReleases(ServerTestCase):
     @patch("server.db")
     def test_returns_paginated_results(self, mock_db):
         mock_db.list_albums.return_value = ([_make_album()], 1)
@@ -163,8 +161,12 @@ class TestApiReleases(ServerTestCase):
 
         self.client.get("/api/releases?storefront=JP")
         call_kwargs = mock_db.list_albums.call_args
-        self.assertEqual(call_kwargs.kwargs.get("storefront") or call_kwargs[1].get("storefront") or
-                         call_kwargs[0][2] if len(call_kwargs[0]) > 2 else None, None)
+        self.assertEqual(
+            call_kwargs.kwargs.get("storefront") or call_kwargs[1].get("storefront") or call_kwargs[0][2]
+            if len(call_kwargs[0]) > 2
+            else None,
+            None,
+        )
         # Verify storefront was normalised to lowercase
         args, kwargs = mock_db.list_albums.call_args
         storefront_arg = kwargs.get("storefront", args[2] if len(args) > 2 else "")
@@ -243,8 +245,8 @@ class TestApiReleases(ServerTestCase):
 # GET /api/releases/<store_adam_id>
 # ---------------------------------------------------------------------------
 
-class TestApiReleaseDetail(ServerTestCase):
 
+class TestApiReleaseDetail(ServerTestCase):
     @patch("server.db")
     def test_returns_404_for_missing(self, mock_db):
         mock_db.get_album.return_value = None
@@ -286,8 +288,8 @@ class TestApiReleaseDetail(ServerTestCase):
 # GET /api/releases/<store_adam_id>/check_storefronts
 # ---------------------------------------------------------------------------
 
-class TestApiCheckStorefronts(ServerTestCase):
 
+class TestApiCheckStorefronts(ServerTestCase):
     @patch("server.AppleMusicClient")
     def test_returns_availability_result(self, MockClient):
         mock_client = MockClient.return_value
@@ -316,8 +318,8 @@ class TestApiCheckStorefronts(ServerTestCase):
 # GET /api/lookup/<store_adam_id>
 # ---------------------------------------------------------------------------
 
-class TestApiLookup(ServerTestCase):
 
+class TestApiLookup(ServerTestCase):
     @patch("server.AppleMusicClient")
     def test_returns_album_info(self, MockClient):
         mock_client = MockClient.return_value
@@ -374,8 +376,8 @@ class TestApiLookup(ServerTestCase):
 # GET /api/search/artists
 # ---------------------------------------------------------------------------
 
-class TestApiSearchArtists(ServerTestCase):
 
+class TestApiSearchArtists(ServerTestCase):
     @patch("server.AppleMusicClient")
     def test_requires_term(self, MockClient):
         resp = self.client.get("/api/search/artists")
@@ -436,8 +438,8 @@ class TestApiSearchArtists(ServerTestCase):
 # GET/POST/DELETE /api/watchlist
 # ---------------------------------------------------------------------------
 
-class TestApiWatchlist(ServerTestCase):
 
+class TestApiWatchlist(ServerTestCase):
     @patch("server.db")
     def test_get_empty_watchlist(self, mock_db):
         mock_db.get_watchlist.return_value = []
@@ -447,9 +449,7 @@ class TestApiWatchlist(ServerTestCase):
 
     @patch("server.db")
     def test_get_watchlist_returns_artists(self, mock_db):
-        mock_db.get_watchlist.return_value = [
-            {"artist_id": "ART1", "name": "Artist One", "url": None, "added_at": 0}
-        ]
+        mock_db.get_watchlist.return_value = [{"artist_id": "ART1", "name": "Artist One", "url": None, "added_at": 0}]
         resp = self.client.get("/api/watchlist")
         data = resp.get_json()
         self.assertEqual(len(data), 1)
@@ -466,7 +466,12 @@ class TestApiWatchlist(ServerTestCase):
         self.assertEqual(resp.status_code, 200)
         data = resp.get_json()
         self.assertTrue(data["ok"])
-        mock_db.add_to_watchlist.assert_called_once_with("ART1", "Artist One", "https://example.com", preferred_source=None)
+        mock_db.add_to_watchlist.assert_called_once_with(
+            "ART1",
+            "Artist One",
+            "https://example.com",
+            preferred_source=None,
+        )
 
     @patch("server.db")
     def test_post_watchlist_missing_artist_id(self, mock_db):
@@ -515,8 +520,8 @@ class TestApiWatchlist(ServerTestCase):
 # GET/PUT /api/config
 # ---------------------------------------------------------------------------
 
-class TestApiConfig(ServerTestCase):
 
+class TestApiConfig(ServerTestCase):
     def test_get_config_returns_defaults_when_no_file(self):
         resp = self.client.get("/api/config")
         self.assertEqual(resp.status_code, 200)
@@ -553,8 +558,8 @@ class TestApiConfig(ServerTestCase):
 # POST /api/refresh
 # ---------------------------------------------------------------------------
 
-class TestApiRefresh(ServerTestCase):
 
+class TestApiRefresh(ServerTestCase):
     @patch("server.trigger_poll_now")
     @patch("server._is_running", False)
     def test_refresh_triggers_poll(self, mock_trigger):
@@ -565,6 +570,7 @@ class TestApiRefresh(ServerTestCase):
 
     def test_refresh_409_when_running(self):
         import server
+
         original = server._is_running
         server._is_running = True
         try:
@@ -579,11 +585,16 @@ class TestApiRefresh(ServerTestCase):
 # GET /api/status
 # ---------------------------------------------------------------------------
 
-class TestApiStatus(ServerTestCase):
 
+class TestApiStatus(ServerTestCase):
     @patch("server.db")
     def test_returns_status_fields(self, mock_db):
-        mock_db.get_last_run.return_value = {"id": 1, "ran_at": 1700000000, "new_count": 5, "total_count": 100}
+        mock_db.get_last_run.return_value = {
+            "id": 1,
+            "ran_at": 1700000000,
+            "new_count": 5,
+            "total_count": 100,
+        }
         mock_db.list_albums.return_value = ([], 100)
 
         resp = self.client.get("/api/status")
@@ -620,6 +631,7 @@ class TestApiStatus(ServerTestCase):
         mock_db.list_albums.return_value = ([], 0)
 
         import server
+
         server._last_room_errors = ["hk", "jp"]
         resp = self.client.get("/api/status")
         data = resp.get_json()
@@ -640,8 +652,8 @@ class TestApiStatus(ServerTestCase):
 # GET /api/artists/<artist_id>/releases
 # ---------------------------------------------------------------------------
 
-class TestApiArtistReleases(ServerTestCase):
 
+class TestApiArtistReleases(ServerTestCase):
     @patch("server.db")
     def test_returns_artist_releases(self, mock_db):
         mock_db.get_artist_albums.return_value = [_make_album("A1", artist_id="ART1", artist="Test Artist")]
@@ -694,7 +706,11 @@ class TestApiArtistReleases(ServerTestCase):
     def test_artist_info_included(self, mock_db):
         mock_db.get_artist_albums.return_value = []
         mock_db.get_watched_artist_ids.return_value = set()
-        mock_db.get_artist_info.return_value = {"name": "Jay Chou", "artwork_url": "https://art.jpg", "genre": "Pop"}
+        mock_db.get_artist_info.return_value = {
+            "name": "Jay Chou",
+            "artwork_url": "https://art.jpg",
+            "genre": "Pop",
+        }
 
         resp = self.client.get("/api/artists/ART1/releases")
         data = resp.get_json()
@@ -707,8 +723,8 @@ class TestApiArtistReleases(ServerTestCase):
 # POST /api/artists/<artist_id>/fetch
 # ---------------------------------------------------------------------------
 
-class TestApiArtistFetch(ServerTestCase):
 
+class TestApiArtistFetch(ServerTestCase):
     @patch("server.db")
     @patch("server.AppleMusicClient")
     def test_fetch_artist_no_releases(self, MockClient, mock_db):
@@ -725,7 +741,16 @@ class TestApiArtistFetch(ServerTestCase):
     def test_fetch_artist_stores_releases(self, MockClient, mock_db):
         mock_client = MockClient.return_value
         mock_client.get_artist_all_releases.return_value = (
-            [{"storeAdamID": "A1", "title": "Album 1", "artist": "Artist", "url": "https://x.com", "storefronts": ["us"], "release_type": "main-albums"}],
+            [
+                {
+                    "storeAdamID": "A1",
+                    "title": "Album 1",
+                    "artist": "Artist",
+                    "url": "https://x.com",
+                    "storefronts": ["us"],
+                    "release_type": "main-albums",
+                },
+            ],
             {"artwork_url": "https://art.jpg", "genre": "Pop"},
         )
         mock_client.get_album_full_info.return_value = {
@@ -781,8 +806,8 @@ class TestApiArtistFetch(ServerTestCase):
 # Frontend serving
 # ---------------------------------------------------------------------------
 
-class TestFrontendServing(ServerTestCase):
 
+class TestFrontendServing(ServerTestCase):
     def test_root_returns_200(self):
         """/ should serve the frontend (or 404 if frontend dir doesn't exist in test env)."""
         resp = self.client.get("/")
@@ -798,7 +823,7 @@ class TestFrontendServing(ServerTestCase):
             self.assertEqual(resp.status_code, 200)
 
     def test_apidocs_path_skipped(self):
-        """apidocs path should not be served as frontend."""
+        """Apidocs path should not be served as frontend."""
         # This route is excluded from the frontend handler; flasgger may or may not serve it
         resp = self.client.get("/apidocs/")
         self.assertNotEqual(resp.status_code, 500)
@@ -825,16 +850,18 @@ class TestFrontendServing(ServerTestCase):
 # load_config / save_config
 # ---------------------------------------------------------------------------
 
-class TestConfigHelpers(ServerTestCase):
 
+class TestConfigHelpers(ServerTestCase):
     def test_load_config_returns_defaults_when_no_file(self):
         import server
+
         cfg = server.load_config()
         self.assertEqual(cfg["newrelease_poll_interval_days"], 1)
         self.assertIsInstance(cfg["check_storefronts"], list)
 
     def test_save_and_load_config(self):
         import server
+
         custom = {"newrelease_poll_interval_days": 3, "check_storefronts": ["us"]}
         server.save_config(custom)
         loaded = server.load_config()
@@ -843,6 +870,7 @@ class TestConfigHelpers(ServerTestCase):
     def test_load_config_merges_defaults(self):
         """Config on disk should be merged with defaults (missing keys filled in)."""
         import server
+
         server.save_config({"newrelease_poll_interval_days": 2})
         loaded = server.load_config()
         self.assertIn("check_storefronts", loaded)
@@ -852,8 +880,8 @@ class TestConfigHelpers(ServerTestCase):
 # Watchlist preferred_source
 # ---------------------------------------------------------------------------
 
-class TestApiWatchlistPreferredSource(ServerTestCase):
 
+class TestApiWatchlistPreferredSource(ServerTestCase):
     @patch("server.db")
     def test_post_with_preferred_source(self, mock_db):
         mock_db.add_to_watchlist.return_value = None
@@ -877,9 +905,7 @@ class TestApiWatchlistPreferredSource(ServerTestCase):
 
     @patch("server.db")
     def test_get_with_preferred_source_filter(self, mock_db):
-        mock_db.get_watchlist.return_value = [
-            {"artist_id": "ART1", "name": "Artist One", "preferred_source": "jp"}
-        ]
+        mock_db.get_watchlist.return_value = [{"artist_id": "ART1", "name": "Artist One", "preferred_source": "jp"}]
         resp = self.client.get("/api/watchlist?preferred_source=jp")
         self.assertEqual(resp.status_code, 200)
         mock_db.get_watchlist.assert_called_once_with(preferred_source="jp")
@@ -901,8 +927,8 @@ class TestApiWatchlistPreferredSource(ServerTestCase):
 # PATCH /api/watchlist/<artist_id>
 # ---------------------------------------------------------------------------
 
-class TestApiWatchlistPatch(ServerTestCase):
 
+class TestApiWatchlistPatch(ServerTestCase):
     @patch("server.db")
     def test_patch_sets_preferred_source(self, mock_db):
         mock_db.update_preferred_source.return_value = None
@@ -952,8 +978,8 @@ class TestApiWatchlistPatch(ServerTestCase):
 # GET /api/releases — watched filter
 # ---------------------------------------------------------------------------
 
-class TestApiReleasesWatched(ServerTestCase):
 
+class TestApiReleasesWatched(ServerTestCase):
     @patch("server.db")
     def test_watched_filter_passed_to_db(self, mock_db):
         mock_db.list_albums.return_value = ([], 0)
@@ -986,12 +1012,17 @@ class TestApiReleasesWatched(ServerTestCase):
 # GET /api/watchlist/export
 # ---------------------------------------------------------------------------
 
-class TestApiWatchlistExport(ServerTestCase):
 
+class TestApiWatchlistExport(ServerTestCase):
     @patch("server.db")
     def test_export_returns_json_file(self, mock_db):
         mock_db.export_watchlist.return_value = [
-            {"artist_id": "ART1", "name": "Artist One", "url": "https://url", "preferred_source": "jp"}
+            {
+                "artist_id": "ART1",
+                "name": "Artist One",
+                "url": "https://url",
+                "preferred_source": "jp",
+            },
         ]
         resp = self.client.get("/api/watchlist/export")
         self.assertEqual(resp.status_code, 200)
@@ -1017,7 +1048,6 @@ class TestApiWatchlistExport(ServerTestCase):
         resp = self.client.get("/api/watchlist/export")
         disposition = resp.headers.get("Content-Disposition", "")
         # Filename should match am_discovery_YYYY-MM-DD.json
-        import re
         self.assertRegex(disposition, r"am_discovery_\d{4}-\d{2}-\d{2}\.json")
 
 
@@ -1025,8 +1055,8 @@ class TestApiWatchlistExport(ServerTestCase):
 # POST /api/watchlist/import
 # ---------------------------------------------------------------------------
 
-class TestApiWatchlistImport(ServerTestCase):
 
+class TestApiWatchlistImport(ServerTestCase):
     @patch("server.db")
     def test_import_json_body(self, mock_db):
         mock_db.import_watchlist.return_value = None
@@ -1067,6 +1097,7 @@ class TestApiWatchlistImport(ServerTestCase):
     def test_import_file_upload(self, mock_db):
         mock_db.import_watchlist.return_value = None
         import io
+
         data = json.dumps([{"artist_id": "ART1", "name": "Artist One"}])
         resp = self.client.post(
             "/api/watchlist/import",
@@ -1087,6 +1118,7 @@ class TestApiWatchlistImport(ServerTestCase):
     @patch("server.db")
     def test_import_file_invalid_json(self, mock_db):
         import io
+
         resp = self.client.post(
             "/api/watchlist/import",
             data={"file": (io.BytesIO(b"not json"), "bad.json")},
@@ -1099,8 +1131,8 @@ class TestApiWatchlistImport(ServerTestCase):
 # Status endpoint — watchlist poll fields
 # ---------------------------------------------------------------------------
 
-class TestApiStatusWatchlist(ServerTestCase):
 
+class TestApiStatusWatchlist(ServerTestCase):
     @patch("server.db")
     def test_status_includes_watchlist_fields(self, mock_db):
         mock_db.get_last_run.return_value = None

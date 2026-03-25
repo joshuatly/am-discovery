@@ -1,10 +1,8 @@
-"""
-SQLite database layer for AM Discovery.
-"""
+"""SQLite database layer for AM Discovery."""
 
-import sqlite3
 import json
 import os
+import sqlite3
 import time
 from contextlib import contextmanager
 
@@ -37,13 +35,10 @@ def init_db():
 
         if version == 0:
             # Check whether this is a fresh DB or a pre-versioning DB
-            tables = {r[0] for r in conn.execute(
-                "SELECT name FROM sqlite_master WHERE type='table'"
-            ).fetchall()}
+            tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
             if tables:
                 raise RuntimeError(
-                    f"Database exists but has no version stamp (pre-versioning schema). "
-                    f"Run:  uv run migrate.py"
+                    "Database exists but has no version stamp (pre-versioning schema). Run:  uv run migrate.py",
                 )
             # Fresh install — create at current version
             conn.executescript(f"""
@@ -98,16 +93,13 @@ def init_db():
 
         elif version != SCHEMA_VERSION:
             raise RuntimeError(
-                f"Database schema version {version} does not match expected {SCHEMA_VERSION}. "
-                f"Run:  uv run migrate.py"
+                f"Database schema version {version} does not match expected {SCHEMA_VERSION}. Run:  uv run migrate.py",
             )
 
 
 def get_album(store_adam_id: str):
     with get_conn() as conn:
-        row = conn.execute(
-            "SELECT * FROM albums WHERE store_adam_id = ?", (store_adam_id,)
-        ).fetchone()
+        row = conn.execute("SELECT * FROM albums WHERE store_adam_id = ?", (store_adam_id,)).fetchone()
         return dict(row) if row else None
 
 
@@ -124,7 +116,14 @@ def upsert_album(data: dict):
             """INSERT OR IGNORE INTO albums
                 (store_adam_id, title, storefronts, first_seen, last_seen, source)
                VALUES (?, ?, ?, ?, ?, ?)""",
-            (data["store_adam_id"], data.get("title", ""), json.dumps(new_sf), now, now, data.get("source")),
+            (
+                data["store_adam_id"],
+                data.get("title", ""),
+                json.dumps(new_sf),
+                now,
+                now,
+                data.get("source"),
+            ),
         )
         # Fetch current storefronts to merge
         existing = conn.execute(
@@ -176,7 +175,13 @@ def upsert_album(data: dict):
         )
 
 
-def list_albums(page: int = 1, per_page: int = 50, storefront: str = "", discovered_only: bool = False, watched_only: bool = False):
+def list_albums(
+    page: int = 1,
+    per_page: int = 50,
+    storefront: str = "",
+    discovered_only: bool = False,
+    watched_only: bool = False,
+):
     offset = (page - 1) * per_page
     with get_conn() as conn:
         conditions = []
@@ -195,7 +200,6 @@ def list_albums(page: int = 1, per_page: int = 50, storefront: str = "", discove
             params + [per_page, offset],
         ).fetchall()
         return [dict(r) for r in rows], total
-
 
 
 def get_artist_albums(artist_id: str):
@@ -242,9 +246,7 @@ def add_to_watchlist(artist_id: str, name: str, url: str = None, preferred_sourc
 
 def remove_from_watchlist(artist_id: str):
     with get_conn() as conn:
-        conn.execute(
-            "DELETE FROM watched_artists WHERE artist_id = ?", (artist_id,)
-        )
+        conn.execute("DELETE FROM watched_artists WHERE artist_id = ?", (artist_id,))
 
 
 def upsert_artist(artist_id: str, name: str = None, artwork_url: str = None, genre: str = None):
@@ -264,17 +266,13 @@ def upsert_artist(artist_id: str, name: str = None, artwork_url: str = None, gen
 
 def get_artist_artwork(artist_id: str):
     with get_conn() as conn:
-        row = conn.execute(
-            "SELECT artwork_url FROM artists WHERE artist_id = ?", (artist_id,)
-        ).fetchone()
+        row = conn.execute("SELECT artwork_url FROM artists WHERE artist_id = ?", (artist_id,)).fetchone()
         return row["artwork_url"] if row else None
 
 
 def get_artist_info(artist_id: str):
     with get_conn() as conn:
-        row = conn.execute(
-            "SELECT name, artwork_url, genre FROM artists WHERE artist_id = ?", (artist_id,)
-        ).fetchone()
+        row = conn.execute("SELECT name, artwork_url, genre FROM artists WHERE artist_id = ?", (artist_id,)).fetchone()
         return dict(row) if row else {}
 
 
@@ -320,7 +318,7 @@ def export_watchlist() -> list:
     """Export the full watchlist as a list of dicts suitable for JSON serialization."""
     with get_conn() as conn:
         rows = conn.execute(
-            "SELECT artist_id, name, url, preferred_source FROM watched_artists ORDER BY name"
+            "SELECT artist_id, name, url, preferred_source FROM watched_artists ORDER BY name",
         ).fetchall()
         return [dict(r) for r in rows]
 
@@ -352,13 +350,18 @@ def log_discovery_run(new_count: int, total_count: int):
 
 def get_last_run():
     with get_conn() as conn:
-        row = conn.execute(
-            "SELECT * FROM discovery_runs ORDER BY id DESC LIMIT 1"
-        ).fetchone()
+        row = conn.execute("SELECT * FROM discovery_runs ORDER BY id DESC LIMIT 1").fetchone()
         return dict(row) if row else None
 
 
-def search_albums(query: str, page: int = 1, per_page: int = 50, storefront: str = "", discovered_only: bool = False, watched_only: bool = False):
+def search_albums(
+    query: str,
+    page: int = 1,
+    per_page: int = 50,
+    storefront: str = "",
+    discovered_only: bool = False,
+    watched_only: bool = False,
+):
     offset = (page - 1) * per_page
     q = f"%{query}%"
     with get_conn() as conn:
@@ -378,4 +381,3 @@ def search_albums(query: str, page: int = 1, per_page: int = 50, storefront: str
             params + [per_page, offset],
         ).fetchall()
         return [dict(r) for r in rows], total
-

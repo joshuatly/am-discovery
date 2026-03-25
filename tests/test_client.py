@@ -8,10 +8,10 @@ from unittest.mock import MagicMock, mock_open, patch
 
 from client import AppleMusicClient
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_jwt(exp: int) -> str:
     """Build a minimal JWT-like string with the given expiry timestamp."""
@@ -23,8 +23,10 @@ def _make_jwt(exp: int) -> str:
 
 def _make_client(bearer_token="test-token", user_token=None):
     """Return an AppleMusicClient with _get_bearer_token and _load_cors_proxy short-circuited."""
-    with patch("client._load_cors_proxy", return_value=""), \
-         patch.object(AppleMusicClient, "_get_bearer_token", return_value=bearer_token):
+    with (
+        patch("client._load_cors_proxy", return_value=""),
+        patch.object(AppleMusicClient, "_get_bearer_token", return_value=bearer_token),
+    ):
         return AppleMusicClient(user_token=user_token)
 
 
@@ -38,10 +40,19 @@ def _make_room_payload(sections):
     return json.dumps(data)
 
 
-def _make_album_api_response(name="Test Album", artist="Test Artist", release_date="2026-03-01",
-                              track_count=10, adam_id="111222333", artwork_url=None,
-                              genre_names=None, audio_traits=None, mastered_for_itunes=False,
-                              tracks=None, artists=None):
+def _make_album_api_response(
+    name="Test Album",
+    artist="Test Artist",
+    release_date="2026-03-01",
+    track_count=10,
+    adam_id="111222333",
+    artwork_url=None,
+    genre_names=None,
+    audio_traits=None,
+    mastered_for_itunes=False,
+    tracks=None,
+    artists=None,
+):
     attrs = {
         "name": name,
         "artistName": artist,
@@ -55,9 +66,7 @@ def _make_album_api_response(name="Test Album", artist="Test Artist", release_da
     if artwork_url:
         attrs["artwork"] = {"url": artwork_url}
 
-    artist_rel = artists or [
-        {"id": "artist-id-1", "attributes": {"url": "https://music.apple.com/us/artist/test/1"}}
-    ]
+    artist_rel = artists or [{"id": "artist-id-1", "attributes": {"url": "https://music.apple.com/us/artist/test/1"}}]
 
     track_data = [
         {
@@ -65,20 +74,22 @@ def _make_album_api_response(name="Test Album", artist="Test Artist", release_da
                 "name": t["name"],
                 "trackNumber": t.get("trackNumber", 1),
                 "durationInMillis": t.get("durationInMillis", 200000),
-            }
+            },
         }
         for t in (tracks or [])
     ]
 
     return {
-        "data": [{
-            "id": adam_id,
-            "attributes": attrs,
-            "relationships": {
-                "artists": {"data": artist_rel},
-                "tracks": {"data": track_data},
+        "data": [
+            {
+                "id": adam_id,
+                "attributes": attrs,
+                "relationships": {
+                    "artists": {"data": artist_rel},
+                    "tracks": {"data": track_data},
+                },
             },
-        }]
+        ],
     }
 
 
@@ -87,14 +98,16 @@ def _make_artist_views_response(albums=None, singles=None, compilations=None, li
         return {"id": adam_id, "attributes": {"name": name, "artistName": artist, "url": url}}
 
     return {
-        "data": [{
-            "views": {
-                "full-albums":        {"data": [_item(*a) for a in (albums or [])]},
-                "compilation-albums": {"data": [_item(*a) for a in (compilations or [])]},
-                "live-albums":        {"data": [_item(*a) for a in (live or [])]},
-                "singles":            {"data": [_item(*a) for a in (singles or [])]},
-            }
-        }]
+        "data": [
+            {
+                "views": {
+                    "full-albums": {"data": [_item(*a) for a in (albums or [])]},
+                    "compilation-albums": {"data": [_item(*a) for a in (compilations or [])]},
+                    "live-albums": {"data": [_item(*a) for a in (live or [])]},
+                    "singles": {"data": [_item(*a) for a in (singles or [])]},
+                },
+            },
+        ],
     }
 
 
@@ -102,8 +115,8 @@ def _make_artist_views_response(albums=None, singles=None, compilations=None, li
 # _is_jwt_expired
 # ---------------------------------------------------------------------------
 
-class TestIsJwtExpired(unittest.TestCase):
 
+class TestIsJwtExpired(unittest.TestCase):
     def setUp(self):
         self.client = _make_client()
 
@@ -122,8 +135,8 @@ class TestIsJwtExpired(unittest.TestCase):
         self.assertTrue(self.client._is_jwt_expired(""))
 
     def test_missing_exp_field_returns_true(self):
-        header = base64.urlsafe_b64encode(b'{}').rstrip(b"=").decode()
-        payload = base64.urlsafe_b64encode(b'{}').rstrip(b"=").decode()
+        header = base64.urlsafe_b64encode(b"{}").rstrip(b"=").decode()
+        payload = base64.urlsafe_b64encode(b"{}").rstrip(b"=").decode()
         # exp defaults to 0 -> always expired
         self.assertTrue(self.client._is_jwt_expired(f"{header}.{payload}.sig"))
 
@@ -132,8 +145,8 @@ class TestIsJwtExpired(unittest.TestCase):
 # _apply_proxy
 # ---------------------------------------------------------------------------
 
-class TestApplyProxy(unittest.TestCase):
 
+class TestApplyProxy(unittest.TestCase):
     def setUp(self):
         self.client = _make_client()
 
@@ -147,7 +160,7 @@ class TestApplyProxy(unittest.TestCase):
         result = self.client._apply_proxy(url)
         self.assertTrue(result.startswith("https://proxy.example.com/"))
         # The original URL should be percent-encoded in the suffix
-        self.assertNotIn("://", result[len("https://proxy.example.com/"):])
+        self.assertNotIn("://", result[len("https://proxy.example.com/") :])
         self.assertIn("music.apple.com", result)
 
 
@@ -155,8 +168,8 @@ class TestApplyProxy(unittest.TestCase):
 # _web_get
 # ---------------------------------------------------------------------------
 
-class TestWebGet(unittest.TestCase):
 
+class TestWebGet(unittest.TestCase):
     def setUp(self):
         self.client = _make_client()
 
@@ -195,8 +208,8 @@ class TestWebGet(unittest.TestCase):
 # _amp_api_get
 # ---------------------------------------------------------------------------
 
-class TestAmpApiGet(unittest.TestCase):
 
+class TestAmpApiGet(unittest.TestCase):
     def setUp(self):
         self.client = _make_client()
 
@@ -230,8 +243,8 @@ class TestAmpApiGet(unittest.TestCase):
 # _fetch_new_bearer_token
 # ---------------------------------------------------------------------------
 
-class TestFetchNewBearerToken(unittest.TestCase):
 
+class TestFetchNewBearerToken(unittest.TestCase):
     def setUp(self):
         self.client = _make_client()
 
@@ -280,8 +293,8 @@ class TestFetchNewBearerToken(unittest.TestCase):
 # _get_bearer_token
 # ---------------------------------------------------------------------------
 
-class TestGetBearerToken(unittest.TestCase):
 
+class TestGetBearerToken(unittest.TestCase):
     def _uncached_client(self):
         """Instantiate without running __init__ (bypasses all side effects)."""
         return AppleMusicClient.__new__(AppleMusicClient)
@@ -289,31 +302,39 @@ class TestGetBearerToken(unittest.TestCase):
     def test_returns_cached_valid_token(self):
         client = self._uncached_client()
         token = _make_jwt(int(time.time()) + 3600)
-        with patch("os.path.exists", return_value=True), \
-             patch("builtins.open", mock_open(read_data=token)):
+        with (
+            patch("os.path.exists", return_value=True),
+            patch("builtins.open", mock_open(read_data=token)),
+        ):
             self.assertEqual(client._get_bearer_token(), token)
 
     def test_fetches_new_token_when_cache_expired(self):
         client = self._uncached_client()
         expired = _make_jwt(int(time.time()) - 3600)
         fresh = "eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJuZXcifQ.newsig"
-        with patch("os.path.exists", return_value=True), \
-             patch("builtins.open", mock_open(read_data=expired)), \
-             patch.object(AppleMusicClient, "_fetch_new_bearer_token", return_value=fresh):
+        with (
+            patch("os.path.exists", return_value=True),
+            patch("builtins.open", mock_open(read_data=expired)),
+            patch.object(AppleMusicClient, "_fetch_new_bearer_token", return_value=fresh),
+        ):
             self.assertEqual(client._get_bearer_token(), fresh)
 
     def test_fetches_new_token_when_no_cache_file(self):
         client = self._uncached_client()
         fresh = "brandnewtoken"
-        with patch("os.path.exists", return_value=False), \
-             patch("builtins.open", mock_open()), \
-             patch.object(AppleMusicClient, "_fetch_new_bearer_token", return_value=fresh):
+        with (
+            patch("os.path.exists", return_value=False),
+            patch("builtins.open", mock_open()),
+            patch.object(AppleMusicClient, "_fetch_new_bearer_token", return_value=fresh),
+        ):
             self.assertEqual(client._get_bearer_token(), fresh)
 
     def test_returns_none_when_fetch_fails(self):
         client = self._uncached_client()
-        with patch("os.path.exists", return_value=False), \
-             patch.object(AppleMusicClient, "_fetch_new_bearer_token", return_value=None):
+        with (
+            patch("os.path.exists", return_value=False),
+            patch.object(AppleMusicClient, "_fetch_new_bearer_token", return_value=None),
+        ):
             self.assertIsNone(client._get_bearer_token())
 
 
@@ -321,8 +342,8 @@ class TestGetBearerToken(unittest.TestCase):
 # get_album_full_info
 # ---------------------------------------------------------------------------
 
-class TestGetAlbumFullInfo(unittest.TestCase):
 
+class TestGetAlbumFullInfo(unittest.TestCase):
     def setUp(self):
         self.client = _make_client()
 
@@ -403,25 +424,29 @@ class TestGetAlbumFullInfo(unittest.TestCase):
 # get_room_new_releases
 # ---------------------------------------------------------------------------
 
-class TestGetRoomNewReleases(unittest.TestCase):
 
+class TestGetRoomNewReleases(unittest.TestCase):
     def setUp(self):
         self.client = _make_client()
 
     @patch.object(AppleMusicClient, "_web_get")
     def test_extracts_releases_from_new_section(self, mock_web_get):
-        sections = [{
-            "header": "New Releases",
-            "items": [{
-                "item": {
-                    "attributes": {
-                        "title": "Test Album",
-                        "artistName": "Test Artist",
-                        "url": "https://music.apple.com/us/album/test/123456789",
-                    }
-                }
-            }],
-        }]
+        sections = [
+            {
+                "header": "New Releases",
+                "items": [
+                    {
+                        "item": {
+                            "attributes": {
+                                "title": "Test Album",
+                                "artistName": "Test Artist",
+                                "url": "https://music.apple.com/us/album/test/123456789",
+                            },
+                        },
+                    },
+                ],
+            },
+        ]
         mock_web_get.return_value = ROOM_HTML_TEMPLATE.format(payload=_make_room_payload(sections))
 
         releases = self.client.get_room_new_releases("https://example.com", "us")
@@ -433,13 +458,22 @@ class TestGetRoomNewReleases(unittest.TestCase):
 
     @patch.object(AppleMusicClient, "_web_get")
     def test_ignores_non_new_release_sections(self, mock_web_get):
-        sections = [{
-            "header": "Featured Playlists",
-            "items": [{"item": {"attributes": {
-                "title": "Chill Hits", "artistName": "Various",
-                "url": "https://music.apple.com/us/playlist/test/999",
-            }}}],
-        }]
+        sections = [
+            {
+                "header": "Featured Playlists",
+                "items": [
+                    {
+                        "item": {
+                            "attributes": {
+                                "title": "Chill Hits",
+                                "artistName": "Various",
+                                "url": "https://music.apple.com/us/playlist/test/999",
+                            },
+                        },
+                    },
+                ],
+            },
+        ]
         mock_web_get.return_value = ROOM_HTML_TEMPLATE.format(payload=_make_room_payload(sections))
 
         self.assertEqual(self.client.get_room_new_releases("https://example.com", "us"), [])
@@ -463,7 +497,6 @@ _ARTIST_URL = "https://music.apple.com/us/artist/test-artist/12345"
 
 
 class TestGetArtistAllReleases(unittest.TestCase):
-
     def setUp(self):
         self.client = _make_client()
 
@@ -495,16 +528,21 @@ class TestGetArtistAllReleases(unittest.TestCase):
         self.assertEqual(by_id["222"]["release_type"], "singles-eps")
 
     def test_deduplicates_across_views(self):
-        dup_item = {"id": "111", "attributes": {"name": "Dup Album", "artistName": "Artist", "url": "..."}}
+        dup_item = {
+            "id": "111",
+            "attributes": {"name": "Dup Album", "artistName": "Artist", "url": "..."},
+        }
         api_data = {
-            "data": [{
-                "views": {
-                    "full-albums":        {"data": [dup_item]},
-                    "compilation-albums": {"data": [dup_item]},
-                    "live-albums":        {"data": []},
-                    "singles":            {"data": []},
-                }
-            }]
+            "data": [
+                {
+                    "views": {
+                        "full-albums": {"data": [dup_item]},
+                        "compilation-albums": {"data": [dup_item]},
+                        "live-albums": {"data": []},
+                        "singles": {"data": []},
+                    },
+                },
+            ],
         }
         with patch.object(self.client, "_amp_api_get", return_value=api_data):
             releases, artist_info = self.client.get_artist_all_releases(_ARTIST_URL, "us")
@@ -521,8 +559,8 @@ class TestGetArtistAllReleases(unittest.TestCase):
 # get_artist_new_releases
 # ---------------------------------------------------------------------------
 
-class TestGetArtistNewReleases(unittest.TestCase):
 
+class TestGetArtistNewReleases(unittest.TestCase):
     def setUp(self):
         self.client = _make_client()
 
@@ -532,14 +570,16 @@ class TestGetArtistNewReleases(unittest.TestCase):
 
     def test_extracts_releases_from_api(self):
         api_data = {
-            "data": [{
-                "id": "111222333",
-                "attributes": {
-                    "name": "Great Album",
-                    "artistName": "Great Artist",
-                    "url": "https://music.apple.com/us/album/great/111222333",
+            "data": [
+                {
+                    "id": "111222333",
+                    "attributes": {
+                        "name": "Great Album",
+                        "artistName": "Great Artist",
+                        "url": "https://music.apple.com/us/album/great/111222333",
+                    },
                 },
-            }]
+            ],
         }
         with patch.object(self.client, "_amp_api_get", return_value=api_data):
             releases = self.client.get_artist_new_releases(_ARTIST_URL, "us")
@@ -560,8 +600,11 @@ class TestGetArtistNewReleases(unittest.TestCase):
         api_data = {
             "data": [
                 {"attributes": {"name": "No ID Album", "artistName": "Artist", "url": "..."}},
-                {"id": "999", "attributes": {"name": "Has ID", "artistName": "Artist", "url": "..."}},
-            ]
+                {
+                    "id": "999",
+                    "attributes": {"name": "Has ID", "artistName": "Artist", "url": "..."},
+                },
+            ],
         }
         with patch.object(self.client, "_amp_api_get", return_value=api_data):
             releases = self.client.get_artist_new_releases(_ARTIST_URL, "us")
@@ -573,8 +616,8 @@ class TestGetArtistNewReleases(unittest.TestCase):
 # check_storefront_availability
 # ---------------------------------------------------------------------------
 
-class TestCheckStorefrontAvailability(unittest.TestCase):
 
+class TestCheckStorefrontAvailability(unittest.TestCase):
     def setUp(self):
         self.client = _make_client()
 

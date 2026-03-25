@@ -1,5 +1,4 @@
-"""
-One-off database migration runner.
+"""One-off database migration runner.
 
 Usage:
     python migrate.py
@@ -8,13 +7,12 @@ Applies any pending migrations to bring the DB up to the current SCHEMA_VERSION,
 then updates PRAGMA user_version. Safe to re-run — already-applied migrations are skipped.
 """
 
+import os
 import sqlite3
 import sys
-import os
 
 # Import the version target and DB path from the main db module
 from db import DB_PATH, SCHEMA_VERSION
-
 
 # ---------------------------------------------------------------------------
 # Migration definitions
@@ -57,13 +55,11 @@ MIGRATIONS = {
             total_count INTEGER DEFAULT 0
         );
     """,
-
     2: """
         -- Version 2: add artwork_url and genre to watched_artists.
         ALTER TABLE watched_artists ADD COLUMN artwork_url TEXT;
         ALTER TABLE watched_artists ADD COLUMN genre TEXT;
     """,
-
     3: """
         -- Version 3: add artists cache table for per-artist metadata.
         CREATE TABLE IF NOT EXISTS artists (
@@ -73,29 +69,24 @@ MIGRATIONS = {
             updated_at  INTEGER
         );
     """,
-
     4: """
         -- Version 4: drop redundant artwork_url and genre from watched_artists (now in artists table).
         ALTER TABLE watched_artists DROP COLUMN artwork_url;
         ALTER TABLE watched_artists DROP COLUMN genre;
     """,
-
     5: """
         -- Version 5: track how an album entered the DB (room discovery vs artist page fetch).
         ALTER TABLE albums ADD COLUMN source TEXT;
     """,
-
     6: """
         -- Version 6: add preferred metadata source and last refresh timestamp to watched_artists.
         ALTER TABLE watched_artists ADD COLUMN preferred_source TEXT;
         ALTER TABLE watched_artists ADD COLUMN last_refreshed INTEGER;
     """,
-
     7: """
         -- Version 7: add canonical artist name to artists table.
         ALTER TABLE artists ADD COLUMN name TEXT;
     """,
-
     8: """
         -- Version 8: store all artists for an album as a JSON array of {id, name, url} objects.
         ALTER TABLE albums ADD COLUMN artists_json TEXT;
@@ -125,10 +116,7 @@ def run_migrations():
     print(f"Target schema version  : {SCHEMA_VERSION}")
 
     if current > SCHEMA_VERSION:
-        print(
-            f"ERROR: DB version ({current}) is newer than this code ({SCHEMA_VERSION}). "
-            "Update your code."
-        )
+        print(f"ERROR: DB version ({current}) is newer than this code ({SCHEMA_VERSION}). Update your code.")
         conn.close()
         sys.exit(1)
 
@@ -147,9 +135,7 @@ def run_migrations():
         # so we split on ';' and execute each statement individually.
         for stmt in sql.split(";"):
             # Strip comment lines before checking if the statement is empty
-            clean = "\n".join(
-                line for line in stmt.splitlines() if not line.strip().startswith("--")
-            ).strip()
+            clean = "\n".join(line for line in stmt.splitlines() if not line.strip().startswith("--")).strip()
             if not clean:
                 continue
             try:
@@ -157,7 +143,7 @@ def run_migrations():
                 conn.commit()
             except sqlite3.OperationalError as e:
                 if "duplicate column" in str(e).lower():
-                    print(f"    (skipped — column already exists)")
+                    print("    (skipped — column already exists)")
                 else:
                     print(f"    ERROR: {e}")
                     conn.close()

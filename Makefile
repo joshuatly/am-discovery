@@ -1,4 +1,4 @@
-.PHONY: test test-py test-js install
+.PHONY: test test-py test-js install lint
 
 test: test-py test-js
 
@@ -11,3 +11,7 @@ test-js:
 install:
 	uv sync --all-groups
 	npm --prefix frontend ci
+
+lint:
+	uv run ruff check --fix .
+	uv run ruff format .

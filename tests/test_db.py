@@ -1,5 +1,4 @@
-"""
-Comprehensive unit tests for db.py — SQLite database layer.
+"""Comprehensive unit tests for db.py — SQLite database layer.
 
 Strategy:
 - Override DB_PATH via os.environ before importing db, so every test gets an
@@ -15,10 +14,10 @@ import tempfile
 import time
 import unittest
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_temp_db():
     """Return (tmpdir, db_path) for an isolated, fresh database.
@@ -35,6 +34,7 @@ def _make_temp_db():
 def _reinit_db(path: str):
     """Point db.DB_PATH at *path* and (re)initialise the schema."""
     import db as _db
+
     _db.DB_PATH = path
     _db.init_db()
 
@@ -43,6 +43,7 @@ def _reinit_db(path: str):
 # Base class
 # ---------------------------------------------------------------------------
 
+
 class DBTestCase(unittest.TestCase):
     """Creates a fresh temp DB before every test and removes it afterwards."""
 
@@ -50,7 +51,10 @@ class DBTestCase(unittest.TestCase):
         self.db_dir, self.db_path = _make_temp_db()
         os.environ["AM_DB_PATH"] = self.db_path
         # Re-import to pick up the new path
-        import importlib, db
+        import importlib
+
+        import db
+
         importlib.reload(db)
         db.init_db()
         self.db = db
@@ -63,14 +67,12 @@ class DBTestCase(unittest.TestCase):
 # init_db
 # ---------------------------------------------------------------------------
 
-class TestInitDb(DBTestCase):
 
+class TestInitDb(DBTestCase):
     def test_fresh_db_creates_all_tables(self):
         """All expected tables exist after init_db on a fresh database."""
         with self.db.get_conn() as conn:
-            tables = {r[0] for r in conn.execute(
-                "SELECT name FROM sqlite_master WHERE type='table'"
-            ).fetchall()}
+            tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
         self.assertIn("albums", tables)
         self.assertIn("watched_artists", tables)
         self.assertIn("artists", tables)
@@ -97,10 +99,13 @@ class TestInitDb(DBTestCase):
         conn.commit()
         conn.close()
 
-        import importlib, db
+        import importlib
+
+        import db
+
         db.DB_PATH = path
         importlib.reload(db)
-        db.DB_PATH = path   # reload resets env; set explicitly
+        db.DB_PATH = path  # reload resets env; set explicitly
 
         try:
             with self.assertRaises(RuntimeError):
@@ -120,6 +125,7 @@ class TestInitDb(DBTestCase):
 # ---------------------------------------------------------------------------
 # get_album / upsert_album
 # ---------------------------------------------------------------------------
+
 
 def _minimal_album(store_adam_id="123456", **kwargs):
     data = {
@@ -145,7 +151,6 @@ def _minimal_album(store_adam_id="123456", **kwargs):
 
 
 class TestGetAlbum(DBTestCase):
-
     def test_returns_none_for_missing_id(self):
         self.assertIsNone(self.db.get_album("NONEXISTENT"))
 
@@ -178,7 +183,6 @@ class TestGetAlbum(DBTestCase):
 
 
 class TestUpsertAlbum(DBTestCase):
-
     def test_insert_new_album(self):
         self.db.upsert_album(_minimal_album())
         self.assertIsNotNone(self.db.get_album("123456"))
@@ -217,12 +221,15 @@ class TestUpsertAlbum(DBTestCase):
 
     def test_artists_json_stored_as_json_string(self):
         """artists_json is serialized to a JSON string in the DB."""
-        artists = [{
-            "id": "A1", "name": "Artist One",
-            "url": "https://music.apple.com/us/artist/1",
-            "artwork_url": "https://example.com/art.jpg",
-            "genre": "Pop",
-        }]
+        artists = [
+            {
+                "id": "A1",
+                "name": "Artist One",
+                "url": "https://music.apple.com/us/artist/1",
+                "artwork_url": "https://example.com/art.jpg",
+                "genre": "Pop",
+            },
+        ]
         self.db.upsert_album(_minimal_album(artists_json=artists))
         row = self.db.get_album("123456")
         parsed = json.loads(row["artists_json"])
@@ -304,13 +311,40 @@ class TestUpsertAlbum(DBTestCase):
 # list_albums
 # ---------------------------------------------------------------------------
 
-class TestListAlbums(DBTestCase):
 
+class TestListAlbums(DBTestCase):
     def setUp(self):
         super().setUp()
-        self.db.upsert_album(_minimal_album("A1", title="Alpha", artist="Zara", release_date="2024-03-01", source="discovered", storefronts=["us"]))
-        self.db.upsert_album(_minimal_album("A2", title="Beta", artist="Adam", release_date="2024-01-01", source="artist_fetch", storefronts=["jp"]))
-        self.db.upsert_album(_minimal_album("A3", title="Gamma", artist="Zara", release_date="2024-02-01", source="discovered", storefronts=["us", "jp"]))
+        self.db.upsert_album(
+            _minimal_album(
+                "A1",
+                title="Alpha",
+                artist="Zara",
+                release_date="2024-03-01",
+                source="discovered",
+                storefronts=["us"],
+            ),
+        )
+        self.db.upsert_album(
+            _minimal_album(
+                "A2",
+                title="Beta",
+                artist="Adam",
+                release_date="2024-01-01",
+                source="artist_fetch",
+                storefronts=["jp"],
+            ),
+        )
+        self.db.upsert_album(
+            _minimal_album(
+                "A3",
+                title="Gamma",
+                artist="Zara",
+                release_date="2024-02-01",
+                source="discovered",
+                storefronts=["us", "jp"],
+            ),
+        )
 
     def test_returns_all_albums(self):
         rows, total = self.db.list_albums()
@@ -370,13 +404,25 @@ class TestListAlbums(DBTestCase):
 # search_albums
 # ---------------------------------------------------------------------------
 
-class TestSearchAlbums(DBTestCase):
 
+class TestSearchAlbums(DBTestCase):
     def setUp(self):
         super().setUp()
-        self.db.upsert_album(_minimal_album("A1", title="Blue Skies", artist="Alice", storefronts=["us"], source="discovered"))
-        self.db.upsert_album(_minimal_album("A2", title="Red Roses", artist="Bob", storefronts=["jp"], source="artist_fetch"))
-        self.db.upsert_album(_minimal_album("A3", title="Green Fields", artist="Alice", storefronts=["us"], source="artist_fetch"))
+        self.db.upsert_album(
+            _minimal_album("A1", title="Blue Skies", artist="Alice", storefronts=["us"], source="discovered"),
+        )
+        self.db.upsert_album(
+            _minimal_album("A2", title="Red Roses", artist="Bob", storefronts=["jp"], source="artist_fetch"),
+        )
+        self.db.upsert_album(
+            _minimal_album(
+                "A3",
+                title="Green Fields",
+                artist="Alice",
+                storefronts=["us"],
+                source="artist_fetch",
+            ),
+        )
 
     def test_search_by_title(self):
         rows, total = self.db.search_albums("Blue")
@@ -411,7 +457,7 @@ class TestSearchAlbums(DBTestCase):
         self.assertEqual(len(rows), 1)
 
     def test_search_wildcard_match(self):
-        rows, total = self.db.search_albums("e")   # matches Alice, Green, Blue, Red
+        rows, total = self.db.search_albums("e")  # matches Alice, Green, Blue, Red
         self.assertGreater(total, 0)
 
 
@@ -419,8 +465,8 @@ class TestSearchAlbums(DBTestCase):
 # get_artist_albums
 # ---------------------------------------------------------------------------
 
-class TestGetArtistAlbums(DBTestCase):
 
+class TestGetArtistAlbums(DBTestCase):
     def test_returns_albums_for_artist(self):
         self.db.upsert_album(_minimal_album("A1", artist_id="ART1", release_date="2024-01-01"))
         self.db.upsert_album(_minimal_album("A2", artist_id="ART1", release_date="2023-06-01"))
@@ -446,8 +492,8 @@ class TestGetArtistAlbums(DBTestCase):
 # Watchlist
 # ---------------------------------------------------------------------------
 
-class TestWatchlist(DBTestCase):
 
+class TestWatchlist(DBTestCase):
     def test_empty_watchlist(self):
         self.assertEqual(self.db.get_watchlist(), [])
 
@@ -506,8 +552,8 @@ class TestWatchlist(DBTestCase):
 # upsert_artist / get_artist_info / get_artist_artwork
 # ---------------------------------------------------------------------------
 
-class TestArtist(DBTestCase):
 
+class TestArtist(DBTestCase):
     def test_upsert_and_get_artist_info(self):
         self.db.upsert_artist("ART1", name="Jay Chou", artwork_url="https://art.jpg", genre="Pop")
         info = self.db.get_artist_info("ART1")
@@ -544,7 +590,6 @@ class TestArtist(DBTestCase):
 
     def test_upsert_artist_updates_updated_at(self):
         self.db.upsert_artist("ART1", artwork_url="https://art.jpg")
-        before = self.db.get_artist_info("ART1")
         # We can't easily check updated_at without exposing it; just verify no crash
         self.db.upsert_artist("ART1", genre="Rock")
         info = self.db.get_artist_info("ART1")
@@ -555,8 +600,8 @@ class TestArtist(DBTestCase):
 # log_discovery_run / get_last_run
 # ---------------------------------------------------------------------------
 
-class TestDiscoveryRuns(DBTestCase):
 
+class TestDiscoveryRuns(DBTestCase):
     def test_get_last_run_returns_none_if_no_runs(self):
         self.assertIsNone(self.db.get_last_run())
 
@@ -594,8 +639,8 @@ class TestDiscoveryRuns(DBTestCase):
 # get_conn — transactional behaviour
 # ---------------------------------------------------------------------------
 
-class TestGetConn(DBTestCase):
 
+class TestGetConn(DBTestCase):
     def test_rollback_on_exception(self):
         """A failing operation inside get_conn context should roll back."""
         try:
@@ -624,8 +669,8 @@ class TestGetConn(DBTestCase):
 # Watchlist — preferred_source and last_refreshed
 # ---------------------------------------------------------------------------
 
-class TestWatchlistPreferredSource(DBTestCase):
 
+class TestWatchlistPreferredSource(DBTestCase):
     def test_add_with_preferred_source(self):
         self.db.add_to_watchlist("ART1", "Artist One", "https://url", preferred_source="jp")
         wl = self.db.get_watchlist()
@@ -672,8 +717,8 @@ class TestWatchlistPreferredSource(DBTestCase):
 # update_preferred_source
 # ---------------------------------------------------------------------------
 
-class TestUpdatePreferredSource(DBTestCase):
 
+class TestUpdatePreferredSource(DBTestCase):
     def test_set_preferred_source(self):
         self.db.add_to_watchlist("ART1", "Artist One")
         self.db.update_preferred_source("ART1", "jp")
@@ -702,8 +747,8 @@ class TestUpdatePreferredSource(DBTestCase):
 # get_artists_needing_refresh / mark_artist_refreshed
 # ---------------------------------------------------------------------------
 
-class TestArtistRefresh(DBTestCase):
 
+class TestArtistRefresh(DBTestCase):
     def test_returns_unrefreshed_artists(self):
         self.db.add_to_watchlist("ART1", "Artist One")
         self.db.add_to_watchlist("ART2", "Artist Two")
@@ -728,7 +773,10 @@ class TestArtistRefresh(DBTestCase):
         # Set last_refreshed to 8 days ago
         with self.db.get_conn() as conn:
             old_ts = int(time.time()) - (8 * 86400)
-            conn.execute("UPDATE watched_artists SET last_refreshed = ? WHERE artist_id = ?", (old_ts, "ART1"))
+            conn.execute(
+                "UPDATE watched_artists SET last_refreshed = ? WHERE artist_id = ?",
+                (old_ts, "ART1"),
+            )
         artists = self.db.get_artists_needing_refresh(batch_size=10, refresh_interval_days=7)
         self.assertEqual(len(artists), 1)
 
@@ -747,7 +795,10 @@ class TestArtistRefresh(DBTestCase):
         # ART1 refreshed 10 days ago, ART2 never
         with self.db.get_conn() as conn:
             old_ts = int(time.time()) - (10 * 86400)
-            conn.execute("UPDATE watched_artists SET last_refreshed = ? WHERE artist_id = ?", (old_ts, "ART1"))
+            conn.execute(
+                "UPDATE watched_artists SET last_refreshed = ? WHERE artist_id = ?",
+                (old_ts, "ART1"),
+            )
         artists = self.db.get_artists_needing_refresh(batch_size=10, refresh_interval_days=7)
         self.assertEqual(artists[0]["artist_id"], "ART2")
 
@@ -761,8 +812,8 @@ class TestArtistRefresh(DBTestCase):
 # export_watchlist / import_watchlist
 # ---------------------------------------------------------------------------
 
-class TestWatchlistImportExport(DBTestCase):
 
+class TestWatchlistImportExport(DBTestCase):
     def test_export_empty(self):
         result = self.db.export_watchlist()
         self.assertEqual(result, [])
@@ -786,7 +837,12 @@ class TestWatchlistImportExport(DBTestCase):
 
     def test_import_adds_artists(self):
         artists = [
-            {"artist_id": "ART1", "name": "Artist One", "url": "https://url1", "preferred_source": "jp"},
+            {
+                "artist_id": "ART1",
+                "name": "Artist One",
+                "url": "https://url1",
+                "preferred_source": "jp",
+            },
             {"artist_id": "ART2", "name": "Artist Two", "url": "https://url2"},
         ]
         self.db.import_watchlist(artists)
@@ -823,8 +879,8 @@ class TestWatchlistImportExport(DBTestCase):
 # list_albums / search_albums — watched_only filter
 # ---------------------------------------------------------------------------
 
-class TestWatchedOnlyFilter(DBTestCase):
 
+class TestWatchedOnlyFilter(DBTestCase):
     def setUp(self):
         super().setUp()
         self.db.upsert_album(_minimal_album("A1", artist_id="ART1", title="Alpha"))

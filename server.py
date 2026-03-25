@@ -1,5 +1,4 @@
-"""
-AM Discovery Web Server
+"""AM Discovery Web Server
 Flask-based REST API + background polling scheduler.
 Run: uv run python server.py
 """
@@ -11,10 +10,10 @@ import os
 import re
 import threading
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
-from flask import Flask, jsonify, request, send_from_directory
 from flasgger import Swagger
+from flask import Flask, jsonify, request, send_from_directory
 
 import db
 from client import AppleMusicClient
@@ -29,11 +28,13 @@ CONFIG_PATH = os.path.join(BASE_DIR, "config.json")
 
 logger = logging.getLogger(__name__)
 
-_STOREFRONT_RE = re.compile(r'^[a-z]{2,3}$')
+_STOREFRONT_RE = re.compile(r"^[a-z]{2,3}$")
+
 
 def _validate_storefront(sf: str):
     """Return sf if it looks like a valid ISO storefront code, else None."""
     return sf if _STOREFRONT_RE.match(sf) else None
+
 
 app = Flask(__name__, static_folder=FRONTEND_DIR, static_url_path="")
 swagger = Swagger(app)
@@ -41,6 +42,7 @@ swagger = Swagger(app)
 # ---------------------------------------------------------------------------
 # Config helpers
 # ---------------------------------------------------------------------------
+
 
 def load_config() -> dict:
     defaults = {
@@ -143,15 +145,17 @@ def _do_poll():
         # 4. For known albums, just update storefronts / last_seen
         for aid in known_ids:
             r = all_releases[aid]
-            db.upsert_album({
-                "store_adam_id": aid,
-                "title": r.get("title"),
-                "artist": r.get("artist"),
-                "url": r.get("url"),
-                "storefronts": r.get("storefronts", []),
-                "info_fetched": 1,
-                "source": "discovered",
-            })
+            db.upsert_album(
+                {
+                    "store_adam_id": aid,
+                    "title": r.get("title"),
+                    "artist": r.get("artist"),
+                    "url": r.get("url"),
+                    "storefronts": r.get("storefronts", []),
+                    "info_fetched": 1,
+                    "source": "discovered",
+                },
+            )
 
         total = db.list_albums()[1]
         db.log_discovery_run(len(new_ids), total)
@@ -223,9 +227,14 @@ def _do_watchlist_poll():
 
             try:
                 releases, artist_info = client.get_artist_all_releases(artist_url, storefront)
-                db.upsert_artist(artist_id, name=artist_info.get("name"), artwork_url=artist_info.get("artwork_url"), genre=artist_info.get("genre"))
+                db.upsert_artist(
+                    artist_id,
+                    name=artist_info.get("name"),
+                    artwork_url=artist_info.get("artwork_url"),
+                    genre=artist_info.get("genre"),
+                )
 
-                def fetch_one(r):
+                def fetch_one(r, storefront=storefront, artist_id=artist_id):
                     aid = r["storeAdamID"]
                     existing = db.get_album(aid)
                     album_url = f"https://music.apple.com/{storefront}/album/{aid}"
@@ -286,6 +295,7 @@ def _schedule_watchlist_next(override_delay=None):
 # REST API
 # ---------------------------------------------------------------------------
 
+
 def _serialize(row: dict) -> dict:
     """Ensure storefronts, audio_formats, and artists_json are lists (stored as JSON strings in SQLite)."""
     if isinstance(row.get("storefronts"), str):
@@ -299,10 +309,11 @@ def _serialize(row: dict) -> dict:
 
 @app.route("/api/releases")
 def api_releases():
-    """
-    Get a paginated list of releases.
+    """Get a paginated list of releases.
     ---
-    parameters:
+
+    Parameters
+    ----------
       - name: page
         in: query
         type: integer
@@ -318,6 +329,7 @@ def api_releases():
     responses:
       200:
         description: A list of releases
+
     """
     try:
         page = int(request.args.get("page", 1))
@@ -333,9 +345,22 @@ def api_releases():
     watched_only = request.args.get("watched") == "true"
 
     if q:
-        rows, total = db.search_albums(q, page, per_page, storefront=storefront, discovered_only=discovered_only, watched_only=watched_only)
+        rows, total = db.search_albums(
+            q,
+            page,
+            per_page,
+            storefront=storefront,
+            discovered_only=discovered_only,
+            watched_only=watched_only,
+        )
     else:
-        rows, total = db.list_albums(page, per_page, storefront=storefront, discovered_only=discovered_only, watched_only=watched_only)
+        rows, total = db.list_albums(
+            page,
+            per_page,
+            storefront=storefront,
+            discovered_only=discovered_only,
+            watched_only=watched_only,
+        )
 
     watched_ids = db.get_watched_artist_ids()
     result = []
@@ -349,10 +374,11 @@ def api_releases():
 
 @app.route("/api/releases/<store_adam_id>")
 def api_release_detail(store_adam_id):
-    """
-    Get details for a specific release.
+    """Get details for a specific release.
     ---
-    parameters:
+
+    Parameters
+    ----------
       - name: store_adam_id
         in: path
         type: string
@@ -362,6 +388,7 @@ def api_release_detail(store_adam_id):
         description: Release details
       404:
         description: Release not found
+
     """
     row = db.get_album(store_adam_id)
     if not row:
@@ -374,10 +401,11 @@ def api_release_detail(store_adam_id):
 
 @app.route("/api/releases/<store_adam_id>/check_storefronts")
 def api_check_storefronts(store_adam_id):
-    """
-    Check availability of a release across different storefronts.
+    """Check availability of a release across different storefronts.
     ---
-    parameters:
+
+    Parameters
+    ----------
       - name: store_adam_id
         in: path
         type: string
@@ -385,6 +413,7 @@ def api_check_storefronts(store_adam_id):
     responses:
       200:
         description: Availability results
+
     """
     cfg = load_config()
     storefronts = cfg.get("check_storefronts", ["jp", "my", "us", "hk", "tw", "sg"])
@@ -395,10 +424,11 @@ def api_check_storefronts(store_adam_id):
 
 @app.route("/api/lookup/<store_adam_id>")
 def api_lookup(store_adam_id):
-    """
-    Fetch fresh metadata for a release from a specific storefront.
+    """Fetch fresh metadata for a release from a specific storefront.
     ---
-    parameters:
+
+    Parameters
+    ----------
       - name: store_adam_id
         in: path
         type: string
@@ -410,6 +440,7 @@ def api_lookup(store_adam_id):
     responses:
       200:
         description: Fresh metadata from the specified storefront
+
     """
     storefront = _validate_storefront(request.args.get("storefront", "us").strip().lower())
     if not storefront:
@@ -422,10 +453,11 @@ def api_lookup(store_adam_id):
 
 @app.route("/api/artists/<artist_id>/fetch", methods=["POST"])
 def api_artist_fetch(artist_id):
-    """
-    Fetch all releases for an artist from a specific storefront and store them.
+    """Fetch all releases for an artist from a specific storefront and store them.
     ---
-    parameters:
+
+    Parameters
+    ----------
       - name: artist_id
         in: path
         type: string
@@ -437,6 +469,7 @@ def api_artist_fetch(artist_id):
     responses:
       200:
         description: Fetch result with count
+
     """
     raw_sf = request.args.get("storefront", "").strip().lower()
     if raw_sf:
@@ -455,7 +488,12 @@ def api_artist_fetch(artist_id):
         return jsonify({"ok": True, "fetched": 0, "message": "No releases found on artist page"})
 
     # Cache artist metadata (name, artwork, genre) for any artist that gets fetched
-    db.upsert_artist(artist_id, name=artist_info.get("name"), artwork_url=artist_info.get("artwork_url"), genre=artist_info.get("genre"))
+    db.upsert_artist(
+        artist_id,
+        name=artist_info.get("name"),
+        artwork_url=artist_info.get("artwork_url"),
+        genre=artist_info.get("genre"),
+    )
 
     def fetch_one(r):
         aid = r["storeAdamID"]
@@ -495,10 +533,11 @@ def api_artist_fetch(artist_id):
 
 @app.route("/api/artists/<artist_id>/releases")
 def api_artist_releases(artist_id):
-    """
-    Get all releases for a specific artist.
+    """Get all releases for a specific artist.
     ---
-    parameters:
+
+    Parameters
+    ----------
       - name: artist_id
         in: path
         type: string
@@ -506,6 +545,7 @@ def api_artist_releases(artist_id):
     responses:
       200:
         description: Artist releases
+
     """
     rows = db.get_artist_albums(artist_id)
     watched_ids = db.get_watched_artist_ids()
@@ -513,23 +553,26 @@ def api_artist_releases(artist_id):
     watched = artist_id in watched_ids
     artist_url = next((r.get("artist_url") for r in result if r.get("artist_url")), None)
     artist_info = db.get_artist_info(artist_id)
-    return jsonify({
-        "artist_id": artist_id,
-        "artist_name": artist_info.get("name"),
-        "artist_url": artist_url,
-        "artist_artwork_url": artist_info.get("artwork_url"),
-        "artist_genre": artist_info.get("genre"),
-        "watched": watched,
-        "releases": result,
-    })
+    return jsonify(
+        {
+            "artist_id": artist_id,
+            "artist_name": artist_info.get("name"),
+            "artist_url": artist_url,
+            "artist_artwork_url": artist_info.get("artwork_url"),
+            "artist_genre": artist_info.get("genre"),
+            "watched": watched,
+            "releases": result,
+        },
+    )
 
 
 @app.route("/api/search/artists")
 def api_search_artists():
-    """
-    Search Apple Music catalog for artists.
+    """Search Apple Music catalog for artists.
     ---
-    parameters:
+
+    Parameters
+    ----------
       - name: term
         in: query
         type: string
@@ -547,6 +590,7 @@ def api_search_artists():
         description: List of matching artists
       400:
         description: Missing term parameter
+
     """
     term = request.args.get("term", "").strip()
     if not term:
@@ -567,10 +611,11 @@ def api_search_artists():
 
 @app.route("/api/watchlist", methods=["GET"])
 def api_watchlist_get():
-    """
-    Get the current watchlist.
+    """Get the current watchlist.
     ---
-    parameters:
+
+    Parameters
+    ----------
       - name: preferred_source
         in: query
         type: string
@@ -578,6 +623,7 @@ def api_watchlist_get():
     responses:
       200:
         description: List of watched artists
+
     """
     raw_ps = request.args.get("preferred_source", "").strip().lower()
     preferred_source = _validate_storefront(raw_ps) if raw_ps else ""
@@ -588,10 +634,11 @@ def api_watchlist_get():
 
 @app.route("/api/watchlist", methods=["POST"])
 def api_watchlist_add():
-    """
-    Add an artist to the watchlist.
+    """Add an artist to the watchlist.
     ---
-    parameters:
+
+    Parameters
+    ----------
       - name: body
         in: body
         required: true
@@ -609,6 +656,7 @@ def api_watchlist_add():
         description: Success
       400:
         description: Missing required fields
+
     """
     body = request.get_json(force=True)
     artist_id = body.get("artist_id", "").strip()
@@ -625,10 +673,11 @@ def api_watchlist_add():
 
 @app.route("/api/watchlist/<artist_id>", methods=["PATCH"])
 def api_watchlist_patch(artist_id):
-    """
-    Update a watched artist's preferred metadata source.
+    """Update a watched artist's preferred metadata source.
     ---
-    parameters:
+
+    Parameters
+    ----------
       - name: artist_id
         in: path
         type: string
@@ -647,6 +696,7 @@ def api_watchlist_patch(artist_id):
         description: Success
       400:
         description: Invalid preferred_source
+
     """
     body = request.get_json(force=True)
     raw_ps = body.get("preferred_source")
@@ -660,10 +710,11 @@ def api_watchlist_patch(artist_id):
 
 @app.route("/api/watchlist/<artist_id>", methods=["DELETE"])
 def api_watchlist_remove(artist_id):
-    """
-    Remove an artist from the watchlist.
+    """Remove an artist from the watchlist.
     ---
-    parameters:
+
+    Parameters
+    ----------
       - name: artist_id
         in: path
         type: string
@@ -671,6 +722,7 @@ def api_watchlist_remove(artist_id):
     responses:
       200:
         description: Success
+
     """
     db.remove_from_watchlist(artist_id)
     return jsonify({"ok": True})
@@ -678,14 +730,14 @@ def api_watchlist_remove(artist_id):
 
 @app.route("/api/watchlist/export", methods=["GET"])
 def api_watchlist_export():
-    """
-    Export the watchlist as a downloadable JSON file.
+    """Export the watchlist as a downloadable JSON file.
     ---
     responses:
       200:
         description: JSON file download
     """
     from flask import Response
+
     data = db.export_watchlist()
     today = datetime.now().strftime("%Y-%m-%d")
     filename = f"am_discovery_{today}.json"
@@ -699,10 +751,11 @@ def api_watchlist_export():
 
 @app.route("/api/watchlist/import", methods=["POST"])
 def api_watchlist_import():
-    """
-    Import artists into the watchlist from a JSON file or body.
+    """Import artists into the watchlist from a JSON file or body.
     ---
-    parameters:
+
+    Parameters
+    ----------
       - name: file
         in: formData
         type: file
@@ -716,6 +769,7 @@ def api_watchlist_import():
         description: Import result
       400:
         description: Invalid data
+
     """
     if request.content_type and "multipart/form-data" in request.content_type:
         f = request.files.get("file")
@@ -741,8 +795,7 @@ def api_watchlist_import():
 
 @app.route("/api/config", methods=["GET"])
 def api_config_get():
-    """
-    Get the current application configuration.
+    """Get the current application configuration.
     ---
     responses:
       200:
@@ -753,10 +806,11 @@ def api_config_get():
 
 @app.route("/api/config", methods=["PUT"])
 def api_config_put():
-    """
-    Update the application configuration.
+    """Update the application configuration.
     ---
-    parameters:
+
+    Parameters
+    ----------
       - name: body
         in: body
         required: true
@@ -765,6 +819,7 @@ def api_config_put():
     responses:
       200:
         description: Success
+
     """
     cfg = request.get_json(force=True)
     save_config(cfg)
@@ -775,8 +830,7 @@ def api_config_put():
 
 @app.route("/api/refresh", methods=["POST"])
 def api_refresh():
-    """
-    Manually trigger a background poll.
+    """Manually trigger a background poll.
     ---
     responses:
       200:
@@ -792,8 +846,7 @@ def api_refresh():
 
 @app.route("/api/status")
 def api_status():
-    """
-    Get the current server status and last poll info.
+    """Get the current server status and last poll info.
     ---
     responses:
       200:
@@ -801,24 +854,26 @@ def api_status():
     """
     last = db.get_last_run()
     cfg = load_config()
-    now = time.time()
-    next_dt = datetime.fromtimestamp(_next_run_at, tz=timezone.utc).isoformat() if _next_run_at else None
+    next_dt = datetime.fromtimestamp(_next_run_at, tz=UTC).isoformat() if _next_run_at else None
     total = db.list_albums(1, 1)[1]
-    return jsonify({
-        "last_run": last,
-        "next_run_at": next_dt,
-        "is_running": _is_running,
-        "newrelease_poll_interval_days": cfg.get("newrelease_poll_interval_days"),
-        "total_albums": total,
-        "watchlist_poll_running": _watchlist_running,
-        "watchlist_poll_interval_minutes": cfg.get("watchlist_poll_interval_minutes"),
-        "room_errors": _last_room_errors,
-    })
+    return jsonify(
+        {
+            "last_run": last,
+            "next_run_at": next_dt,
+            "is_running": _is_running,
+            "newrelease_poll_interval_days": cfg.get("newrelease_poll_interval_days"),
+            "total_albums": total,
+            "watchlist_poll_running": _watchlist_running,
+            "watchlist_poll_interval_minutes": cfg.get("watchlist_poll_interval_minutes"),
+            "room_errors": _last_room_errors,
+        },
+    )
 
 
 # ---------------------------------------------------------------------------
 # Serve frontend SPA
 # ---------------------------------------------------------------------------
+
 
 @app.route("/")
 @app.route("/<path:path>")
@@ -826,7 +881,7 @@ def serve_frontend(path="index.html"):
     # API and Swagger routes should skip the frontend handler
     if path.startswith("api/") or path.startswith("apidocs") or "apispec" in path or path.startswith("flasgger_static"):
         return jsonify({"error": "Not found"}), 404
-    
+
     # Use send_from_directory's built-in safe_join for path validation.
     # Do NOT use os.path.join + os.path.exists here — that resolves traversal
     # sequences and leaks whether files outside FRONTEND_DIR exist.
@@ -840,8 +895,10 @@ def serve_frontend(path="index.html"):
 # Entry point
 # ---------------------------------------------------------------------------
 
+
 def main():
     import argparse
+
     parser = argparse.ArgumentParser()
     parser.add_argument("--debug", action="store_true", help="Enable debug logging and Flask debug mode")
     args = parser.parse_args()
