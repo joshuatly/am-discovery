@@ -161,7 +161,7 @@ Portainer will clone the repository and build the image from the `Dockerfile`.
 
 ### Nginx reverse proxy
 
-The container binds port 5000 to `127.0.0.1` only (loopback), so nginx on the host proxies to it directly. No shared Docker network is needed.
+Port 5000 is published on all interfaces (`0.0.0.0`), so the nginx proxy can reach the container by the Docker host's LAN IP (e.g. `192.168.5.x`).
 
 ```nginx
 server {
@@ -178,7 +178,7 @@ server {
     ssl_certificate_key /etc/ssl/private/am.example.com.key;
 
     location / {
-        proxy_pass         http://127.0.0.1:5000;
+        proxy_pass         http://192.168.5.x:5000;
         proxy_set_header   Host              $host;
         proxy_set_header   X-Real-IP         $remote_addr;
         proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
@@ -188,7 +188,7 @@ server {
 }
 ```
 
-Place this in `/etc/nginx/sites-available/am-discovery` (or equivalent), symlink it to `sites-enabled`, then reload nginx.
+Replace `192.168.5.x` with the actual LAN IP of the Portainer host. Place this in `/etc/nginx/sites-available/am-discovery` (or equivalent), symlink it to `sites-enabled`, then reload nginx.
 
 ### First-run configuration
 

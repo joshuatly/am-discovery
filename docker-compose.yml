@@ -9,7 +9,7 @@ services:
     volumes:
       - am_data:/data
     ports:
-      - "127.0.0.1:5000:5000"
+      - "5000:5000"
 
 volumes:
   am_data:
