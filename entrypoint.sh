@@ -11,4 +11,4 @@ fi
 ln -sf /data/config.json /app/config.json
 ln -sf /data/bearer_token.txt /app/bearer_token.txt 2>/dev/null || true
 
-exec uv run python server.py
+exec uv run gunicorn -c gunicorn.conf.py "wsgi:app"

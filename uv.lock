@@ -9,6 +9,7 @@ source = { editable = "." }
 dependencies = [
     { name = "flasgger" },
     { name = "flask" },
+    { name = "gunicorn" },
 ]
 
 [package.dev-dependencies]
@@ -22,6 +23,7 @@ dev = [
 requires-dist = [
     { name = "flasgger", specifier = ">=0.9.7.1" },
     { name = "flask", specifier = ">=3" },
+    { name = "gunicorn", specifier = ">=23" },
 ]
 
 [package.metadata.requires-dev]
@@ -99,6 +101,18 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/26/00/35d85dcce6c57fdc871f3867d465d780f302a175ea360f62533f12b27e2b/flask-3.1.3.tar.gz", hash = "sha256:0ef0e52b8a9cd932855379197dd8f94047b359ca0a78695144304cb45f87c9eb", size = 759004, upload-time = "2026-02-19T05:00:57.678Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/7f/9c/34f6962f9b9e9c71f6e5ed806e0d0ff03c9d1b0b2340088a0cf4bce09b18/flask-3.1.3-py3-none-any.whl", hash = "sha256:f4bcbefc124291925f1a26446da31a5178f9483862233b23c0c96a20701f670c", size = 103424, upload-time = "2026-02-19T05:00:56.027Z" },
+]
+
+[[package]]
+name = "gunicorn"
+version = "25.2.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "packaging" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/dd/13/dd3f8e40ea3ee907a6cbf3d1f1f81afcc3ecd0087d313baabfe95372f15c/gunicorn-25.2.0.tar.gz", hash = "sha256:10bd7adb36d44945d97d0a1fdf9a0fb086ae9c7b39e56b4dece8555a6bf4a09c", size = 632709, upload-time = "2026-03-24T22:49:54.433Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/11/53/fb024445837e02cd5cf989cf349bfac6f3f433c05184ea5d49c8ade751c6/gunicorn-25.2.0-py3-none-any.whl", hash = "sha256:88f5b444d0055bf298435384af7294f325e2273fd37ba9f9ff7b98e0a1e5dfdc", size = 211659, upload-time = "2026-03-24T22:49:52.528Z" },
 ]
 
 [[package]]

@@ -159,29 +159,36 @@ The container exposes port 5000 and expects a single persistent volume mounted a
 
 Portainer will clone the repository and build the image from the `Dockerfile`.
 
-### Nginx proxy network
+### Nginx reverse proxy
 
-The compose file joins an external Docker network called `proxy`. This must exist before deploying:
+The container binds port 5000 to `127.0.0.1` only (loopback), so nginx on the host proxies to it directly. No shared Docker network is needed.
 
-```bash
-docker network create proxy
+```nginx
+server {
+    listen 80;
+    server_name am.example.com;
+    return 301 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl;
+    server_name am.example.com;
+
+    ssl_certificate     /etc/ssl/certs/am.example.com.crt;
+    ssl_certificate_key /etc/ssl/private/am.example.com.key;
+
+    location / {
+        proxy_pass         http://127.0.0.1:5000;
+        proxy_set_header   Host              $host;
+        proxy_set_header   X-Real-IP         $remote_addr;
+        proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header   X-Forwarded-Proto $scheme;
+        proxy_read_timeout 120s;
+    }
+}
 ```
 
-If your nginx proxy uses a different network name, change the `networks.proxy` section in `docker-compose.yml` accordingly.
-
-**Nginx Proxy Manager (NPM)** — the most common setup with Portainer:
-- Ensure NPM is also connected to the `proxy` network.
-- In NPM, create a new **Proxy Host** pointing to `am-discovery:5000`.
-- Set the domain name and configure SSL as usual.
-
-**jwilder/nginx-proxy** — add these to the `environment` block in `docker-compose.yml`:
-
-```yaml
-environment:
-  - VIRTUAL_HOST=am.example.com
-  - VIRTUAL_PORT=5000
-  - LETSENCRYPT_HOST=am.example.com   # if using nginx-proxy/acme-companion
-```
+Place this in `/etc/nginx/sites-available/am-discovery` (or equivalent), symlink it to `sites-enabled`, then reload nginx.
 
 ### First-run configuration
 
