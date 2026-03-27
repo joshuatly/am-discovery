@@ -312,8 +312,7 @@ def api_releases():
     """Get a paginated list of releases.
     ---
 
-    Parameters
-    ----------
+    parameters:
       - name: page
         in: query
         type: integer
@@ -377,8 +376,7 @@ def api_release_detail(store_adam_id):
     """Get details for a specific release.
     ---
 
-    Parameters
-    ----------
+    parameters:
       - name: store_adam_id
         in: path
         type: string
@@ -404,8 +402,7 @@ def api_check_storefronts(store_adam_id):
     """Check availability of a release across different storefronts.
     ---
 
-    Parameters
-    ----------
+    parameters:
       - name: store_adam_id
         in: path
         type: string
@@ -427,8 +424,7 @@ def api_lookup(store_adam_id):
     """Fetch fresh metadata for a release from a specific storefront.
     ---
 
-    Parameters
-    ----------
+    parameters:
       - name: store_adam_id
         in: path
         type: string
@@ -456,8 +452,7 @@ def api_artist_fetch(artist_id):
     """Fetch all releases for an artist from a specific storefront and store them.
     ---
 
-    Parameters
-    ----------
+    parameters:
       - name: artist_id
         in: path
         type: string
@@ -536,8 +531,7 @@ def api_artist_releases(artist_id):
     """Get all releases for a specific artist.
     ---
 
-    Parameters
-    ----------
+    parameters:
       - name: artist_id
         in: path
         type: string
@@ -571,8 +565,7 @@ def api_search_artists():
     """Search Apple Music catalog for artists.
     ---
 
-    Parameters
-    ----------
+    parameters:
       - name: term
         in: query
         type: string
@@ -614,8 +607,7 @@ def api_watchlist_get():
     """Get the current watchlist.
     ---
 
-    Parameters
-    ----------
+    parameters:
       - name: preferred_source
         in: query
         type: string
@@ -637,8 +629,7 @@ def api_watchlist_add():
     """Add an artist to the watchlist.
     ---
 
-    Parameters
-    ----------
+    parameters:
       - name: body
         in: body
         required: true
@@ -676,8 +667,7 @@ def api_watchlist_patch(artist_id):
     """Update a watched artist's preferred metadata source.
     ---
 
-    Parameters
-    ----------
+    parameters:
       - name: artist_id
         in: path
         type: string
@@ -713,8 +703,7 @@ def api_watchlist_remove(artist_id):
     """Remove an artist from the watchlist.
     ---
 
-    Parameters
-    ----------
+    parameters:
       - name: artist_id
         in: path
         type: string
@@ -754,8 +743,7 @@ def api_watchlist_import():
     """Import artists into the watchlist from a JSON file or body.
     ---
 
-    Parameters
-    ----------
+    parameters:
       - name: file
         in: formData
         type: file
@@ -809,8 +797,7 @@ def api_config_put():
     """Update the application configuration.
     ---
 
-    Parameters
-    ----------
+    parameters:
       - name: body
         in: body
         required: true
