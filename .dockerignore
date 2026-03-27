@@ -1,0 +1,18 @@
+.git
+.github
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache
+.ruff_cache
+tests/
+frontend/__tests__
+frontend/node_modules
+frontend/package-lock.json
+
+# Runtime files — kept outside the image, mounted at /data
+config.json
+bearer_token.txt
+am_discovery.db
+*.db

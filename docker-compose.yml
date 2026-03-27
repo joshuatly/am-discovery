@@ -1,0 +1,15 @@
+services:
+  am-discovery:
+    build: .
+    container_name: am-discovery
+    restart: unless-stopped
+    environment:
+      - AM_DB_PATH=/data/am_discovery.db
+      - PORT=5000
+    volumes:
+      - am_data:/data
+    ports:
+      - "5000:5000"
+
+volumes:
+  am_data:

@@ -136,6 +136,88 @@ Swagger UI is available at `/apidocs` when the server is running.
 
 ---
 
+## Docker / Portainer deployment
+
+### Overview
+
+The container exposes port 5000 and expects a single persistent volume mounted at `/data` containing:
+
+| File | Purpose |
+|------|---------|
+| `/data/config.json` | Application config (seeded from `config.json.example` on first boot) |
+| `/data/am_discovery.db` | SQLite database |
+| `/data/bearer_token.txt` | Cached Apple Music bearer token (auto-generated) |
+
+### Deploying from Portainer via Gitea
+
+1. In Portainer, go to **Stacks → Add stack → Git repository**.
+2. Set the repository URL to your Gitea mirror (e.g. `https://gitea.example.com/youruser/am-discovery`).
+3. If the repository is private, create a Gitea access token under *Settings → Applications → Access Tokens* and add it as a **Git credential** in Portainer (Settings → Git credentials).
+4. Set the **Compose path** to `docker-compose.yml`.
+5. Enable **Automatic updates** if you want Portainer to redeploy on new commits.
+6. Deploy the stack.
+
+Portainer will clone the repository and build the image from the `Dockerfile`.
+
+### Nginx reverse proxy
+
+Port 5000 is published on all interfaces (`0.0.0.0`), so the nginx proxy can reach the container by the Docker host's LAN IP (e.g. `192.168.5.x`).
+
+```nginx
+server {
+    listen 80;
+    server_name am.example.com;
+    return 301 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl;
+    server_name am.example.com;
+
+    ssl_certificate     /etc/ssl/certs/am.example.com.crt;
+    ssl_certificate_key /etc/ssl/private/am.example.com.key;
+
+    location / {
+        proxy_pass         http://192.168.5.x:5000;
+        proxy_set_header   Host              $host;
+        proxy_set_header   X-Real-IP         $remote_addr;
+        proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header   X-Forwarded-Proto $scheme;
+        proxy_read_timeout 120s;
+    }
+}
+```
+
+Replace `192.168.5.x` with the actual LAN IP of the Portainer host. Place this in `/etc/nginx/sites-available/am-discovery` (or equivalent), symlink it to `sites-enabled`, then reload nginx.
+
+### First-run configuration
+
+On first boot the entrypoint copies `config.json.example` to `/data/config.json`. The container will start polling immediately with the default settings. **Edit `/data/config.json` inside the volume to configure your storefronts and other options** — changes are picked up on the next poll without restarting.
+
+To edit the config through Portainer: go to **Volumes**, browse the `am_data` volume, and edit `config.json` in place. Alternatively, exec into the container:
+
+```bash
+docker exec -it am-discovery sh
+vi /data/config.json
+```
+
+### Running database migrations
+
+If you update the stack from a commit that bumps the database schema version, run the migration before (or immediately after) the new container starts:
+
+```bash
+docker exec -it am-discovery uv run python migrate.py
+```
+
+### Environment variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `PORT` | `5000` | Port Flask listens on inside the container |
+| `AM_DB_PATH` | `/data/am_discovery.db` | Path to the SQLite database |
+
+---
+
 ## Development
 
 ```bash
