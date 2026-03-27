@@ -57,6 +57,16 @@ cd frontend && npm test
 
 The frontend has Jest tests in `frontend/__tests__/app.test.js`. **All new frontend code must have corresponding Jest test cases.** All new Python code must have corresponding pytest cases in `tests/`.
 
+**Lint and format (Python):**
+```bash
+uv run ruff check .
+uv run ruff format --check .
+# or auto-fix:
+make lint
+```
+
+Ruff is configured in `pyproject.toml` (line length 120, Python 3.11). **All Python changes must pass `ruff check` and `ruff format --check` before committing.** Run `make lint` to auto-fix issues, or use `uv run ruff check --fix .` and `uv run ruff format .` individually.
+
 **Custom DB path:**
 ```bash
 AM_DB_PATH=/path/to/custom.db uv run python server.py

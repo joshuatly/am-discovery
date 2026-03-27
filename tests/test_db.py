@@ -952,8 +952,8 @@ class TestCollectionStatus(DBTestCase):
         wl = self.db.get_watchlist()
         self.assertEqual(wl[0]["collection_status"], "new")
 
-    def test_transition_complete_to_in_progress_blocked(self):
-        """User cannot manually go from complete to in_progress — they'd need new_release first, or the transition is allowed per plan."""
+    def test_transition_complete_to_in_progress(self):
+        """Complete can transition to in_progress per the state machine."""
         self.db.add_to_watchlist("ART1", "Artist One")
         self.db.update_collection_status("ART1", "complete")
         # complete -> in_progress is NOT in transitions (only complete -> new_release auto)
@@ -983,6 +983,7 @@ class TestCollectionStatus(DBTestCase):
         self.db.update_collection_status("ART1", "complete")
         # Force new_release via direct SQL (simulating auto transition)
         import db as _db
+
         with _db.get_conn() as conn:
             conn.execute(
                 "UPDATE watched_artists SET collection_status = 'new_release' WHERE artist_id = ?",
@@ -995,6 +996,7 @@ class TestCollectionStatus(DBTestCase):
         self.db.add_to_watchlist("ART1", "Artist One")
         self.db.update_collection_status("ART1", "complete")
         import db as _db
+
         with _db.get_conn() as conn:
             conn.execute(
                 "UPDATE watched_artists SET collection_status = 'new_release' WHERE artist_id = ?",
@@ -1042,7 +1044,12 @@ class TestCollectionStatus(DBTestCase):
 
     def test_import_preserves_collection_status(self):
         artists = [
-            {"artist_id": "ART1", "name": "Artist One", "collection_status": "complete", "collection_status_updated_at": 1700000000},
+            {
+                "artist_id": "ART1",
+                "name": "Artist One",
+                "collection_status": "complete",
+                "collection_status_updated_at": 1700000000,
+            },
         ]
         self.db.import_watchlist(artists)
         wl = self.db.get_watchlist()
@@ -1058,15 +1065,18 @@ class TestCollectionStatus(DBTestCase):
 
 class TestCheckAndUpdateNewReleases(DBTestCase):
     def _add_album(self, store_id, artist_id, release_date):
-        self.db.upsert_album({
-            "store_adam_id": store_id,
-            "title": f"Album {store_id}",
-            "artist_id": artist_id,
-            "storefronts": [],
-            "source": "artist_fetch",
-        })
+        self.db.upsert_album(
+            {
+                "store_adam_id": store_id,
+                "title": f"Album {store_id}",
+                "artist_id": artist_id,
+                "storefronts": [],
+                "source": "artist_fetch",
+            }
+        )
         # Set release_date directly
         import db as _db
+
         with _db.get_conn() as conn:
             conn.execute(
                 "UPDATE albums SET release_date = ? WHERE store_adam_id = ?",

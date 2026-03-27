@@ -266,7 +266,10 @@ def _do_watchlist_poll():
 
                 db.mark_artist_refreshed(artist_id)
                 if db.check_and_update_new_releases(artist_id):
-                    logger.info("[WatchlistPoll] %s has new releases since collection was marked complete", artist.get("name"))
+                    logger.info(
+                        "[WatchlistPoll] %s has new releases since collection was marked complete",
+                        artist.get("name"),
+                    )
                 logger.info("[WatchlistPoll] Refreshed %s (%d releases)", artist.get("name"), len(releases))
 
             except Exception as e:

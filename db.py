@@ -5,7 +5,7 @@ import os
 import sqlite3
 import time
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 _BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.environ.get("AM_DB_PATH", os.path.join(_BASE_DIR, "am_discovery.db"))
@@ -382,7 +382,7 @@ def check_and_update_new_releases(artist_id: str) -> bool:
         if not completed_at:
             return False
         # Convert unix timestamp to ISO date for comparison with release_date strings
-        completed_date = datetime.fromtimestamp(completed_at, tz=timezone.utc).strftime("%Y-%m-%d")
+        completed_date = datetime.fromtimestamp(completed_at, tz=UTC).strftime("%Y-%m-%d")
         latest = conn.execute(
             "SELECT MAX(release_date) AS latest FROM albums WHERE artist_id = ? AND release_date > ?",
             (artist_id, completed_date),
@@ -390,7 +390,8 @@ def check_and_update_new_releases(artist_id: str) -> bool:
         if latest and latest["latest"]:
             now = int(time.time())
             conn.execute(
-                "UPDATE watched_artists SET collection_status = 'new_release', collection_status_updated_at = ? WHERE artist_id = ?",
+                """UPDATE watched_artists SET collection_status = 'new_release',
+                   collection_status_updated_at = ? WHERE artist_id = ?""",
                 (now, artist_id),
             )
             return True
@@ -401,7 +402,9 @@ def export_watchlist() -> list:
     """Export the full watchlist as a list of dicts suitable for JSON serialization."""
     with get_conn() as conn:
         rows = conn.execute(
-            "SELECT artist_id, name, url, preferred_source, collection_status, collection_status_updated_at FROM watched_artists ORDER BY name",
+            """SELECT artist_id, name, url, preferred_source,
+                      collection_status, collection_status_updated_at
+               FROM watched_artists ORDER BY name""",
         ).fetchall()
         return [dict(r) for r in rows]
 
@@ -421,10 +424,17 @@ def import_watchlist(artists: list):
                        url=excluded.url,
                        preferred_source=coalesce(excluded.preferred_source, preferred_source),
                        collection_status=coalesce(excluded.collection_status, collection_status),
-                       collection_status_updated_at=coalesce(excluded.collection_status_updated_at, collection_status_updated_at)""",
+                       collection_status_updated_at=coalesce(
+                           excluded.collection_status_updated_at, collection_status_updated_at
+                       )""",
                 (
-                    a["artist_id"], a["name"], a.get("url"), now, a.get("preferred_source"),
-                    a.get("collection_status", "new"), a.get("collection_status_updated_at", now),
+                    a["artist_id"],
+                    a["name"],
+                    a.get("url"),
+                    now,
+                    a.get("preferred_source"),
+                    a.get("collection_status", "new"),
+                    a.get("collection_status_updated_at", now),
                 ),
             )
 
