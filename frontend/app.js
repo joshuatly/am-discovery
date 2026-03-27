@@ -1801,6 +1801,10 @@ function tracklistsDiffer(a, b) {
 document.addEventListener("DOMContentLoaded", () => {
   // Routing
   window.addEventListener("hashchange", () => route(location.hash));
+  // Re-route on nav click even when hash hasn't changed (e.g. clicking "New Releases" while already on that page)
+  document.querySelectorAll(".nav-link").forEach(a => {
+    a.addEventListener("click", () => route(a.getAttribute("href")));
+  });
 
   // Refresh button
   $("btn-refresh").addEventListener("click", triggerRefresh);
