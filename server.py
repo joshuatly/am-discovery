@@ -161,6 +161,18 @@ def _do_poll():
         db.log_discovery_run(len(new_ids), total)
         logger.info("[Poll] Done. DB total: %d", total)
 
+        # 5. Check if any discovered albums trigger a new_release status for watched artists
+        watched_ids = db.get_watched_artist_ids()
+        discovered_artist_ids = {all_releases[aid].get("artist_id") or "" for aid in all_releases}
+        # Also include artist_id from full info fetches (stored in DB)
+        for aid in new_ids:
+            album = db.get_album(aid)
+            if album and album.get("artist_id"):
+                discovered_artist_ids.add(album["artist_id"])
+        for artist_id in discovered_artist_ids & watched_ids:
+            if db.check_and_update_new_releases(artist_id):
+                logger.info("[Poll] Artist %s has new releases since collection was marked complete", artist_id)
+
     except Exception as e:
         logger.error("[Poll] Error: %s", e)
     finally:
@@ -265,6 +277,11 @@ def _do_watchlist_poll():
                     list(ex.map(fetch_one, releases))
 
                 db.mark_artist_refreshed(artist_id)
+                if db.check_and_update_new_releases(artist_id):
+                    logger.info(
+                        "[WatchlistPoll] %s has new releases since collection was marked complete",
+                        artist.get("name"),
+                    )
                 logger.info("[WatchlistPoll] Refreshed %s (%d releases)", artist.get("name"), len(releases))
 
             except Exception as e:
@@ -612,6 +629,10 @@ def api_watchlist_get():
         in: query
         type: string
         description: Filter by preferred metadata source country
+      - name: collection_status
+        in: query
+        type: string
+        description: Filter by collection status (new, complete, new_release, in_progress)
     responses:
       200:
         description: List of watched artists
@@ -621,7 +642,10 @@ def api_watchlist_get():
     preferred_source = _validate_storefront(raw_ps) if raw_ps else ""
     if raw_ps and not preferred_source:
         return jsonify({"error": "invalid preferred_source"}), 400
-    return jsonify(db.get_watchlist(preferred_source=preferred_source))
+    collection_status = request.args.get("collection_status", "").strip().lower()
+    if collection_status and collection_status not in db.COLLECTION_STATUSES:
+        return jsonify({"error": "invalid collection_status"}), 400
+    return jsonify(db.get_watchlist(preferred_source=preferred_source, collection_status=collection_status))
 
 
 @app.route("/api/watchlist", methods=["POST"])
@@ -664,7 +688,7 @@ def api_watchlist_add():
 
 @app.route("/api/watchlist/<artist_id>", methods=["PATCH"])
 def api_watchlist_patch(artist_id):
-    """Update a watched artist's preferred metadata source.
+    """Update a watched artist's preferred source or collection status.
     ---
 
     parameters:
@@ -681,20 +705,33 @@ def api_watchlist_patch(artist_id):
             preferred_source:
               type: string
               description: Two/three-letter storefront code, or null to clear
+            collection_status:
+              type: string
+              description: Collection status (complete, in_progress)
     responses:
       200:
         description: Success
       400:
-        description: Invalid preferred_source
+        description: Invalid input
+      409:
+        description: Invalid status transition
 
     """
     body = request.get_json(force=True)
-    raw_ps = body.get("preferred_source")
-    if raw_ps is not None:
-        raw_ps = str(raw_ps).strip().lower()
-        if not _validate_storefront(raw_ps):
-            return jsonify({"error": "invalid preferred_source"}), 400
-    db.update_preferred_source(artist_id, raw_ps)
+    if "preferred_source" in body:
+        raw_ps = body["preferred_source"]
+        if raw_ps is not None:
+            raw_ps = str(raw_ps).strip().lower()
+            if not _validate_storefront(raw_ps):
+                return jsonify({"error": "invalid preferred_source"}), 400
+        db.update_preferred_source(artist_id, raw_ps)
+    raw_cs = body.get("collection_status")
+    if raw_cs is not None:
+        raw_cs = str(raw_cs).strip().lower()
+        if raw_cs not in db.COLLECTION_STATUSES:
+            return jsonify({"error": "invalid collection_status"}), 400
+        if not db.update_collection_status(artist_id, raw_cs):
+            return jsonify({"error": "invalid status transition"}), 409
     return jsonify({"ok": True})
 
 

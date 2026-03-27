@@ -710,6 +710,52 @@ async function renderArtist(main, artistId) {
   srcWrap.appendChild(srcSelect);
   links.appendChild(srcWrap);
 
+  // Collection status selector — only visible when watched
+  const csWrap = el("div", "artist-src-wrap");
+  csWrap.style.cssText = `display:${isWatched ? "flex" : "none"};align-items:center;gap:6px;flex-wrap:wrap;`;
+  const csLabel = el("span", "artist-src-label", "Collection status:");
+  csWrap.appendChild(csLabel);
+  const csSelect = document.createElement("select");
+  csSelect.className = "src-select";
+
+  function buildCsOptions(currentCs) {
+    csSelect.innerHTML = "";
+    const current = currentCs || "new";
+    // Show current status as the first (selected) option
+    const currentOpt = document.createElement("option");
+    currentOpt.value = current;
+    currentOpt.textContent = COLLECTION_STATUS_LABELS[current] || current;
+    currentOpt.selected = true;
+    csSelect.appendChild(currentOpt);
+    // Show valid transitions as additional options
+    const transitions = COLLECTION_TRANSITIONS[current] || [];
+    transitions.forEach(s => {
+      const opt = document.createElement("option");
+      opt.value = s;
+      opt.textContent = COLLECTION_STATUS_LABELS[s];
+      csSelect.appendChild(opt);
+    });
+    csSelect.disabled = transitions.length === 0;
+  }
+
+  buildCsOptions(null); // placeholder until async load
+
+  csSelect.addEventListener("change", async () => {
+    const newStatus = csSelect.value;
+    const oldStatus = csSelect.querySelector("option")?.value;
+    if (!newStatus || newStatus === oldStatus) return;
+    try {
+      await API.patch(`/api/watchlist/${artistId}`, { collection_status: newStatus });
+      buildCsOptions(newStatus);
+    } catch {
+      alert("Failed to update status");
+      buildCsOptions(oldStatus);
+    }
+  });
+
+  csWrap.appendChild(csSelect);
+  links.appendChild(csWrap);
+
   watchBtn.addEventListener("click", async () => {
     const ps = state.metadataStorefront || state.homeStorefront || null;
     await toggleWatch(artistId, data.artist_name, data.artist_url, ps);
@@ -717,15 +763,20 @@ async function renderArtist(main, artistId) {
     watchBtn.textContent = nowWatched ? "⭐ Watching" : "☆ Watch";
     watchBtn.classList.toggle("watching", nowWatched);
     srcWrap.style.display = nowWatched ? "flex" : "none";
-    if (nowWatched) buildSrcOptions(ps);
+    csWrap.style.display = nowWatched ? "flex" : "none";
+    if (nowWatched) {
+      buildSrcOptions(ps);
+      buildCsOptions("new");
+    }
   });
   links.appendChild(watchBtn);
 
   if (isWatched) {
-    // Load current preferred_source and pre-select
+    // Load current preferred_source and collection_status, pre-select
     API.get("/api/watchlist").then(wl => {
       const entry = wl.find(a => a.artist_id === artistId);
       buildSrcOptions(entry?.preferred_source || null);
+      buildCsOptions(entry?.collection_status || "new");
     }).catch(() => {});
   }
 
@@ -818,7 +869,20 @@ async function renderArtist(main, artistId) {
 // ---------------------------------------------------------------------------
 // Page: Watchlist
 // ---------------------------------------------------------------------------
-async function renderWatchlist(main, preferredSourceFilter = "") {
+const COLLECTION_STATUS_LABELS = {
+  new: "New",
+  complete: "Complete",
+  new_release: "New Release",
+  in_progress: "In Progress",
+};
+const COLLECTION_TRANSITIONS = {
+  new: ["complete", "in_progress"],
+  complete: ["in_progress"],
+  new_release: ["complete", "in_progress"],
+  in_progress: ["complete"],
+};
+
+async function renderWatchlist(main, preferredSourceFilter = "", collectionStatusFilter = "") {
   main.innerHTML = "";
   const wrap = el("div", "page-enter");
   wrap.appendChild(buildHeader("⭐ Artist Watchlist", "Artists you're following"));
@@ -850,7 +914,7 @@ async function renderWatchlist(main, preferredSourceFilter = "") {
         const resp = await fetch("/api/watchlist/import", { method: "POST", body: formData });
         const result = await resp.json();
         if (result.ok) {
-          renderWatchlist(main, preferredSourceFilter);
+          renderWatchlist(main, preferredSourceFilter, collectionStatusFilter);
         } else {
           alert(result.error || "Import failed");
         }
@@ -864,7 +928,10 @@ async function renderWatchlist(main, preferredSourceFilter = "") {
 
   wrap.appendChild(actionBar);
 
-  const qp = preferredSourceFilter ? `?preferred_source=${preferredSourceFilter}` : "";
+  const qpParts = [];
+  if (preferredSourceFilter) qpParts.push(`preferred_source=${preferredSourceFilter}`);
+  if (collectionStatusFilter) qpParts.push(`collection_status=${collectionStatusFilter}`);
+  const qp = qpParts.length ? `?${qpParts.join("&")}` : "";
   let list;
   try {
     list = await API.get(`/api/watchlist${qp}`);
@@ -895,10 +962,22 @@ async function renderWatchlist(main, preferredSourceFilter = "") {
   psButtons.forEach(([label, code]) => {
     const btn = el("button", "sf-filter-btn" + (code ? ` ${code}` : "") + (preferredSourceFilter === code ? " active" : ""));
     btn.textContent = label;
-    btn.addEventListener("click", () => renderWatchlist(main, code));
+    btn.addEventListener("click", () => renderWatchlist(main, code, collectionStatusFilter));
     psFilterBar.appendChild(btn);
   });
   actionBar.appendChild(psFilterBar);
+
+  // Collection status filter bar
+  const csFilterBar = el("div", "cs-filter-bar");
+  const csButtons = [["", "All"], ...Object.entries(COLLECTION_STATUS_LABELS)];
+  csButtons.forEach(([code, label]) => {
+    const cls = "cs-filter-btn" + (code ? ` status-${code}` : "") + (collectionStatusFilter === code ? " active" : "");
+    const btn = el("button", cls);
+    btn.textContent = label;
+    btn.addEventListener("click", () => renderWatchlist(main, preferredSourceFilter, code));
+    csFilterBar.appendChild(btn);
+  });
+  actionBar.appendChild(csFilterBar);
 
   // Search bar
   const searchBar = el("div", "search-bar");
@@ -950,6 +1029,12 @@ async function renderWatchlist(main, preferredSourceFilter = "") {
       psBadge.style.fontSize = "9px";
       date.appendChild(psBadge);
     }
+    // Collection status chip (read-only, change on artist detail page)
+    const currentStatus = artist.collection_status || "new";
+    const badge = el("span", `collection-status-badge status-${currentStatus}`);
+    badge.textContent = COLLECTION_STATUS_LABELS[currentStatus] || currentStatus;
+    badge.style.marginLeft = "6px";
+    date.appendChild(badge);
     info.appendChild(date);
     card.appendChild(info);
 
@@ -1001,7 +1086,7 @@ async function renderWatchlist(main, preferredSourceFilter = "") {
       const ps = state.metadataStorefront || state.homeStorefront || null;
       await toggleWatch(artist.id, artist.name, artist.url, ps);
       state.watchedIds.add(artist.id);
-      list.push({ artist_id: artist.id, name: artist.name, url: artist.url, preferred_source: ps, added_at: new Date().toISOString() });
+      list.push({ artist_id: artist.id, name: artist.name, url: artist.url, preferred_source: ps, added_at: new Date().toISOString(), collection_status: "new" });
       renderGrid(searchInput.value.trim());
     });
     card.appendChild(watchBtn);
@@ -1716,6 +1801,10 @@ function tracklistsDiffer(a, b) {
 document.addEventListener("DOMContentLoaded", () => {
   // Routing
   window.addEventListener("hashchange", () => route(location.hash));
+  // Re-route on nav click even when hash hasn't changed (e.g. clicking "New Releases" while already on that page)
+  document.querySelectorAll(".nav-link").forEach(a => {
+    a.addEventListener("click", () => route(a.getAttribute("href")));
+  });
 
   // Refresh button
   $("btn-refresh").addEventListener("click", triggerRefresh);
