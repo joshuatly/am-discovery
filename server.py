@@ -161,6 +161,18 @@ def _do_poll():
         db.log_discovery_run(len(new_ids), total)
         logger.info("[Poll] Done. DB total: %d", total)
 
+        # 5. Check if any discovered albums trigger a new_release status for watched artists
+        watched_ids = db.get_watched_artist_ids()
+        discovered_artist_ids = {all_releases[aid].get("artist_id") or "" for aid in all_releases}
+        # Also include artist_id from full info fetches (stored in DB)
+        for aid in new_ids:
+            album = db.get_album(aid)
+            if album and album.get("artist_id"):
+                discovered_artist_ids.add(album["artist_id"])
+        for artist_id in discovered_artist_ids & watched_ids:
+            if db.check_and_update_new_releases(artist_id):
+                logger.info("[Poll] Artist %s has new releases since collection was marked complete", artist_id)
+
     except Exception as e:
         logger.error("[Poll] Error: %s", e)
     finally:
