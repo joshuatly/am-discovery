@@ -1295,9 +1295,9 @@ describe("COLLECTION_TRANSITIONS", () => {
     expect(t.new).toHaveLength(2);
   });
 
-  test("complete has no user transitions (auto only)", () => {
+  test("complete can transition to in_progress", () => {
     const t = appWindow.__test_COLLECTION_TRANSITIONS;
-    expect(t.complete).toEqual([]);
+    expect(t.complete).toEqual(["in_progress"]);
   });
 
   test("new_release can transition to complete and in_progress", () => {

@@ -877,7 +877,7 @@ const COLLECTION_STATUS_LABELS = {
 };
 const COLLECTION_TRANSITIONS = {
   new: ["complete", "in_progress"],
-  complete: [],
+  complete: ["in_progress"],
   new_release: ["complete", "in_progress"],
   in_progress: ["complete"],
 };
