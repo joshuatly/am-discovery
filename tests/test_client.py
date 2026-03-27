@@ -554,6 +554,54 @@ class TestGetArtistAllReleases(unittest.TestCase):
             releases, artist_info = self.client.get_artist_all_releases(_ARTIST_URL, "us")
             self.assertEqual(releases, [])
 
+    def test_extracts_born_or_formed_origin_bio(self):
+        api_data = {
+            "data": [
+                {
+                    "attributes": {
+                        "name": "The Pale White",
+                        "genreNames": ["Alternative"],
+                        "bornOrFormed": "Formed 2016",
+                        "origin": "Newcastle, England",
+                        "artistBio": "British rock band.",
+                    },
+                    "views": {
+                        "full-albums": {"data": []},
+                        "compilation-albums": {"data": []},
+                        "live-albums": {"data": []},
+                        "singles": {"data": []},
+                    },
+                }
+            ]
+        }
+        with patch.object(self.client, "_amp_api_get", return_value=api_data):
+            _, artist_info = self.client.get_artist_all_releases(_ARTIST_URL, "us")
+        self.assertEqual(artist_info["born_or_formed"], "Formed 2016")
+        self.assertEqual(artist_info["origin"], "Newcastle, England")
+        self.assertEqual(artist_info["artist_bio"], "British rock band.")
+
+    def test_born_or_formed_origin_bio_absent(self):
+        api_data = _make_artist_views_response()
+        with patch.object(self.client, "_amp_api_get", return_value=api_data):
+            _, artist_info = self.client.get_artist_all_releases(_ARTIST_URL, "us")
+        self.assertIsNone(artist_info["born_or_formed"])
+        self.assertIsNone(artist_info["origin"])
+        self.assertIsNone(artist_info["artist_bio"])
+
+    def test_extend_param_sent(self):
+        calls = []
+
+        def capture(path, params):
+            calls.append(params)
+            return {}
+
+        with patch.object(self.client, "_amp_api_get", side_effect=capture):
+            self.client.get_artist_all_releases(_ARTIST_URL, "us")
+        self.assertIn("extend", calls[0])
+        self.assertIn("bornOrFormed", calls[0]["extend"])
+        self.assertIn("origin", calls[0]["extend"])
+        self.assertIn("artistBio", calls[0]["extend"])
+
 
 # ---------------------------------------------------------------------------
 # get_artist_new_releases

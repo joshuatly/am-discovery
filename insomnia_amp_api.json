@@ -67,7 +67,8 @@
         { "name": "limit[full-albums]", "value": "100" },
         { "name": "limit[compilation-albums]", "value": "100" },
         { "name": "limit[live-albums]", "value": "100" },
-        { "name": "limit[singles]", "value": "100" }
+        { "name": "limit[singles]", "value": "100" },
+        { "name": "extend", "value": "bornOrFormed,origin,artistBio" }
       ],
       "headers": [
         { "name": "Authorization", "value": "Bearer {{ _.bearer_token }}" },

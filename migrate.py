@@ -96,6 +96,12 @@ MIGRATIONS = {
         ALTER TABLE watched_artists ADD COLUMN collection_status TEXT DEFAULT 'new';
         ALTER TABLE watched_artists ADD COLUMN collection_status_updated_at INTEGER;
     """,
+    10: """
+        -- Version 10: add born_or_formed, origin, and artist_bio to artists table.
+        ALTER TABLE artists ADD COLUMN born_or_formed TEXT;
+        ALTER TABLE artists ADD COLUMN origin TEXT;
+        ALTER TABLE artists ADD COLUMN artist_bio TEXT;
+    """,
 }
 
 

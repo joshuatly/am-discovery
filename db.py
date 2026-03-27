@@ -27,7 +27,7 @@ def get_conn():
         conn.close()
 
 
-SCHEMA_VERSION = 9
+SCHEMA_VERSION = 10
 
 # Valid collection_status values and allowed transitions
 COLLECTION_STATUSES = {"new", "complete", "new_release", "in_progress"}
@@ -86,11 +86,14 @@ def init_db():
                 );
 
                 CREATE TABLE IF NOT EXISTS artists (
-                    artist_id   TEXT PRIMARY KEY,
-                    name        TEXT,
-                    artwork_url TEXT,
-                    genre       TEXT,
-                    updated_at  INTEGER
+                    artist_id      TEXT PRIMARY KEY,
+                    name           TEXT,
+                    artwork_url    TEXT,
+                    genre          TEXT,
+                    born_or_formed TEXT,
+                    origin         TEXT,
+                    artist_bio     TEXT,
+                    updated_at     INTEGER
                 );
 
                 CREATE TABLE IF NOT EXISTS discovery_runs (
@@ -266,18 +269,29 @@ def remove_from_watchlist(artist_id: str):
         conn.execute("DELETE FROM watched_artists WHERE artist_id = ?", (artist_id,))
 
 
-def upsert_artist(artist_id: str, name: str = None, artwork_url: str = None, genre: str = None):
+def upsert_artist(
+    artist_id: str,
+    name: str = None,
+    artwork_url: str = None,
+    genre: str = None,
+    born_or_formed: str = None,
+    origin: str = None,
+    artist_bio: str = None,
+):
     now = int(time.time())
     with get_conn() as conn:
         conn.execute(
-            """INSERT INTO artists (artist_id, name, artwork_url, genre, updated_at)
-               VALUES (?, ?, ?, ?, ?)
+            """INSERT INTO artists (artist_id, name, artwork_url, genre, born_or_formed, origin, artist_bio, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                ON CONFLICT(artist_id) DO UPDATE SET
-                   name        = coalesce(excluded.name, name),
-                   artwork_url = coalesce(excluded.artwork_url, artwork_url),
-                   genre       = coalesce(excluded.genre, genre),
-                   updated_at  = excluded.updated_at""",
-            (artist_id, name, artwork_url, genre, now),
+                   name           = coalesce(excluded.name, name),
+                   artwork_url    = coalesce(excluded.artwork_url, artwork_url),
+                   genre          = coalesce(excluded.genre, genre),
+                   born_or_formed = coalesce(excluded.born_or_formed, born_or_formed),
+                   origin         = coalesce(excluded.origin, origin),
+                   artist_bio     = coalesce(excluded.artist_bio, artist_bio),
+                   updated_at     = excluded.updated_at""",
+            (artist_id, name, artwork_url, genre, born_or_formed, origin, artist_bio, now),
         )
 
 
@@ -289,7 +303,10 @@ def get_artist_artwork(artist_id: str):
 
 def get_artist_info(artist_id: str):
     with get_conn() as conn:
-        row = conn.execute("SELECT name, artwork_url, genre FROM artists WHERE artist_id = ?", (artist_id,)).fetchone()
+        row = conn.execute(
+            "SELECT name, artwork_url, genre, born_or_formed, origin, artist_bio FROM artists WHERE artist_id = ?",
+            (artist_id,),
+        ).fetchone()
         return dict(row) if row else {}
 
 

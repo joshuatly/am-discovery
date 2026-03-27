@@ -595,6 +595,26 @@ class TestArtist(DBTestCase):
         info = self.db.get_artist_info("ART1")
         self.assertEqual(info["genre"], "Rock")
 
+    def test_upsert_and_get_born_or_formed_origin_bio(self):
+        self.db.upsert_artist(
+            "ART1",
+            born_or_formed="Born July 27, 1974",
+            origin="Hong Kong",
+            artist_bio="Legendary Cantopop artist.",
+        )
+        info = self.db.get_artist_info("ART1")
+        self.assertEqual(info["born_or_formed"], "Born July 27, 1974")
+        self.assertEqual(info["origin"], "Hong Kong")
+        self.assertEqual(info["artist_bio"], "Legendary Cantopop artist.")
+
+    def test_upsert_artist_coalesce_new_fields(self):
+        """None values for the new fields should not overwrite existing values."""
+        self.db.upsert_artist("ART1", born_or_formed="Formed 2016", origin="Newcastle, England")
+        self.db.upsert_artist("ART1", born_or_formed=None, origin=None, artist_bio=None)
+        info = self.db.get_artist_info("ART1")
+        self.assertEqual(info["born_or_formed"], "Formed 2016")
+        self.assertEqual(info["origin"], "Newcastle, England")
+
 
 # ---------------------------------------------------------------------------
 # log_discovery_run / get_last_run

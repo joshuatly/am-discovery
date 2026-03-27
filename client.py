@@ -412,6 +412,7 @@ class AppleMusicClient:
         params = {
             "views": ",".join(view_keys),
             **{f"limit[{v}]": "100" for v in view_keys},
+            "extend": "bornOrFormed,origin,artistBio",
         }
         data = self._amp_api_get(f"/v1/catalog/{sf}/artists/{artist_id}", params)
         if not data:
@@ -426,6 +427,9 @@ class AppleMusicClient:
             "name": artist_attrs.get("name"),
             "artwork_url": re.sub(r"\{w\}x\{h\}bb\.[a-z]+", "200x200bb.jpg", art_url) if art_url else None,
             "genre": (artist_attrs.get("genreNames") or [None])[0],
+            "born_or_formed": artist_attrs.get("bornOrFormed"),
+            "origin": artist_attrs.get("origin"),
+            "artist_bio": artist_attrs.get("artistBio"),
         }
 
         releases = []

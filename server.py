@@ -244,6 +244,9 @@ def _do_watchlist_poll():
                     name=artist_info.get("name"),
                     artwork_url=artist_info.get("artwork_url"),
                     genre=artist_info.get("genre"),
+                    born_or_formed=artist_info.get("born_or_formed"),
+                    origin=artist_info.get("origin"),
+                    artist_bio=artist_info.get("artist_bio"),
                 )
 
                 def fetch_one(r, storefront=storefront, artist_id=artist_id):
@@ -505,6 +508,9 @@ def api_artist_fetch(artist_id):
         name=artist_info.get("name"),
         artwork_url=artist_info.get("artwork_url"),
         genre=artist_info.get("genre"),
+        born_or_formed=artist_info.get("born_or_formed"),
+        origin=artist_info.get("origin"),
+        artist_bio=artist_info.get("artist_bio"),
     )
 
     def fetch_one(r):
