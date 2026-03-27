@@ -76,6 +76,8 @@ beforeAll(() => {
     window.__test_dollar              = $;
     window.__test_refreshStatus       = refreshStatus;
     window.__test_renderSettings      = renderSettings;
+    window.__test_COLLECTION_STATUS_LABELS = COLLECTION_STATUS_LABELS;
+    window.__test_COLLECTION_TRANSITIONS   = COLLECTION_TRANSITIONS;
   `;
   appWindow.document.head.appendChild(exposeScript);
 });
@@ -1263,5 +1265,49 @@ describe("renderSettings", () => {
     );
     const body = JSON.parse(putCall[1].body);
     expect(body.cors_proxy).toBe("");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Collection Status constants
+// ---------------------------------------------------------------------------
+
+describe("COLLECTION_STATUS_LABELS", () => {
+  test("has all four statuses", () => {
+    const labels = appWindow.__test_COLLECTION_STATUS_LABELS;
+    expect(labels).toBeDefined();
+    expect(labels.new).toBe("New");
+    expect(labels.complete).toBe("Complete");
+    expect(labels.new_release).toBe("New Release");
+    expect(labels.in_progress).toBe("In Progress");
+  });
+
+  test("has exactly four entries", () => {
+    const labels = appWindow.__test_COLLECTION_STATUS_LABELS;
+    expect(Object.keys(labels)).toHaveLength(4);
+  });
+});
+
+describe("COLLECTION_TRANSITIONS", () => {
+  test("new can transition to complete and in_progress", () => {
+    const t = appWindow.__test_COLLECTION_TRANSITIONS;
+    expect(t.new).toEqual(expect.arrayContaining(["complete", "in_progress"]));
+    expect(t.new).toHaveLength(2);
+  });
+
+  test("complete has no user transitions (auto only)", () => {
+    const t = appWindow.__test_COLLECTION_TRANSITIONS;
+    expect(t.complete).toEqual([]);
+  });
+
+  test("new_release can transition to complete and in_progress", () => {
+    const t = appWindow.__test_COLLECTION_TRANSITIONS;
+    expect(t.new_release).toEqual(expect.arrayContaining(["complete", "in_progress"]));
+    expect(t.new_release).toHaveLength(2);
+  });
+
+  test("in_progress can only transition to complete", () => {
+    const t = appWindow.__test_COLLECTION_TRANSITIONS;
+    expect(t.in_progress).toEqual(["complete"]);
   });
 });

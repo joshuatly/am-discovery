@@ -818,7 +818,20 @@ async function renderArtist(main, artistId) {
 // ---------------------------------------------------------------------------
 // Page: Watchlist
 // ---------------------------------------------------------------------------
-async function renderWatchlist(main, preferredSourceFilter = "") {
+const COLLECTION_STATUS_LABELS = {
+  new: "New",
+  complete: "Complete",
+  new_release: "New Release",
+  in_progress: "In Progress",
+};
+const COLLECTION_TRANSITIONS = {
+  new: ["complete", "in_progress"],
+  complete: [],
+  new_release: ["complete", "in_progress"],
+  in_progress: ["complete"],
+};
+
+async function renderWatchlist(main, preferredSourceFilter = "", collectionStatusFilter = "") {
   main.innerHTML = "";
   const wrap = el("div", "page-enter");
   wrap.appendChild(buildHeader("⭐ Artist Watchlist", "Artists you're following"));
@@ -850,7 +863,7 @@ async function renderWatchlist(main, preferredSourceFilter = "") {
         const resp = await fetch("/api/watchlist/import", { method: "POST", body: formData });
         const result = await resp.json();
         if (result.ok) {
-          renderWatchlist(main, preferredSourceFilter);
+          renderWatchlist(main, preferredSourceFilter, collectionStatusFilter);
         } else {
           alert(result.error || "Import failed");
         }
@@ -864,7 +877,10 @@ async function renderWatchlist(main, preferredSourceFilter = "") {
 
   wrap.appendChild(actionBar);
 
-  const qp = preferredSourceFilter ? `?preferred_source=${preferredSourceFilter}` : "";
+  const qpParts = [];
+  if (preferredSourceFilter) qpParts.push(`preferred_source=${preferredSourceFilter}`);
+  if (collectionStatusFilter) qpParts.push(`collection_status=${collectionStatusFilter}`);
+  const qp = qpParts.length ? `?${qpParts.join("&")}` : "";
   let list;
   try {
     list = await API.get(`/api/watchlist${qp}`);
@@ -895,10 +911,22 @@ async function renderWatchlist(main, preferredSourceFilter = "") {
   psButtons.forEach(([label, code]) => {
     const btn = el("button", "sf-filter-btn" + (code ? ` ${code}` : "") + (preferredSourceFilter === code ? " active" : ""));
     btn.textContent = label;
-    btn.addEventListener("click", () => renderWatchlist(main, code));
+    btn.addEventListener("click", () => renderWatchlist(main, code, collectionStatusFilter));
     psFilterBar.appendChild(btn);
   });
   actionBar.appendChild(psFilterBar);
+
+  // Collection status filter bar
+  const csFilterBar = el("div", "cs-filter-bar");
+  const csButtons = [["All", ""], ...Object.entries(COLLECTION_STATUS_LABELS)];
+  csButtons.forEach(([label, code]) => {
+    const cls = "cs-filter-btn" + (code ? ` status-${code}` : "") + (collectionStatusFilter === code ? " active" : "");
+    const btn = el("button", cls);
+    btn.textContent = label;
+    btn.addEventListener("click", () => renderWatchlist(main, preferredSourceFilter, code));
+    csFilterBar.appendChild(btn);
+  });
+  actionBar.appendChild(csFilterBar);
 
   // Search bar
   const searchBar = el("div", "search-bar");
@@ -951,6 +979,45 @@ async function renderWatchlist(main, preferredSourceFilter = "") {
       date.appendChild(psBadge);
     }
     info.appendChild(date);
+
+    // Collection status badge + change dropdown
+    const statusRow = el("div", "watchlist-status-row");
+    statusRow.style.cssText = "display:flex;align-items:center;gap:6px;margin-top:3px;";
+    const currentStatus = artist.collection_status || "new";
+    const badge = el("span", `collection-status-badge status-${currentStatus}`);
+    badge.textContent = COLLECTION_STATUS_LABELS[currentStatus] || currentStatus;
+    statusRow.appendChild(badge);
+
+    const transitions = COLLECTION_TRANSITIONS[currentStatus] || [];
+    if (transitions.length) {
+      const select = el("select", "watchlist-status-select");
+      const defaultOpt = document.createElement("option");
+      defaultOpt.value = "";
+      defaultOpt.textContent = "Change...";
+      defaultOpt.disabled = true;
+      defaultOpt.selected = true;
+      select.appendChild(defaultOpt);
+      transitions.forEach(s => {
+        const opt = document.createElement("option");
+        opt.value = s;
+        opt.textContent = COLLECTION_STATUS_LABELS[s];
+        select.appendChild(opt);
+      });
+      select.addEventListener("change", async () => {
+        const newStatus = select.value;
+        if (!newStatus) return;
+        try {
+          await API.patch(`/api/watchlist/${artist.artist_id}`, { collection_status: newStatus });
+          artist.collection_status = newStatus;
+          renderGrid(searchInput.value.trim());
+        } catch (err) {
+          alert("Failed to update status");
+          select.value = "";
+        }
+      });
+      statusRow.appendChild(select);
+    }
+    info.appendChild(statusRow);
     card.appendChild(info);
 
     const unwatchBtn = el("button", "btn-unwatch", "Remove");
@@ -1001,7 +1068,7 @@ async function renderWatchlist(main, preferredSourceFilter = "") {
       const ps = state.metadataStorefront || state.homeStorefront || null;
       await toggleWatch(artist.id, artist.name, artist.url, ps);
       state.watchedIds.add(artist.id);
-      list.push({ artist_id: artist.id, name: artist.name, url: artist.url, preferred_source: ps, added_at: new Date().toISOString() });
+      list.push({ artist_id: artist.id, name: artist.name, url: artist.url, preferred_source: ps, added_at: new Date().toISOString(), collection_status: "new" });
       renderGrid(searchInput.value.trim());
     });
     card.appendChild(watchBtn);

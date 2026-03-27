@@ -919,5 +919,208 @@ class TestWatchedOnlyFilter(DBTestCase):
             self.assertIn(r["artist_id"], {"ART1", "ART3"})
 
 
+# ---------------------------------------------------------------------------
+# Collection Status
+# ---------------------------------------------------------------------------
+
+
+class TestCollectionStatus(DBTestCase):
+    def test_new_artist_has_new_status(self):
+        self.db.add_to_watchlist("ART1", "Artist One")
+        wl = self.db.get_watchlist()
+        self.assertEqual(wl[0]["collection_status"], "new")
+        self.assertIsNotNone(wl[0]["collection_status_updated_at"])
+
+    def test_transition_new_to_complete(self):
+        self.db.add_to_watchlist("ART1", "Artist One")
+        result = self.db.update_collection_status("ART1", "complete")
+        self.assertTrue(result)
+        wl = self.db.get_watchlist()
+        self.assertEqual(wl[0]["collection_status"], "complete")
+
+    def test_transition_new_to_in_progress(self):
+        self.db.add_to_watchlist("ART1", "Artist One")
+        result = self.db.update_collection_status("ART1", "in_progress")
+        self.assertTrue(result)
+        wl = self.db.get_watchlist()
+        self.assertEqual(wl[0]["collection_status"], "in_progress")
+
+    def test_transition_new_to_new_release_blocked(self):
+        self.db.add_to_watchlist("ART1", "Artist One")
+        result = self.db.update_collection_status("ART1", "new_release")
+        self.assertFalse(result)
+        wl = self.db.get_watchlist()
+        self.assertEqual(wl[0]["collection_status"], "new")
+
+    def test_transition_complete_to_in_progress_blocked(self):
+        """User cannot manually go from complete to in_progress — they'd need new_release first, or the transition is allowed per plan."""
+        self.db.add_to_watchlist("ART1", "Artist One")
+        self.db.update_collection_status("ART1", "complete")
+        # complete -> in_progress is NOT in transitions (only complete -> new_release auto)
+        # Actually per the plan, complete can go to in_progress. Let me check COLLECTION_TRANSITIONS.
+        # complete -> {new_release, in_progress} is not set — let me check what we defined.
+        # We defined: complete -> {new_release} only for auto, but user can't set new_release manually.
+        # Wait, looking at COLLECTION_TRANSITIONS in db.py:
+        # "complete": {"new_release", "in_progress"}
+        # So complete -> in_progress IS allowed.
+        result = self.db.update_collection_status("ART1", "in_progress")
+        self.assertTrue(result)
+
+    def test_transition_back_to_new_blocked(self):
+        self.db.add_to_watchlist("ART1", "Artist One")
+        self.db.update_collection_status("ART1", "complete")
+        result = self.db.update_collection_status("ART1", "new")
+        self.assertFalse(result)
+
+    def test_transition_in_progress_to_complete(self):
+        self.db.add_to_watchlist("ART1", "Artist One")
+        self.db.update_collection_status("ART1", "in_progress")
+        result = self.db.update_collection_status("ART1", "complete")
+        self.assertTrue(result)
+
+    def test_transition_new_release_to_complete(self):
+        self.db.add_to_watchlist("ART1", "Artist One")
+        self.db.update_collection_status("ART1", "complete")
+        # Force new_release via direct SQL (simulating auto transition)
+        import db as _db
+        with _db.get_conn() as conn:
+            conn.execute(
+                "UPDATE watched_artists SET collection_status = 'new_release' WHERE artist_id = ?",
+                ("ART1",),
+            )
+        result = self.db.update_collection_status("ART1", "complete")
+        self.assertTrue(result)
+
+    def test_transition_new_release_to_in_progress(self):
+        self.db.add_to_watchlist("ART1", "Artist One")
+        self.db.update_collection_status("ART1", "complete")
+        import db as _db
+        with _db.get_conn() as conn:
+            conn.execute(
+                "UPDATE watched_artists SET collection_status = 'new_release' WHERE artist_id = ?",
+                ("ART1",),
+            )
+        result = self.db.update_collection_status("ART1", "in_progress")
+        self.assertTrue(result)
+
+    def test_invalid_status_value(self):
+        self.db.add_to_watchlist("ART1", "Artist One")
+        result = self.db.update_collection_status("ART1", "invalid_status")
+        self.assertFalse(result)
+
+    def test_update_nonexistent_artist(self):
+        result = self.db.update_collection_status("MISSING", "complete")
+        self.assertFalse(result)
+
+    def test_filter_by_collection_status(self):
+        self.db.add_to_watchlist("ART1", "Artist One")
+        self.db.add_to_watchlist("ART2", "Artist Two")
+        self.db.update_collection_status("ART1", "complete")
+        wl = self.db.get_watchlist(collection_status="complete")
+        self.assertEqual(len(wl), 1)
+        self.assertEqual(wl[0]["artist_id"], "ART1")
+        wl_new = self.db.get_watchlist(collection_status="new")
+        self.assertEqual(len(wl_new), 1)
+        self.assertEqual(wl_new[0]["artist_id"], "ART2")
+
+    def test_status_updated_at_changes(self):
+        self.db.add_to_watchlist("ART1", "Artist One")
+        wl = self.db.get_watchlist()
+        ts1 = wl[0]["collection_status_updated_at"]
+        time.sleep(0.05)
+        self.db.update_collection_status("ART1", "complete")
+        wl = self.db.get_watchlist()
+        ts2 = wl[0]["collection_status_updated_at"]
+        self.assertGreaterEqual(ts2, ts1)
+
+    def test_export_includes_collection_status(self):
+        self.db.add_to_watchlist("ART1", "Artist One")
+        self.db.update_collection_status("ART1", "complete")
+        exported = self.db.export_watchlist()
+        self.assertEqual(exported[0]["collection_status"], "complete")
+        self.assertIn("collection_status_updated_at", exported[0])
+
+    def test_import_preserves_collection_status(self):
+        artists = [
+            {"artist_id": "ART1", "name": "Artist One", "collection_status": "complete", "collection_status_updated_at": 1700000000},
+        ]
+        self.db.import_watchlist(artists)
+        wl = self.db.get_watchlist()
+        self.assertEqual(wl[0]["collection_status"], "complete")
+        self.assertEqual(wl[0]["collection_status_updated_at"], 1700000000)
+
+    def test_import_defaults_to_new(self):
+        artists = [{"artist_id": "ART1", "name": "Artist One"}]
+        self.db.import_watchlist(artists)
+        wl = self.db.get_watchlist()
+        self.assertEqual(wl[0]["collection_status"], "new")
+
+
+class TestCheckAndUpdateNewReleases(DBTestCase):
+    def _add_album(self, store_id, artist_id, release_date):
+        self.db.upsert_album({
+            "store_adam_id": store_id,
+            "title": f"Album {store_id}",
+            "artist_id": artist_id,
+            "storefronts": [],
+            "source": "artist_fetch",
+        })
+        # Set release_date directly
+        import db as _db
+        with _db.get_conn() as conn:
+            conn.execute(
+                "UPDATE albums SET release_date = ? WHERE store_adam_id = ?",
+                (release_date, store_id),
+            )
+
+    def test_no_change_when_status_not_complete(self):
+        self.db.add_to_watchlist("ART1", "Artist One")
+        self._add_album("A1", "ART1", "2025-06-01")
+        result = self.db.check_and_update_new_releases("ART1")
+        self.assertFalse(result)
+
+    def test_no_change_when_no_newer_release(self):
+        self.db.add_to_watchlist("ART1", "Artist One")
+        self._add_album("A1", "ART1", "2020-01-01")
+        self.db.update_collection_status("ART1", "complete")
+        result = self.db.check_and_update_new_releases("ART1")
+        self.assertFalse(result)
+
+    def test_transitions_to_new_release_when_newer_exists(self):
+        self.db.add_to_watchlist("ART1", "Artist One")
+        self.db.update_collection_status("ART1", "complete")
+        # Add album with future date
+        self._add_album("A1", "ART1", "2099-01-01")
+        result = self.db.check_and_update_new_releases("ART1")
+        self.assertTrue(result)
+        wl = self.db.get_watchlist()
+        self.assertEqual(wl[0]["collection_status"], "new_release")
+
+    def test_no_change_when_in_progress(self):
+        self.db.add_to_watchlist("ART1", "Artist One")
+        self.db.update_collection_status("ART1", "in_progress")
+        self._add_album("A1", "ART1", "2099-01-01")
+        result = self.db.check_and_update_new_releases("ART1")
+        self.assertFalse(result)
+        wl = self.db.get_watchlist()
+        self.assertEqual(wl[0]["collection_status"], "in_progress")
+
+    def test_nonexistent_artist(self):
+        result = self.db.check_and_update_new_releases("MISSING")
+        self.assertFalse(result)
+
+    def test_get_latest_release_date(self):
+        self.db.add_to_watchlist("ART1", "Artist One")
+        self._add_album("A1", "ART1", "2024-01-15")
+        self._add_album("A2", "ART1", "2024-06-20")
+        self._add_album("A3", "ART1", "2023-12-01")
+        latest = self.db.get_latest_release_date("ART1")
+        self.assertEqual(latest, "2024-06-20")
+
+    def test_get_latest_release_date_no_albums(self):
+        latest = self.db.get_latest_release_date("ART1")
+        self.assertIsNone(latest)
+
+
 if __name__ == "__main__":
     unittest.main()

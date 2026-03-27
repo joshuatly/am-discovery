@@ -908,10 +908,11 @@ class TestApiWatchlistPreferredSource(ServerTestCase):
         mock_db.get_watchlist.return_value = [{"artist_id": "ART1", "name": "Artist One", "preferred_source": "jp"}]
         resp = self.client.get("/api/watchlist?preferred_source=jp")
         self.assertEqual(resp.status_code, 200)
-        mock_db.get_watchlist.assert_called_once_with(preferred_source="jp")
+        mock_db.get_watchlist.assert_called_once_with(preferred_source="jp", collection_status="")
 
     @patch("server.db")
     def test_get_with_invalid_preferred_source_filter(self, mock_db):
+        mock_db.COLLECTION_STATUSES = {"new", "complete", "new_release", "in_progress"}
         resp = self.client.get("/api/watchlist?preferred_source=bad!")
         self.assertEqual(resp.status_code, 400)
 
@@ -920,7 +921,7 @@ class TestApiWatchlistPreferredSource(ServerTestCase):
         mock_db.get_watchlist.return_value = []
         resp = self.client.get("/api/watchlist")
         self.assertEqual(resp.status_code, 200)
-        mock_db.get_watchlist.assert_called_once_with(preferred_source="")
+        mock_db.get_watchlist.assert_called_once_with(preferred_source="", collection_status="")
 
 
 # ---------------------------------------------------------------------------
@@ -1142,6 +1143,77 @@ class TestApiStatusWatchlist(ServerTestCase):
         data = resp.get_json()
         self.assertIn("watchlist_poll_running", data)
         self.assertIn("watchlist_poll_interval_minutes", data)
+
+
+# ---------------------------------------------------------------------------
+# Collection Status API
+# ---------------------------------------------------------------------------
+
+
+class TestApiCollectionStatus(ServerTestCase):
+    @patch("server.db")
+    def test_get_watchlist_with_collection_status_filter(self, mock_db):
+        mock_db.get_watchlist.return_value = []
+        mock_db.COLLECTION_STATUSES = {"new", "complete", "new_release", "in_progress"}
+        resp = self.client.get("/api/watchlist?collection_status=complete")
+        self.assertEqual(resp.status_code, 200)
+        mock_db.get_watchlist.assert_called_once_with(preferred_source="", collection_status="complete")
+
+    @patch("server.db")
+    def test_get_watchlist_invalid_collection_status(self, mock_db):
+        mock_db.COLLECTION_STATUSES = {"new", "complete", "new_release", "in_progress"}
+        resp = self.client.get("/api/watchlist?collection_status=invalid")
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn("error", resp.get_json())
+
+    @patch("server.db")
+    def test_patch_collection_status_success(self, mock_db):
+        mock_db.COLLECTION_STATUSES = {"new", "complete", "new_release", "in_progress"}
+        mock_db.update_collection_status.return_value = True
+        resp = self.client.patch(
+            "/api/watchlist/ART1",
+            data=json.dumps({"collection_status": "complete"}),
+            content_type="application/json",
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(resp.get_json()["ok"])
+        mock_db.update_collection_status.assert_called_once_with("ART1", "complete")
+
+    @patch("server.db")
+    def test_patch_collection_status_invalid_value(self, mock_db):
+        mock_db.COLLECTION_STATUSES = {"new", "complete", "new_release", "in_progress"}
+        resp = self.client.patch(
+            "/api/watchlist/ART1",
+            data=json.dumps({"collection_status": "bad_status"}),
+            content_type="application/json",
+        )
+        self.assertEqual(resp.status_code, 400)
+
+    @patch("server.db")
+    def test_patch_collection_status_invalid_transition(self, mock_db):
+        mock_db.COLLECTION_STATUSES = {"new", "complete", "new_release", "in_progress"}
+        mock_db.update_collection_status.return_value = False
+        resp = self.client.patch(
+            "/api/watchlist/ART1",
+            data=json.dumps({"collection_status": "new_release"}),
+            content_type="application/json",
+        )
+        self.assertEqual(resp.status_code, 409)
+        self.assertIn("error", resp.get_json())
+
+    @patch("server.db")
+    def test_patch_both_preferred_source_and_status(self, mock_db):
+        mock_db.COLLECTION_STATUSES = {"new", "complete", "new_release", "in_progress"}
+        mock_db.update_preferred_source.return_value = None
+        mock_db.update_collection_status.return_value = True
+        resp = self.client.patch(
+            "/api/watchlist/ART1",
+            data=json.dumps({"preferred_source": "jp", "collection_status": "complete"}),
+            content_type="application/json",
+        )
+        self.assertEqual(resp.status_code, 200)
+        mock_db.update_preferred_source.assert_called_once_with("ART1", "jp")
+        mock_db.update_collection_status.assert_called_once_with("ART1", "complete")
 
 
 if __name__ == "__main__":

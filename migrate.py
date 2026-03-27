@@ -91,6 +91,11 @@ MIGRATIONS = {
         -- Version 8: store all artists for an album as a JSON array of {id, name, url} objects.
         ALTER TABLE albums ADD COLUMN artists_json TEXT;
     """,
+    9: """
+        -- Version 9: add collection status tracking to watched artists.
+        ALTER TABLE watched_artists ADD COLUMN collection_status TEXT DEFAULT 'new';
+        ALTER TABLE watched_artists ADD COLUMN collection_status_updated_at INTEGER;
+    """,
 }
 
 

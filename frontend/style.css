@@ -1266,6 +1266,54 @@ body {
 .sf-filter-btn.sg.active { background: rgba(255,200,60,0.25); color: #ffc83c; border-color: #ffc83c44; }
 
 /* =========================================================
+   Collection Status Badges & Filters
+   ========================================================= */
+.collection-status-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  line-height: 1.4;
+  vertical-align: middle;
+}
+.collection-status-badge.status-new        { background: rgba(160,160,170,0.2); color: #a0a0aa; }
+.collection-status-badge.status-complete    { background: rgba(60,200,100,0.2);  color: #3cc864; }
+.collection-status-badge.status-new_release { background: rgba(255,170,40,0.2);  color: #ffaa28; }
+.collection-status-badge.status-in_progress { background: rgba(80,140,255,0.2);  color: #508cff; }
+
+.cs-filter-bar { display: flex; gap: 6px; flex-wrap: wrap; }
+.cs-filter-btn {
+  padding: 4px 12px; border-radius: 20px; font-size: 0.72rem; font-weight: 600;
+  cursor: pointer; border: 1px solid rgba(255,255,255,0.12);
+  background: rgba(255,255,255,0.04); color: var(--text-muted);
+  transition: background 0.15s, color 0.15s;
+}
+.cs-filter-btn:hover { background: rgba(255,255,255,0.10); }
+.cs-filter-btn.active { background: rgba(255,255,255,0.16); color: var(--text); }
+.cs-filter-btn.status-new.active        { background: rgba(160,160,170,0.25); color: #a0a0aa; border-color: #a0a0aa44; }
+.cs-filter-btn.status-complete.active    { background: rgba(60,200,100,0.25);  color: #3cc864; border-color: #3cc86444; }
+.cs-filter-btn.status-new_release.active { background: rgba(255,170,40,0.25);  color: #ffaa28; border-color: #ffaa2844; }
+.cs-filter-btn.status-in_progress.active { background: rgba(80,140,255,0.25);  color: #508cff; border-color: #508cff44; }
+
+.watchlist-status-select {
+  padding: 3px 8px;
+  border-radius: 12px;
+  font-size: 10px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  border: 1px solid rgba(255,255,255,0.15);
+  background: rgba(255,255,255,0.06);
+  color: var(--text-muted);
+  outline: none;
+  transition: border-color 0.15s;
+}
+.watchlist-status-select:hover { border-color: rgba(255,255,255,0.3); }
+
+/* =========================================================
    Audio Format Badges
    ========================================================= */
 .format-badges {
