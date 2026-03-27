@@ -404,7 +404,7 @@ async function renderNewReleases(main, page = 1, query = "", storefront = "", wa
   state.currentWatchedOnly = watchedOnly;
 
   // Load config once
-  if (state.configuredStorefronts === null) {
+  if (state.configuredStorefronts === null || state.discoveryStorefronts === null) {
     try {
       const cfg = await API.get("/api/config");
       state.configuredStorefronts = cfg.check_storefronts || [];
@@ -424,8 +424,10 @@ async function renderNewReleases(main, page = 1, query = "", storefront = "", wa
   const wrap = el("div", "page-enter");
   wrap.appendChild(buildHeader("🎵 New Releases", sfSubtitle));
 
-  // Search
-  const searchBar = el("div", "search-bar");
+  // Controls: filters (left) + search (right)
+  const controls = el("div", "page-controls");
+  const filtersDiv = el("div", "page-controls-filters");
+  const searchDiv = el("div", "page-controls-search");
   const inp = el("input", "search-input");
   inp.type = "text";
   inp.placeholder = "Search title or artist…";
@@ -434,8 +436,10 @@ async function renderNewReleases(main, page = 1, query = "", storefront = "", wa
   inp.addEventListener("input", debounce(e => {
     renderNewReleases(main, 1, e.target.value.trim(), state.currentStorefront);
   }, 350));
-  searchBar.appendChild(inp);
-  wrap.appendChild(searchBar);
+  searchDiv.appendChild(inp);
+  controls.appendChild(filtersDiv);
+  controls.appendChild(searchDiv);
+  wrap.appendChild(controls);
 
   const gridWrap = el("div");
   gridWrap.appendChild(skeletonGrid(12));
@@ -456,7 +460,7 @@ async function renderNewReleases(main, page = 1, query = "", storefront = "", wa
   watchedToggle.addEventListener("click", () => renderNewReleases(main, 1, state.currentQuery, state.currentStorefront, !watchedOnly));
   filterBar.appendChild(watchedToggle);
 
-  searchBar.after(filterBar);
+  filtersDiv.appendChild(filterBar);
 
   // Fetch
   await loadWatchedIds();
@@ -499,7 +503,9 @@ async function renderAllReleases(main, page = 1, query = "", storefront = "") {
   const wrap = el("div", "page-enter");
   wrap.appendChild(buildHeader("📀 All Albums", "Every album in your local database"));
 
-  const searchBar = el("div", "search-bar");
+  const controls = el("div", "page-controls");
+  const filtersDiv = el("div", "page-controls-filters");
+  const searchDiv = el("div", "page-controls-search");
   const inp = el("input", "search-input");
   inp.type = "text";
   inp.placeholder = "Search title or artist…";
@@ -507,8 +513,10 @@ async function renderAllReleases(main, page = 1, query = "", storefront = "") {
   inp.addEventListener("input", debounce(e => {
     renderAllReleases(main, 1, e.target.value.trim(), storefront);
   }, 350));
-  searchBar.appendChild(inp);
-  wrap.appendChild(searchBar);
+  searchDiv.appendChild(inp);
+  controls.appendChild(filtersDiv);
+  controls.appendChild(searchDiv);
+  wrap.appendChild(controls);
 
   if (state.configuredStorefronts === null) {
     try {
@@ -526,7 +534,7 @@ async function renderAllReleases(main, page = 1, query = "", storefront = "") {
     btn.addEventListener("click", () => renderAllReleases(main, 1, query, code));
     filterBar.appendChild(btn);
   });
-  searchBar.after(filterBar);
+  filtersDiv.appendChild(filterBar);
 
   const gridWrap = el("div");
   gridWrap.appendChild(skeletonGrid(12));
@@ -910,45 +918,16 @@ async function renderWatchlist(main, preferredSourceFilter = "", collectionStatu
   wrap.appendChild(buildHeader("⭐ Artist Watchlist", "Artists you're following"));
   main.appendChild(wrap);
 
-  // Action bar: import/export
-  const actionBar = el("div", "watchlist-action-bar");
-  actionBar.style.cssText = "display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;align-items:center;";
-
-  const exportBtn = el("button", "btn-secondary", "Export");
-  exportBtn.title = "Download watchlist as JSON";
-  exportBtn.addEventListener("click", () => {
-    window.location.href = "/api/watchlist/export";
-  });
-  actionBar.appendChild(exportBtn);
-
-  const importBtn = el("button", "btn-secondary", "Import");
-  importBtn.title = "Import watchlist from JSON file";
-  importBtn.addEventListener("click", () => {
-    const input = document.createElement("input");
-    input.type = "file";
-    input.accept = ".json";
-    input.addEventListener("change", async () => {
-      if (!input.files.length) return;
-      const file = input.files[0];
-      const formData = new FormData();
-      formData.append("file", file);
-      try {
-        const resp = await fetch("/api/watchlist/import", { method: "POST", body: formData });
-        const result = await resp.json();
-        if (result.ok) {
-          renderWatchlist(main, preferredSourceFilter, collectionStatusFilter);
-        } else {
-          alert(result.error || "Import failed");
-        }
-      } catch {
-        alert("Import failed");
-      }
-    });
-    input.click();
-  });
-  actionBar.appendChild(importBtn);
-
-  wrap.appendChild(actionBar);
+  const controls = el("div", "page-controls");
+  const filtersDiv = el("div", "page-controls-filters");
+  const searchDiv = el("div", "page-controls-search");
+  const searchInput = el("input", "search-input");
+  searchInput.type = "text";
+  searchInput.placeholder = "Search artists…";
+  searchDiv.appendChild(searchInput);
+  controls.appendChild(filtersDiv);
+  controls.appendChild(searchDiv);
+  wrap.appendChild(controls);
 
   const qpParts = [];
   if (preferredSourceFilter) qpParts.push(`preferred_source=${preferredSourceFilter}`);
@@ -987,7 +966,10 @@ async function renderWatchlist(main, preferredSourceFilter = "", collectionStatu
     btn.addEventListener("click", () => renderWatchlist(main, code, collectionStatusFilter));
     psFilterBar.appendChild(btn);
   });
-  actionBar.appendChild(psFilterBar);
+  const psRow = el("div", "filter-row");
+  psRow.appendChild(el("span", "filter-row-label", "Country"));
+  psRow.appendChild(psFilterBar);
+  filtersDiv.appendChild(psRow);
 
   // Collection status filter bar
   const csFilterBar = el("div", "cs-filter-bar");
@@ -999,15 +981,10 @@ async function renderWatchlist(main, preferredSourceFilter = "", collectionStatu
     btn.addEventListener("click", () => renderWatchlist(main, preferredSourceFilter, code));
     csFilterBar.appendChild(btn);
   });
-  actionBar.appendChild(csFilterBar);
-
-  // Search bar
-  const searchBar = el("div", "search-bar");
-  const searchInput = el("input", "search-input");
-  searchInput.type = "text";
-  searchInput.placeholder = "Search artists…";
-  searchBar.appendChild(searchInput);
-  wrap.appendChild(searchBar);
+  const csRow = el("div", "filter-row");
+  csRow.appendChild(el("span", "filter-row-label", "Status"));
+  csRow.appendChild(csFilterBar);
+  filtersDiv.appendChild(csRow);
 
   // Results area: watched list + AM search suggestions
   const grid = el("div", "watchlist-grid");
@@ -1061,6 +1038,7 @@ async function renderWatchlist(main, preferredSourceFilter = "", collectionStatu
     card.appendChild(info);
 
     const unwatchBtn = el("button", "btn-unwatch", "Remove");
+    unwatchBtn.style.display = "none";
     unwatchBtn.addEventListener("click", async () => {
       await toggleWatch(artist.artist_id, artist.name, artist.url);
       state.watchedIds.delete(artist.artist_id);
@@ -1378,6 +1356,51 @@ async function renderSettings(main) {
   });
   form.appendChild(saveBtn);
   wrap.appendChild(form);
+
+  // Watchlist import/export
+  const wlSection = el("div", "");
+  wlSection.style.cssText = "max-width:600px;margin-top:32px;display:flex;flex-direction:column;gap:12px;";
+  const wlTitle = el("div", "", "Watchlist");
+  wlTitle.style.cssText = "font-weight:600;font-size:15px;";
+  const wlDesc = el("p", "", "Export your watchlist as a JSON backup, or import a previously exported file.");
+  wlDesc.style.cssText = "font-size:12px;color:var(--text-dim);margin:0;";
+  const wlButtons = el("div", "");
+  wlButtons.style.cssText = "display:flex;gap:8px;";
+
+  const exportBtn = el("button", "btn-secondary", "Export Watchlist");
+  exportBtn.title = "Download watchlist as JSON";
+  exportBtn.addEventListener("click", () => {
+    window.location.href = "/api/watchlist/export";
+  });
+
+  const importBtn = el("button", "btn-secondary", "Import Watchlist");
+  importBtn.title = "Import watchlist from JSON file";
+  importBtn.addEventListener("click", () => {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = ".json";
+    input.addEventListener("change", async () => {
+      if (!input.files.length) return;
+      const file = input.files[0];
+      const formData = new FormData();
+      formData.append("file", file);
+      try {
+        const resp = await fetch("/api/watchlist/import", { method: "POST", body: formData });
+        const result = await resp.json();
+        if (!result.ok) alert(result.error || "Import failed");
+      } catch {
+        alert("Import failed");
+      }
+    });
+    input.click();
+  });
+
+  wlButtons.appendChild(exportBtn);
+  wlButtons.appendChild(importBtn);
+  wlSection.appendChild(wlTitle);
+  wlSection.appendChild(wlDesc);
+  wlSection.appendChild(wlButtons);
+  wrap.appendChild(wlSection);
 }
 
 

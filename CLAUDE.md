@@ -148,12 +148,19 @@ Full Swagger docs at `/apidocs`.
 
 ---
 
+## Frontend state gotchas
+
+### Shared `state` fields with separate null-guards (recurring bug)
+
+`state` in `app.js` has multiple fields that are lazily loaded from the API (e.g. `configuredStorefronts`, `discoveryStorefronts`). Different page renderers each guard their own config fetch with `if (state.X === null)`, but they don't all set the same fields. This causes crashes when navigating between pages: page A sets field X, page B's guard sees X is non-null and skips the fetch, but field Y (only set by page B's fetch) remains null.
+
+**Rule:** When adding a new lazy-loaded state field, make sure every page that guards config loading also sets that field — or broaden the guard to `if (state.X === null || state.Y === null)`. Never assume all fields were populated just because one was.
+
+---
+
 ## Things that are still in flux
 
-- Database backend (SQLite today, may move to PostgreSQL or another store)
 - Schema — new fields are being added regularly; always write a migration
 - Frontend — currently a single-file vanilla JS app; no build step
-- Room URLs in config — these are tied to Apple Music's platform and may change
-- Artist release scraping — parsing relies on Apple Music page structure, which can break
 
 When in doubt, keep changes small and don't over-engineer — the codebase is moving fast.

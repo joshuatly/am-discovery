@@ -88,6 +88,8 @@ beforeAll(() => {
     window.__test_COLLECTION_STATUS_LABELS = COLLECTION_STATUS_LABELS;
     window.__test_COLLECTION_TRANSITIONS   = COLLECTION_TRANSITIONS;
     window.__test_renderArtist             = renderArtist;
+    window.__test_renderNewReleases        = renderNewReleases;
+    window.__test_renderWatchlist          = renderWatchlist;
   `;
   appWindow.document.head.appendChild(exposeScript);
 });
@@ -1768,5 +1770,157 @@ describe("watchlist search suggestion card sets artistHint with extended fields"
     expect(hint.origin).toBe("Newcastle, England");
     expect(hint.artist_bio).toBe("British rock band.");
     expect(hint.is_group).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Cross-page navigation state regression
+// ---------------------------------------------------------------------------
+// Regression: visiting any page that loads config (watchlist, settings, artist)
+// sets state.configuredStorefronts without setting state.discoveryStorefronts.
+// renderNewReleases then skips its config fetch (guard sees non-null
+// configuredStorefronts) and crashes reading .length on null discoveryStorefronts.
+// ---------------------------------------------------------------------------
+
+describe("renderNewReleases — cross-page navigation regression", () => {
+  test("renders without error after visiting watchlist (configuredStorefronts set, discoveryStorefronts null)", async () => {
+    const state = appWindow.__test_state;
+    const main = appWindow.document.getElementById("main-content");
+
+    // Simulate state left behind by renderWatchlist: it sets configuredStorefronts
+    // but never sets discoveryStorefronts.
+    state.configuredStorefronts = ["jp", "tw"];
+    state.discoveryStorefronts = null;
+
+    appWindow.fetch.mockImplementation((url) => {
+      if (url.includes("/api/config")) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ check_storefronts: ["jp", "tw"] }) });
+      }
+      if (url.includes("/api/watchlist")) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({ items: [], total: 0 }) });
+    });
+
+    await expect(appWindow.__test_renderNewReleases(main)).resolves.toBeUndefined();
+
+    // Page should show New Releases, not crash or fall through to another view
+    expect(main.innerHTML).toContain("New Releases");
+
+    // discoveryStorefronts must be populated after the render
+    expect(Array.isArray(state.discoveryStorefronts)).toBe(true);
+  });
+
+  test("renders without error when both configuredStorefronts and discoveryStorefronts start null", async () => {
+    const state = appWindow.__test_state;
+    const main = appWindow.document.getElementById("main-content");
+
+    state.configuredStorefronts = null;
+    state.discoveryStorefronts = null;
+
+    appWindow.fetch.mockImplementation((url) => {
+      if (url.includes("/api/config")) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ check_storefronts: ["hk"] }) });
+      }
+      if (url.includes("/api/watchlist")) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({ items: [], total: 0 }) });
+    });
+
+    await expect(appWindow.__test_renderNewReleases(main)).resolves.toBeUndefined();
+    expect(main.innerHTML).toContain("New Releases");
+    expect(Array.isArray(state.discoveryStorefronts)).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// page-controls layout: search + filter bar unified structure
+// ---------------------------------------------------------------------------
+
+describe("page-controls layout — New Releases", () => {
+  let main;
+
+  beforeEach(() => {
+    main = appWindow.document.getElementById("main-content");
+    const state = appWindow.__test_state;
+    state.configuredStorefronts = ["jp", "tw"];
+    state.discoveryStorefronts = ["jp", "tw"];
+    appWindow.fetch.mockImplementation((url) => {
+      if (url.includes("/api/watchlist")) return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({ items: [], total: 0 }) });
+    });
+  });
+
+  test("renders a .page-controls container", async () => {
+    await appWindow.__test_renderNewReleases(main);
+    expect(main.querySelector(".page-controls")).not.toBeNull();
+  });
+
+  test("search input is inside .page-controls-search", async () => {
+    await appWindow.__test_renderNewReleases(main);
+    const searchDiv = main.querySelector(".page-controls-search");
+    expect(searchDiv).not.toBeNull();
+    expect(searchDiv.querySelector("input.search-input")).not.toBeNull();
+  });
+
+  test("filter bar is inside .page-controls-filters", async () => {
+    await appWindow.__test_renderNewReleases(main);
+    const filtersDiv = main.querySelector(".page-controls-filters");
+    expect(filtersDiv).not.toBeNull();
+    expect(filtersDiv.querySelector(".sf-filter-bar")).not.toBeNull();
+  });
+
+  test(".page-controls-filters comes before .page-controls-search in DOM order", async () => {
+    await appWindow.__test_renderNewReleases(main);
+    const controls = main.querySelector(".page-controls");
+    const children = Array.from(controls.children);
+    const filtersIdx = children.findIndex(c => c.classList.contains("page-controls-filters"));
+    const searchIdx = children.findIndex(c => c.classList.contains("page-controls-search"));
+    expect(filtersIdx).toBeLessThan(searchIdx);
+  });
+});
+
+describe("page-controls layout — Watchlist", () => {
+  let main;
+
+  beforeEach(() => {
+    main = appWindow.document.getElementById("main-content");
+    const state = appWindow.__test_state;
+    state.configuredStorefronts = ["jp", "tw"];
+    appWindow.fetch.mockImplementation((url) => {
+      if (url.includes("/api/config")) return Promise.resolve({ ok: true, json: () => Promise.resolve({ check_storefronts: ["jp", "tw"] }) });
+      if (url.includes("/api/watchlist")) return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({ items: [], total: 0 }) });
+    });
+  });
+
+  test("renders a .page-controls container", async () => {
+    await appWindow.__test_renderWatchlist(main);
+    expect(main.querySelector(".page-controls")).not.toBeNull();
+  });
+
+  test("search input is inside .page-controls-search", async () => {
+    await appWindow.__test_renderWatchlist(main);
+    const searchDiv = main.querySelector(".page-controls-search");
+    expect(searchDiv).not.toBeNull();
+    expect(searchDiv.querySelector("input.search-input")).not.toBeNull();
+  });
+
+  test("filter bars are inside .page-controls-filters", async () => {
+    await appWindow.__test_renderWatchlist(main);
+    const filtersDiv = main.querySelector(".page-controls-filters");
+    expect(filtersDiv).not.toBeNull();
+    expect(filtersDiv.querySelector(".sf-filter-bar")).not.toBeNull();
+    expect(filtersDiv.querySelector(".cs-filter-bar")).not.toBeNull();
+  });
+
+  test(".page-controls-filters comes before .page-controls-search in DOM order", async () => {
+    await appWindow.__test_renderWatchlist(main);
+    const controls = main.querySelector(".page-controls");
+    const children = Array.from(controls.children);
+    const filtersIdx = children.findIndex(c => c.classList.contains("page-controls-filters"));
+    const searchIdx = children.findIndex(c => c.classList.contains("page-controls-search"));
+    expect(filtersIdx).toBeLessThan(searchIdx);
   });
 });
