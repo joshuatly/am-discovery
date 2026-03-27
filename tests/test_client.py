@@ -564,6 +564,7 @@ class TestGetArtistAllReleases(unittest.TestCase):
                         "bornOrFormed": "Formed 2016",
                         "origin": "Newcastle, England",
                         "artistBio": "British rock band.",
+                        "isGroup": True,
                     },
                     "views": {
                         "full-albums": {"data": []},
@@ -579,6 +580,31 @@ class TestGetArtistAllReleases(unittest.TestCase):
         self.assertEqual(artist_info["born_or_formed"], "Formed 2016")
         self.assertEqual(artist_info["origin"], "Newcastle, England")
         self.assertEqual(artist_info["artist_bio"], "British rock band.")
+        self.assertTrue(artist_info["is_group"])
+
+    def test_extracts_is_group_false_for_solo_artist(self):
+        api_data = {
+            "data": [
+                {
+                    "attributes": {
+                        "name": "Eason Chan",
+                        "genreNames": ["Cantopop"],
+                        "bornOrFormed": "1974年7月27日",
+                        "origin": "Hong Kong",
+                        "isGroup": False,
+                    },
+                    "views": {
+                        "full-albums": {"data": []},
+                        "compilation-albums": {"data": []},
+                        "live-albums": {"data": []},
+                        "singles": {"data": []},
+                    },
+                }
+            ]
+        }
+        with patch.object(self.client, "_amp_api_get", return_value=api_data):
+            _, artist_info = self.client.get_artist_all_releases(_ARTIST_URL, "us")
+        self.assertFalse(artist_info["is_group"])
 
     def test_born_or_formed_origin_bio_absent(self):
         api_data = _make_artist_views_response()
@@ -587,6 +613,7 @@ class TestGetArtistAllReleases(unittest.TestCase):
         self.assertIsNone(artist_info["born_or_formed"])
         self.assertIsNone(artist_info["origin"])
         self.assertIsNone(artist_info["artist_bio"])
+        self.assertIsNone(artist_info["is_group"])
 
     def test_extend_param_sent(self):
         calls = []
@@ -694,6 +721,150 @@ class TestCheckStorefrontAvailability(unittest.TestCase):
         result = self.client.check_storefront_availability("123", [])
         self.assertEqual(result["available"], [])
         self.assertEqual(result["unavailable"], [])
+
+
+# ---------------------------------------------------------------------------
+# get_artist_info_only
+# ---------------------------------------------------------------------------
+
+
+class TestGetArtistInfoOnly(unittest.TestCase):
+    def setUp(self):
+        self.client = _make_client()
+
+    def _make_api_data(self, attrs):
+        return {"data": [{"attributes": attrs}]}
+
+    def test_returns_extended_fields(self):
+        api_data = self._make_api_data(
+            {
+                "name": "The Pale White",
+                "genreNames": ["Alternative"],
+                "bornOrFormed": "Formed 2016",
+                "origin": "Newcastle, England",
+                "artistBio": "British rock band.",
+                "isGroup": True,
+            }
+        )
+        with patch.object(self.client, "_amp_api_get", return_value=api_data):
+            info = self.client.get_artist_info_only("12345", "us")
+        self.assertEqual(info["born_or_formed"], "Formed 2016")
+        self.assertEqual(info["origin"], "Newcastle, England")
+        self.assertEqual(info["artist_bio"], "British rock band.")
+        self.assertTrue(info["is_group"])
+        self.assertEqual(info["name"], "The Pale White")
+        self.assertEqual(info["genre"], "Alternative")
+
+    def test_returns_empty_on_api_failure(self):
+        with patch.object(self.client, "_amp_api_get", return_value={}):
+            info = self.client.get_artist_info_only("12345", "us")
+        self.assertEqual(info, {})
+
+    def test_extend_param_sent(self):
+        calls = []
+
+        def capture(path, params):
+            calls.append((path, params))
+            return {}
+
+        with patch.object(self.client, "_amp_api_get", side_effect=capture):
+            self.client.get_artist_info_only("12345", "jp")
+        self.assertIn("/v1/catalog/jp/artists/12345", calls[0][0])
+        self.assertIn("bornOrFormed", calls[0][1]["extend"])
+        self.assertIn("origin", calls[0][1]["extend"])
+        self.assertIn("artistBio", calls[0][1]["extend"])
+
+    def test_absent_extended_fields_return_none(self):
+        api_data = self._make_api_data({"name": "Solo Artist", "genreNames": []})
+        with patch.object(self.client, "_amp_api_get", return_value=api_data):
+            info = self.client.get_artist_info_only("12345", "us")
+        self.assertIsNone(info["born_or_formed"])
+        self.assertIsNone(info["origin"])
+        self.assertIsNone(info["artist_bio"])
+        self.assertIsNone(info["is_group"])
+
+
+# ---------------------------------------------------------------------------
+# search_artists
+# ---------------------------------------------------------------------------
+
+
+class TestSearchArtists(unittest.TestCase):
+    def setUp(self):
+        self.client = _make_client()
+
+    def _make_search_data(self, artists):
+        return {"results": {"artists": {"data": artists}}}
+
+    def test_returns_basic_fields(self):
+        data = self._make_search_data(
+            [
+                {
+                    "id": "111",
+                    "attributes": {
+                        "name": "Test Artist",
+                        "url": "https://music.apple.com/us/artist/test/111",
+                        "artwork": {"url": "https://example.com/{w}x{h}bb.jpg"},
+                        "genreNames": ["Pop"],
+                    },
+                }
+            ]
+        )
+        with patch.object(self.client, "_amp_api_get", return_value=data):
+            results = self.client.search_artists("test", storefront="us")
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["id"], "111")
+        self.assertEqual(results[0]["name"], "Test Artist")
+        self.assertEqual(results[0]["genre"], "Pop")
+
+    def test_returns_extended_fields(self):
+        data = self._make_search_data(
+            [
+                {
+                    "id": "222",
+                    "attributes": {
+                        "name": "Band",
+                        "genreNames": ["Rock"],
+                        "bornOrFormed": "Formed 2010",
+                        "origin": "London, England",
+                        "artistBio": "A rock band.",
+                        "isGroup": True,
+                    },
+                }
+            ]
+        )
+        with patch.object(self.client, "_amp_api_get", return_value=data):
+            results = self.client.search_artists("band", storefront="us")
+        self.assertEqual(results[0]["born_or_formed"], "Formed 2010")
+        self.assertEqual(results[0]["origin"], "London, England")
+        self.assertEqual(results[0]["artist_bio"], "A rock band.")
+        self.assertTrue(results[0]["is_group"])
+
+    def test_extend_param_sent(self):
+        calls = []
+
+        def capture(path, params):
+            calls.append(params)
+            return {}
+
+        with patch.object(self.client, "_amp_api_get", side_effect=capture):
+            self.client.search_artists("test", storefront="us")
+        self.assertIn("extend", calls[0])
+        self.assertIn("bornOrFormed", calls[0]["extend"])
+
+    def test_absent_extended_fields_return_none(self):
+        data = self._make_search_data([{"id": "333", "attributes": {"name": "Solo", "genreNames": []}}])
+        with patch.object(self.client, "_amp_api_get", return_value=data):
+            results = self.client.search_artists("solo", storefront="us")
+        self.assertIsNone(results[0]["born_or_formed"])
+        self.assertIsNone(results[0]["origin"])
+        self.assertIsNone(results[0]["artist_bio"])
+        self.assertIsNone(results[0]["is_group"])
+
+    def test_returns_empty_on_no_results(self):
+        with patch.object(self.client, "_amp_api_get", return_value={}):
+            results = self.client.search_artists("nothing", storefront="us")
+        self.assertEqual(results, [])
 
 
 if __name__ == "__main__":

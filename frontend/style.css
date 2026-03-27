@@ -562,7 +562,22 @@ body {
 .artist-genre {
   font-size: 13px;
   color: var(--text-dim);
+  margin-bottom: 4px;
+}
+.artist-detail {
+  font-size: 13px;
+  color: var(--text-dim);
   margin-bottom: 8px;
+}
+.artist-bio {
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.6;
+  margin-bottom: 16px;
+  padding: 12px 16px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
 }
 .artist-links {
   display: flex;

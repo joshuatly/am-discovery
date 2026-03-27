@@ -115,6 +115,8 @@ def _do_poll():
 
         logger.info("[Poll] %d new, %d already cached", len(new_ids), len(known_ids))
 
+        home_sf = cfg.get("home_storefront", "us")
+
         # 3. Fetch full info only for new albums (concurrent)
         def fetch_full(aid):
             r = all_releases[aid]
@@ -138,6 +140,20 @@ def _do_poll():
                 "source": "discovered",
             }
             db.upsert_album(merged)
+            artist_id = info.get("artist_id")
+            if artist_id and not db.get_artist_info(artist_id).get("born_or_formed"):
+                artist_info = client.get_artist_info_only(artist_id, home_sf)
+                if artist_info:
+                    db.upsert_artist(
+                        artist_id,
+                        name=artist_info.get("name"),
+                        artwork_url=artist_info.get("artwork_url"),
+                        genre=artist_info.get("genre"),
+                        born_or_formed=artist_info.get("born_or_formed"),
+                        origin=artist_info.get("origin"),
+                        artist_bio=artist_info.get("artist_bio"),
+                        is_group=artist_info.get("is_group"),
+                    )
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=10) as ex:
             list(ex.map(fetch_full, new_ids))
@@ -247,6 +263,7 @@ def _do_watchlist_poll():
                     born_or_formed=artist_info.get("born_or_formed"),
                     origin=artist_info.get("origin"),
                     artist_bio=artist_info.get("artist_bio"),
+                    is_group=artist_info.get("is_group"),
                 )
 
                 def fetch_one(r, storefront=storefront, artist_id=artist_id):
@@ -499,19 +516,21 @@ def api_artist_fetch(artist_id):
     artist_url = f"https://music.apple.com/{storefront}/artist/{artist_id}"
     releases, artist_info = client.get_artist_all_releases(artist_url, storefront)
 
+    # Cache artist metadata regardless of whether any releases were found
+    if artist_info:
+        db.upsert_artist(
+            artist_id,
+            name=artist_info.get("name"),
+            artwork_url=artist_info.get("artwork_url"),
+            genre=artist_info.get("genre"),
+            born_or_formed=artist_info.get("born_or_formed"),
+            origin=artist_info.get("origin"),
+            artist_bio=artist_info.get("artist_bio"),
+            is_group=artist_info.get("is_group"),
+        )
+
     if not releases:
         return jsonify({"ok": True, "fetched": 0, "message": "No releases found on artist page"})
-
-    # Cache artist metadata (name, artwork, genre) for any artist that gets fetched
-    db.upsert_artist(
-        artist_id,
-        name=artist_info.get("name"),
-        artwork_url=artist_info.get("artwork_url"),
-        genre=artist_info.get("genre"),
-        born_or_formed=artist_info.get("born_or_formed"),
-        origin=artist_info.get("origin"),
-        artist_bio=artist_info.get("artist_bio"),
-    )
 
     def fetch_one(r):
         aid = r["storeAdamID"]
@@ -577,6 +596,10 @@ def api_artist_releases(artist_id):
             "artist_url": artist_url,
             "artist_artwork_url": artist_info.get("artwork_url"),
             "artist_genre": artist_info.get("genre"),
+            "artist_born_or_formed": artist_info.get("born_or_formed"),
+            "artist_origin": artist_info.get("origin"),
+            "artist_bio": artist_info.get("artist_bio"),
+            "artist_is_group": artist_info.get("is_group"),
             "watched": watched,
             "releases": result,
         },

@@ -27,7 +27,7 @@ def get_conn():
         conn.close()
 
 
-SCHEMA_VERSION = 10
+SCHEMA_VERSION = 11
 
 # Valid collection_status values and allowed transitions
 COLLECTION_STATUSES = {"new", "complete", "new_release", "in_progress"}
@@ -93,6 +93,7 @@ def init_db():
                     born_or_formed TEXT,
                     origin         TEXT,
                     artist_bio     TEXT,
+                    is_group       INTEGER,
                     updated_at     INTEGER
                 );
 
@@ -277,12 +278,15 @@ def upsert_artist(
     born_or_formed: str = None,
     origin: str = None,
     artist_bio: str = None,
+    is_group: bool = None,
 ):
     now = int(time.time())
+    is_group_int = int(is_group) if is_group is not None else None
     with get_conn() as conn:
         conn.execute(
-            """INSERT INTO artists (artist_id, name, artwork_url, genre, born_or_formed, origin, artist_bio, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """INSERT INTO artists
+               (artist_id, name, artwork_url, genre, born_or_formed, origin, artist_bio, is_group, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                ON CONFLICT(artist_id) DO UPDATE SET
                    name           = coalesce(excluded.name, name),
                    artwork_url    = coalesce(excluded.artwork_url, artwork_url),
@@ -290,8 +294,9 @@ def upsert_artist(
                    born_or_formed = coalesce(excluded.born_or_formed, born_or_formed),
                    origin         = coalesce(excluded.origin, origin),
                    artist_bio     = coalesce(excluded.artist_bio, artist_bio),
+                   is_group       = coalesce(excluded.is_group, is_group),
                    updated_at     = excluded.updated_at""",
-            (artist_id, name, artwork_url, genre, born_or_formed, origin, artist_bio, now),
+            (artist_id, name, artwork_url, genre, born_or_formed, origin, artist_bio, is_group_int, now),
         )
 
 
@@ -304,7 +309,8 @@ def get_artist_artwork(artist_id: str):
 def get_artist_info(artist_id: str):
     with get_conn() as conn:
         row = conn.execute(
-            "SELECT name, artwork_url, genre, born_or_formed, origin, artist_bio FROM artists WHERE artist_id = ?",
+            "SELECT name, artwork_url, genre, born_or_formed, origin, artist_bio, is_group"
+            " FROM artists WHERE artist_id = ?",
             (artist_id,),
         ).fetchone()
         return dict(row) if row else {}

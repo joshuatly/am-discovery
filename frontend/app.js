@@ -629,10 +629,14 @@ async function renderArtist(main, artistId) {
 
   // Use hint from watchlist search if the artist isn't in DB yet
   const hint = (state.artistHint?.id === artistId) ? state.artistHint : null;
-  if (!data.artist_name        && hint?.name)        data.artist_name        = hint.name;
-  if (!data.artist_url         && hint?.url)         data.artist_url         = hint.url;
-  if (!data.artist_artwork_url && hint?.artwork_url) data.artist_artwork_url = hint.artwork_url;
-  if (!data.artist_genre       && hint?.genre)       data.artist_genre       = hint.genre;
+  if (!data.artist_name          && hint?.name)          data.artist_name          = hint.name;
+  if (!data.artist_url           && hint?.url)           data.artist_url           = hint.url;
+  if (!data.artist_artwork_url   && hint?.artwork_url)   data.artist_artwork_url   = hint.artwork_url;
+  if (!data.artist_genre         && hint?.genre)         data.artist_genre         = hint.genre;
+  if (!data.artist_born_or_formed && hint?.born_or_formed) data.artist_born_or_formed = hint.born_or_formed;
+  if (!data.artist_origin        && hint?.origin)        data.artist_origin        = hint.origin;
+  if (!data.artist_bio           && hint?.artist_bio)    data.artist_bio           = hint.artist_bio;
+  if (data.artist_is_group == null && hint?.is_group != null) data.artist_is_group = hint.is_group;
 
   await loadWatchedIds();
   wrap.innerHTML = "";
@@ -658,6 +662,19 @@ async function renderArtist(main, artistId) {
   if (data.artist_artwork_url && data.artist_genre) {
     const genreEl = el("div", "artist-genre", data.artist_genre);
     meta.appendChild(genreEl);
+  }
+
+  const detailParts = [];
+  if (data.artist_born_or_formed) {
+    let bofStr = data.artist_born_or_formed;
+    if (data.artist_is_group === true && !/^formed/i.test(bofStr)) bofStr = "Formed " + bofStr;
+    else if (data.artist_is_group === false && !/^born/i.test(bofStr)) bofStr = "Born " + bofStr;
+    detailParts.push(bofStr);
+  }
+  if (data.artist_origin) detailParts.push(data.artist_origin);
+  if (detailParts.length) {
+    const detailEl = el("div", "artist-detail", detailParts.join(" · "));
+    meta.appendChild(detailEl);
   }
 
   const links = el("div", "artist-links");
@@ -802,6 +819,11 @@ async function renderArtist(main, artistId) {
   meta.appendChild(links);
   header.appendChild(meta);
   wrap.appendChild(header);
+
+  if (data.artist_bio) {
+    const bioEl = el("div", "artist-bio", data.artist_bio);
+    wrap.appendChild(bioEl);
+  }
 
   // Stats
   const subtitle = el("p", "page-subtitle");
@@ -1073,7 +1095,7 @@ async function renderWatchlist(main, preferredSourceFilter = "", collectionStatu
     name.href = `#/artist/${artist.id}`;
     name.addEventListener("click", e => {
       e.preventDefault();
-      state.artistHint = { id: String(artist.id), name: artist.name, url: artist.url, artwork_url: artist.artwork_url, genre: artist.genre };
+      state.artistHint = { id: String(artist.id), name: artist.name, url: artist.url, artwork_url: artist.artwork_url, genre: artist.genre, born_or_formed: artist.born_or_formed, origin: artist.origin, artist_bio: artist.artist_bio, is_group: artist.is_group };
       location.hash = `#/artist/${artist.id}`;
     });
     info.appendChild(name);

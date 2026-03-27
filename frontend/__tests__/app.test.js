@@ -25,19 +25,26 @@ beforeAll(() => {
 <html>
 <head></head>
 <body>
-  <nav>
+  <nav id="sidebar">
+    <button id="sidebar-expand-btn"></button>
     <a class="nav-link" data-page="releases" href="#/">New</a>
     <a class="nav-link" data-page="all" href="#/all">All</a>
     <a class="nav-link" data-page="watchlist" href="#/watchlist">Watchlist</a>
     <a class="nav-link" data-page="settings" href="#/settings">Settings</a>
+    <button id="sidebar-src-badge"></button>
+    <div id="meta-source-chips"></div>
   </nav>
+  <div id="sidebar-backdrop"></div>
   <main id="main-content"></main>
   <div id="status-card">
     <div id="status-dot"></div>
     <div class="status-info"><div id="status-last-run"></div></div>
   </div>
   <button id="btn-refresh"></button>
-  <div id="meta-source-chips"></div>
+  <div id="modal-overlay">
+    <button id="modal-close"></button>
+    <div id="modal-body"></div>
+  </div>
 </body>
 </html>`;
 
@@ -49,9 +56,11 @@ beforeAll(() => {
 
   appWindow = dom.window;
 
-  // Provide a fetch stub so app.js module-level code doesn't throw
+  // Provide a fetch stub so app.js module-level code doesn't throw.
+  // Returns shape that satisfies renderNewReleases (items+total) and config
+  // endpoints (check_storefronts etc.) without crashing on init.
   appWindow.fetch = jest.fn(() =>
-    Promise.resolve({ ok: true, json: () => Promise.resolve({}) })
+    Promise.resolve({ ok: true, json: () => Promise.resolve({ items: [], total: 0 }) })
   );
 
   // localStorage is provided by jsdom — no stub needed
@@ -78,8 +87,13 @@ beforeAll(() => {
     window.__test_renderSettings      = renderSettings;
     window.__test_COLLECTION_STATUS_LABELS = COLLECTION_STATUS_LABELS;
     window.__test_COLLECTION_TRANSITIONS   = COLLECTION_TRANSITIONS;
+    window.__test_renderArtist             = renderArtist;
   `;
   appWindow.document.head.appendChild(exposeScript);
+});
+
+afterAll(() => {
+  appWindow.close();
 });
 
 beforeEach(() => {
@@ -734,8 +748,10 @@ describe("state initial values", () => {
     expect(appWindow.__test_state.artistTypeFilter).toBe("");
   });
 
-  test("configuredStorefronts starts null", () => {
-    expect(appWindow.__test_state.configuredStorefronts).toBeNull();
+  test("configuredStorefronts is initialized to an array", () => {
+    // initMetaSourceWidget runs on DOMContentLoaded and sets configuredStorefronts
+    // from the config API (or to [] on failure), so by test time it is always [].
+    expect(Array.isArray(appWindow.__test_state.configuredStorefronts)).toBe(true);
   });
 });
 
@@ -1457,5 +1473,300 @@ describe("renderArtist collection status selector", () => {
       expect(typeof labels[status]).toBe("string");
       expect(labels[status].length).toBeGreaterThan(0);
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// renderArtist — extended artist info (born_or_formed, origin, artist_bio)
+// ---------------------------------------------------------------------------
+
+function makeArtistFetchMock(artistData) {
+  return appWindow.fetch
+    .mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve(artistData),
+    })
+    .mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve([]), // watchlist
+    });
+}
+
+describe("renderArtist extended artist info", () => {
+  let main;
+
+  beforeEach(() => {
+    main = appWindow.document.createElement("div");
+    appWindow.document.getElementById("main-content").appendChild(main);
+  });
+
+  afterEach(() => {
+    main.remove();
+    appWindow.fetch.mockClear();
+  });
+
+  test("renders born_or_formed and origin as a combined detail line (group, already prefixed)", async () => {
+    makeArtistFetchMock({
+      artist_id: "1127116907",
+      artist_name: "The Pale White",
+      artist_artwork_url: null,
+      artist_genre: "Alternative",
+      artist_born_or_formed: "Formed 2016",
+      artist_origin: "Newcastle, England",
+      artist_bio: null,
+      artist_is_group: true,
+      watched: false,
+      releases: [],
+    });
+
+    await appWindow.__test_renderArtist(main, "1127116907");
+    const detail = main.querySelector(".artist-detail");
+    expect(detail).not.toBeNull();
+    // "Formed 2016" already starts with "Formed" so no extra prefix is added
+    expect(detail.textContent).toBe("Formed 2016 · Newcastle, England");
+  });
+
+  test("prefixes localized born_or_formed with 'Born' for solo artist", async () => {
+    makeArtistFetchMock({
+      artist_id: "137938148",
+      artist_name: "Eason Chan",
+      artist_artwork_url: null,
+      artist_genre: "Cantopop",
+      artist_born_or_formed: "1974年7月27日",
+      artist_origin: "Hong Kong",
+      artist_bio: null,
+      artist_is_group: false,
+      watched: false,
+      releases: [],
+    });
+
+    await appWindow.__test_renderArtist(main, "137938148");
+    const detail = main.querySelector(".artist-detail");
+    expect(detail).not.toBeNull();
+    expect(detail.textContent).toContain("Born 1974年7月27日");
+    expect(detail.textContent).toContain("Hong Kong");
+  });
+
+  test("prefixes localized born_or_formed with 'Formed' for group", async () => {
+    makeArtistFetchMock({
+      artist_id: "222",
+      artist_name: "Some Band",
+      artist_artwork_url: null,
+      artist_genre: "Rock",
+      artist_born_or_formed: "2010",
+      artist_origin: null,
+      artist_bio: null,
+      artist_is_group: true,
+      watched: false,
+      releases: [],
+    });
+
+    await appWindow.__test_renderArtist(main, "222");
+    const detail = main.querySelector(".artist-detail");
+    expect(detail).not.toBeNull();
+    expect(detail.textContent).toBe("Formed 2010");
+  });
+
+  test("renders only born_or_formed when origin is absent and is_group is unknown", async () => {
+    makeArtistFetchMock({
+      artist_id: "111",
+      artist_name: "Solo Act",
+      artist_artwork_url: null,
+      artist_genre: null,
+      artist_born_or_formed: "Born July 27, 1974",
+      artist_origin: null,
+      artist_bio: null,
+      artist_is_group: null,
+      watched: false,
+      releases: [],
+    });
+
+    await appWindow.__test_renderArtist(main, "111");
+    const detail = main.querySelector(".artist-detail");
+    expect(detail).not.toBeNull();
+    // No prefix added when is_group is unknown
+    expect(detail.textContent).toBe("Born July 27, 1974");
+  });
+
+  test("renders artist_bio when present", async () => {
+    makeArtistFetchMock({
+      artist_id: "137938148",
+      artist_name: "Eason Chan",
+      artist_artwork_url: null,
+      artist_genre: "Cantopop",
+      artist_born_or_formed: "Born July 27, 1974",
+      artist_origin: "Hong Kong",
+      artist_bio: "Eason Chan is a legendary Cantopop artist.",
+      artist_is_group: false,
+      watched: false,
+      releases: [],
+    });
+
+    await appWindow.__test_renderArtist(main, "137938148");
+    const bio = main.querySelector(".artist-bio");
+    expect(bio).not.toBeNull();
+    expect(bio.textContent).toContain("Eason Chan");
+  });
+
+  test("omits detail line and bio when all extended fields are absent", async () => {
+    makeArtistFetchMock({
+      artist_id: "999",
+      artist_name: "Minimal Artist",
+      artist_artwork_url: null,
+      artist_genre: null,
+      artist_born_or_formed: null,
+      artist_origin: null,
+      artist_bio: null,
+      watched: false,
+      releases: [],
+    });
+
+    await appWindow.__test_renderArtist(main, "999");
+    expect(main.querySelector(".artist-detail")).toBeNull();
+    expect(main.querySelector(".artist-bio")).toBeNull();
+  });
+
+  test("uses artistHint born_or_formed and origin when API returns nulls", async () => {
+    appWindow.__test_state.artistHint = {
+      id: "1001",
+      name: "Hint Band",
+      url: null,
+      artwork_url: null,
+      genre: null,
+      born_or_formed: "Formed 2010",
+      origin: "London, England",
+      artist_bio: null,
+      is_group: true,
+    };
+
+    makeArtistFetchMock({
+      artist_id: "1001",
+      artist_name: "Hint Band",
+      artist_artwork_url: null,
+      artist_genre: null,
+      artist_born_or_formed: null,
+      artist_origin: null,
+      artist_bio: null,
+      artist_is_group: null,
+      watched: false,
+      releases: [],
+    });
+
+    await appWindow.__test_renderArtist(main, "1001");
+    const detail = main.querySelector(".artist-detail");
+    expect(detail).not.toBeNull();
+    expect(detail.textContent).toBe("Formed 2010 · London, England");
+  });
+
+  test("uses artistHint is_group to prefix born_or_formed when API returns nulls", async () => {
+    appWindow.__test_state.artistHint = {
+      id: "1002",
+      name: "Solo Hint",
+      url: null,
+      artwork_url: null,
+      genre: null,
+      born_or_formed: "1990年1月1日",
+      origin: null,
+      artist_bio: null,
+      is_group: false,
+    };
+
+    makeArtistFetchMock({
+      artist_id: "1002",
+      artist_name: "Solo Hint",
+      artist_artwork_url: null,
+      artist_genre: null,
+      artist_born_or_formed: null,
+      artist_origin: null,
+      artist_bio: null,
+      artist_is_group: null,
+      watched: false,
+      releases: [],
+    });
+
+    await appWindow.__test_renderArtist(main, "1002");
+    const detail = main.querySelector(".artist-detail");
+    expect(detail).not.toBeNull();
+    expect(detail.textContent).toBe("Born 1990年1月1日");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// artistHint extended fields from watchlist search suggestion card
+// ---------------------------------------------------------------------------
+
+describe("watchlist search suggestion card sets artistHint with extended fields", () => {
+  let main;
+
+  beforeEach(() => {
+    main = appWindow.document.getElementById("main-content");
+    main.innerHTML = "";
+    appWindow.__test_state.artistHint = null;
+    appWindow.fetch.mockImplementation((url) => {
+      if (url === "/api/config") {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ check_storefronts: ["us"], home_storefront: "us" }),
+        });
+      }
+      if (url.startsWith("/api/watchlist")) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
+      }
+      if (url.includes("/api/search/artists")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({
+            results: [
+              {
+                id: 300117743,
+                name: "The Pale White",
+                url: "https://music.apple.com/us/artist/the-pale-white/300117743",
+                artwork_url: "https://example.com/art.jpg",
+                genre: "Alternative",
+                born_or_formed: "Formed 2016",
+                origin: "Newcastle, England",
+                artist_bio: "British rock band.",
+                is_group: true,
+              },
+            ],
+          }),
+        });
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
+    });
+  });
+
+  afterEach(() => {
+    main.innerHTML = "";
+    appWindow.fetch.mockClear();
+  });
+
+  test("artistHint includes extended fields when clicking artist name in suggestion card", async () => {
+    await appWindow.renderWatchlist(main);
+    await new Promise(r => setTimeout(r, 50));
+
+    const searchInput = main.querySelector("input[type=search], input[placeholder*='earch'], input");
+    expect(searchInput).not.toBeNull();
+
+    // Trigger search
+    searchInput.value = "pale";
+    searchInput.dispatchEvent(new appWindow.Event("input"));
+
+    // Wait for the 350ms debounce + API call
+    await new Promise(r => setTimeout(r, 500));
+
+    // Find and click the suggestion card artist name link
+    const nameLinks = main.querySelectorAll(".watchlist-name");
+    const suggestionLink = Array.from(nameLinks).find(a => a.textContent === "The Pale White");
+    expect(suggestionLink).not.toBeNull();
+    suggestionLink.click();
+
+    const hint = appWindow.__test_state.artistHint;
+    expect(hint).not.toBeNull();
+    expect(hint.id).toBe("300117743");
+    expect(hint.born_or_formed).toBe("Formed 2016");
+    expect(hint.origin).toBe("Newcastle, England");
+    expect(hint.artist_bio).toBe("British rock band.");
+    expect(hint.is_group).toBe(true);
   });
 });

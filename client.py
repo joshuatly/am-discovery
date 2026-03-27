@@ -430,6 +430,7 @@ class AppleMusicClient:
             "born_or_formed": artist_attrs.get("bornOrFormed"),
             "origin": artist_attrs.get("origin"),
             "artist_bio": artist_attrs.get("artistBio"),
+            "is_group": artist_attrs.get("isGroup"),
         }
 
         releases = []
@@ -533,9 +534,34 @@ class AppleMusicClient:
             {"term": term, "types": types, "limit": limit, "offset": offset},
         )
 
+    def get_artist_info_only(self, artist_id: str, storefront: str) -> dict:
+        """Fetch extended artist attributes without fetching releases."""
+        params = {"extend": "bornOrFormed,origin,artistBio"}
+        data = self._amp_api_get(f"/v1/catalog/{storefront}/artists/{artist_id}", params)
+        if not data:
+            return {}
+        artist_item = (data.get("data") or [{}])[0]
+        artist_attrs = artist_item.get("attributes", {})
+        art_url = artist_attrs.get("artwork", {}).get("url", "")
+        return {
+            "name": artist_attrs.get("name"),
+            "artwork_url": re.sub(r"\{w\}x\{h\}bb\.[a-z]+", "200x200bb.jpg", art_url) if art_url else None,
+            "genre": (artist_attrs.get("genreNames") or [None])[0],
+            "born_or_formed": artist_attrs.get("bornOrFormed"),
+            "origin": artist_attrs.get("origin"),
+            "artist_bio": artist_attrs.get("artistBio"),
+            "is_group": artist_attrs.get("isGroup"),
+        }
+
     def search_artists(self, term: str, storefront: str = "us", limit: int = 25) -> list:
-        """Search for artists by name. Returns a list of artist dicts with id, name, url, and artwork_url."""
-        data = self.search(term, storefront=storefront, types="artists", limit=limit)
+        """Search for artists by name.
+
+        Returns a list of artist dicts with id, name, url, artwork_url, and extended info.
+        """
+        data = self._amp_api_get(
+            f"/v1/catalog/{storefront}/search",
+            {"term": term, "types": "artists", "limit": limit, "extend": "bornOrFormed,origin,artistBio"},
+        )
         artists = []
         for item in data.get("results", {}).get("artists", {}).get("data") or []:
             attrs = item.get("attributes", {})
@@ -549,6 +575,10 @@ class AppleMusicClient:
                     "url": attrs.get("url"),
                     "artwork_url": artwork_url,
                     "genre": genre_names[0] if genre_names else None,
+                    "born_or_formed": attrs.get("bornOrFormed"),
+                    "origin": attrs.get("origin"),
+                    "artist_bio": attrs.get("artistBio"),
+                    "is_group": attrs.get("isGroup"),
                 },
             )
         return artists

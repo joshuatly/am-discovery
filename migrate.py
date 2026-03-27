@@ -102,6 +102,10 @@ MIGRATIONS = {
         ALTER TABLE artists ADD COLUMN origin TEXT;
         ALTER TABLE artists ADD COLUMN artist_bio TEXT;
     """,
+    11: """
+        -- Version 11: add is_group flag to artists table.
+        ALTER TABLE artists ADD COLUMN is_group INTEGER;
+    """,
 }
 
 

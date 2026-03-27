@@ -601,19 +601,27 @@ class TestArtist(DBTestCase):
             born_or_formed="Born July 27, 1974",
             origin="Hong Kong",
             artist_bio="Legendary Cantopop artist.",
+            is_group=False,
         )
         info = self.db.get_artist_info("ART1")
         self.assertEqual(info["born_or_formed"], "Born July 27, 1974")
         self.assertEqual(info["origin"], "Hong Kong")
         self.assertEqual(info["artist_bio"], "Legendary Cantopop artist.")
+        self.assertEqual(info["is_group"], 0)
+
+    def test_upsert_artist_is_group_true(self):
+        self.db.upsert_artist("ART1", is_group=True)
+        info = self.db.get_artist_info("ART1")
+        self.assertEqual(info["is_group"], 1)
 
     def test_upsert_artist_coalesce_new_fields(self):
         """None values for the new fields should not overwrite existing values."""
-        self.db.upsert_artist("ART1", born_or_formed="Formed 2016", origin="Newcastle, England")
-        self.db.upsert_artist("ART1", born_or_formed=None, origin=None, artist_bio=None)
+        self.db.upsert_artist("ART1", born_or_formed="Formed 2016", origin="Newcastle, England", is_group=True)
+        self.db.upsert_artist("ART1", born_or_formed=None, origin=None, artist_bio=None, is_group=None)
         info = self.db.get_artist_info("ART1")
         self.assertEqual(info["born_or_formed"], "Formed 2016")
         self.assertEqual(info["origin"], "Newcastle, England")
+        self.assertEqual(info["is_group"], 1)
 
 
 # ---------------------------------------------------------------------------
