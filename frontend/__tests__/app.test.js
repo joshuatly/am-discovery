@@ -1311,3 +1311,151 @@ describe("COLLECTION_TRANSITIONS", () => {
     expect(t.in_progress).toEqual(["complete"]);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Collection status badge rendering in watchlist card
+// ---------------------------------------------------------------------------
+
+describe("makeWatchedCard collection status badge", () => {
+  let main;
+
+  beforeEach(() => {
+    main = appWindow.document.getElementById("main-content");
+    main.innerHTML = "";
+    appWindow.fetch.mockImplementation((url) => {
+      if (url === "/api/config") {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ check_storefronts: ["us"], home_storefront: "us" }),
+        });
+      }
+      if (url.startsWith("/api/watchlist")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve([
+            { artist_id: "ART1", name: "Artist One", collection_status: "complete", added_at: 1700000000 },
+            { artist_id: "ART2", name: "Artist Two", collection_status: "new_release", added_at: 1700000000 },
+            { artist_id: "ART3", name: "Artist Three", collection_status: "new", added_at: 1700000000 },
+          ]),
+        });
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
+    });
+  });
+
+  test("renders collection status badge with correct CSS class", async () => {
+    await appWindow.renderWatchlist(main);
+    await new Promise(r => setTimeout(r, 100));
+
+    const badges = main.querySelectorAll(".collection-status-badge");
+    expect(badges.length).toBeGreaterThanOrEqual(3);
+
+    const classes = Array.from(badges).map(b => b.className);
+    expect(classes).toContainEqual(expect.stringContaining("status-complete"));
+    expect(classes).toContainEqual(expect.stringContaining("status-new_release"));
+    expect(classes).toContainEqual(expect.stringContaining("status-new"));
+  });
+
+  test("badge displays correct label text", async () => {
+    await appWindow.renderWatchlist(main);
+    await new Promise(r => setTimeout(r, 100));
+
+    const badges = main.querySelectorAll(".collection-status-badge");
+    const texts = Array.from(badges).map(b => b.textContent);
+    expect(texts).toContain("Complete");
+    expect(texts).toContain("New Release");
+    expect(texts).toContain("New");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Collection status filter bar in watchlist
+// ---------------------------------------------------------------------------
+
+describe("renderWatchlist collection status filter bar", () => {
+  let main;
+
+  beforeEach(() => {
+    main = appWindow.document.getElementById("main-content");
+    main.innerHTML = "";
+    appWindow.fetch.mockImplementation((url) => {
+      if (url === "/api/config") {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ check_storefronts: ["us"], home_storefront: "us" }),
+        });
+      }
+      if (url.startsWith("/api/watchlist")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve([]),
+        });
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
+    });
+  });
+
+  test("renders collection status filter buttons", async () => {
+    await appWindow.renderWatchlist(main);
+    await new Promise(r => setTimeout(r, 100));
+
+    const filterBar = main.querySelector(".cs-filter-bar");
+    expect(filterBar).not.toBeNull();
+
+    const buttons = filterBar.querySelectorAll(".cs-filter-btn");
+    expect(buttons.length).toBe(5); // All + 4 statuses
+
+    const labels = Array.from(buttons).map(b => b.textContent);
+    expect(labels).toEqual(["All", "New", "Complete", "New Release", "In Progress"]);
+  });
+
+  test("All filter button is active by default", async () => {
+    await appWindow.renderWatchlist(main);
+    await new Promise(r => setTimeout(r, 100));
+
+    const buttons = main.querySelectorAll(".cs-filter-btn");
+    const allBtn = buttons[0];
+    expect(allBtn.textContent).toBe("All");
+    expect(allBtn.classList.contains("active")).toBe(true);
+  });
+
+  test("filter buttons send correct status value to API", async () => {
+    await appWindow.renderWatchlist(main, "", "new_release");
+    await new Promise(r => setTimeout(r, 100));
+
+    const fetchCalls = appWindow.fetch.mock.calls;
+    const watchlistCall = fetchCalls.find(([url]) =>
+      url.includes("/api/watchlist") && url.includes("collection_status=new_release")
+    );
+    expect(watchlistCall).toBeDefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Collection status selector on artist detail page
+// ---------------------------------------------------------------------------
+
+describe("renderArtist collection status selector", () => {
+  test("buildCsOptions creates correct options for new status", async () => {
+    // We test the COLLECTION_TRANSITIONS constant to verify option logic
+    const t = appWindow.__test_COLLECTION_TRANSITIONS;
+    // "new" status should offer complete and in_progress
+    expect(t.new).toContain("complete");
+    expect(t.new).toContain("in_progress");
+    // "complete" should offer in_progress
+    expect(t.complete).toContain("in_progress");
+    // "in_progress" should only offer complete
+    expect(t.in_progress).toEqual(["complete"]);
+  });
+
+  test("COLLECTION_STATUS_LABELS maps all statuses to display names", () => {
+    const labels = appWindow.__test_COLLECTION_STATUS_LABELS;
+    const transitions = appWindow.__test_COLLECTION_TRANSITIONS;
+    // Every key in transitions should have a label
+    for (const status of Object.keys(transitions)) {
+      expect(labels[status]).toBeDefined();
+      expect(typeof labels[status]).toBe("string");
+      expect(labels[status].length).toBeGreaterThan(0);
+    }
+  });
+});

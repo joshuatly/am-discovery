@@ -1216,5 +1216,108 @@ class TestApiCollectionStatus(ServerTestCase):
         mock_db.update_collection_status.assert_called_once_with("ART1", "complete")
 
 
+# ---------------------------------------------------------------------------
+# Polling integration with collection status
+# ---------------------------------------------------------------------------
+
+
+class TestDiscoveryPollCollectionStatus(ServerTestCase):
+    """Tests for step 5 of _do_poll: checking collection status after room discovery."""
+
+    @patch("server.AppleMusicClient")
+    @patch("server.db")
+    @patch("server._schedule_next")
+    def test_discovery_poll_checks_watched_artists(self, mock_schedule, mock_db, mock_client_cls):
+        """After discovering albums, poll should check collection status for watched artists."""
+        mock_client = mock_client_cls.return_value
+        mock_client.discover_room_url.return_value = "https://music.apple.com/us/room/123"
+        mock_client.get_room_new_releases.return_value = [
+            {"storeAdamID": "A1", "title": "Album", "artist": "Artist", "url": "https://url", "storefronts": ["us"]},
+        ]
+        # First call (step 2): album not in DB yet → new_ids
+        # Second call (step 5): album now in DB with artist_id after upsert
+        mock_db.get_album.side_effect = [None, {"store_adam_id": "A1", "artist_id": "ART1"}]
+        mock_client.get_album_full_info.return_value = {"artist_id": "ART1", "release_date": "2025-01-01"}
+        mock_db.upsert_album.return_value = None
+        mock_db.list_albums.return_value = ([], 1)
+        mock_db.log_discovery_run.return_value = None
+        mock_db.get_watched_artist_ids.return_value = {"ART1"}
+        mock_db.check_and_update_new_releases.return_value = True
+
+        import server
+
+        server._do_poll()
+
+        mock_db.check_and_update_new_releases.assert_called_with("ART1")
+
+    @patch("server.AppleMusicClient")
+    @patch("server.db")
+    @patch("server._schedule_next")
+    def test_discovery_poll_skips_unwatched_artists(self, mock_schedule, mock_db, mock_client_cls):
+        """Discovery poll should not check collection status for unwatched artists."""
+        mock_client = mock_client_cls.return_value
+        mock_client.discover_room_url.return_value = "https://music.apple.com/us/room/123"
+        mock_client.get_room_new_releases.return_value = [
+            {"storeAdamID": "A1", "title": "Album", "artist": "Artist", "url": "https://url", "storefronts": ["us"]},
+        ]
+        mock_db.get_album.return_value = None
+        mock_client.get_album_full_info.return_value = {"artist_id": "ART99", "release_date": "2025-01-01"}
+        mock_db.upsert_album.return_value = None
+        mock_db.list_albums.return_value = ([], 1)
+        mock_db.log_discovery_run.return_value = None
+        mock_db.get_watched_artist_ids.return_value = {"ART1"}  # ART99 is not watched
+        mock_db.check_and_update_new_releases.return_value = False
+
+        import server
+
+        server._do_poll()
+
+        mock_db.check_and_update_new_releases.assert_not_called()
+
+
+class TestWatchlistPollCollectionStatus(ServerTestCase):
+    """Tests for _do_watchlist_poll calling check_and_update_new_releases."""
+
+    @patch("server.AppleMusicClient")
+    @patch("server.db")
+    @patch("server._schedule_watchlist_next")
+    def test_watchlist_poll_checks_collection_status(self, mock_schedule, mock_db, mock_client_cls):
+        """After refreshing an artist, watchlist poll should check for new releases."""
+        mock_client = mock_client_cls.return_value
+        mock_db.get_artists_needing_refresh.return_value = [
+            {"artist_id": "ART1", "name": "Artist One", "preferred_source": "us"},
+        ]
+        mock_client.get_artist_all_releases.return_value = ([], {"name": "Artist One"})
+        mock_db.upsert_artist.return_value = None
+        mock_db.mark_artist_refreshed.return_value = None
+        mock_db.check_and_update_new_releases.return_value = False
+
+        import server
+
+        server._do_watchlist_poll()
+
+        mock_db.check_and_update_new_releases.assert_called_once_with("ART1")
+
+    @patch("server.AppleMusicClient")
+    @patch("server.db")
+    @patch("server._schedule_watchlist_next")
+    def test_watchlist_poll_logs_on_new_release_detected(self, mock_schedule, mock_db, mock_client_cls):
+        """When check_and_update_new_releases returns True, it should be called and succeed."""
+        mock_client = mock_client_cls.return_value
+        mock_db.get_artists_needing_refresh.return_value = [
+            {"artist_id": "ART1", "name": "Artist One", "preferred_source": "us"},
+        ]
+        mock_client.get_artist_all_releases.return_value = ([], {"name": "Artist One"})
+        mock_db.upsert_artist.return_value = None
+        mock_db.mark_artist_refreshed.return_value = None
+        mock_db.check_and_update_new_releases.return_value = True
+
+        import server
+
+        server._do_watchlist_poll()
+
+        mock_db.check_and_update_new_releases.assert_called_once_with("ART1")
+
+
 if __name__ == "__main__":
     unittest.main()
