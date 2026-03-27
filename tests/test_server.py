@@ -515,6 +515,37 @@ class TestApiWatchlist(ServerTestCase):
         resp = self.client.delete("/api/watchlist/NONEXISTENT")
         self.assertEqual(resp.status_code, 200)
 
+    @patch("server.db")
+    def test_get_watchlist_sort_name(self, mock_db):
+        mock_db.get_watchlist.return_value = []
+        mock_db.COLLECTION_STATUSES = set()
+        resp = self.client.get("/api/watchlist?sort=name")
+        self.assertEqual(resp.status_code, 200)
+        mock_db.get_watchlist.assert_called_once_with(preferred_source="", collection_status="", sort="name")
+
+    @patch("server.db")
+    def test_get_watchlist_sort_added(self, mock_db):
+        mock_db.get_watchlist.return_value = []
+        mock_db.COLLECTION_STATUSES = set()
+        resp = self.client.get("/api/watchlist?sort=added")
+        self.assertEqual(resp.status_code, 200)
+        mock_db.get_watchlist.assert_called_once_with(preferred_source="", collection_status="", sort="added")
+
+    @patch("server.db")
+    def test_get_watchlist_sort_recent_release(self, mock_db):
+        mock_db.get_watchlist.return_value = []
+        mock_db.COLLECTION_STATUSES = set()
+        resp = self.client.get("/api/watchlist?sort=recent_release")
+        self.assertEqual(resp.status_code, 200)
+        mock_db.get_watchlist.assert_called_once_with(preferred_source="", collection_status="", sort="recent_release")
+
+    @patch("server.db")
+    def test_get_watchlist_invalid_sort_returns_400(self, mock_db):
+        mock_db.COLLECTION_STATUSES = set()
+        resp = self.client.get("/api/watchlist?sort=bogus")
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn("error", resp.get_json())
+
 
 # ---------------------------------------------------------------------------
 # GET/PUT /api/config
@@ -908,7 +939,7 @@ class TestApiWatchlistPreferredSource(ServerTestCase):
         mock_db.get_watchlist.return_value = [{"artist_id": "ART1", "name": "Artist One", "preferred_source": "jp"}]
         resp = self.client.get("/api/watchlist?preferred_source=jp")
         self.assertEqual(resp.status_code, 200)
-        mock_db.get_watchlist.assert_called_once_with(preferred_source="jp", collection_status="")
+        mock_db.get_watchlist.assert_called_once_with(preferred_source="jp", collection_status="", sort="name")
 
     @patch("server.db")
     def test_get_with_invalid_preferred_source_filter(self, mock_db):
@@ -921,7 +952,7 @@ class TestApiWatchlistPreferredSource(ServerTestCase):
         mock_db.get_watchlist.return_value = []
         resp = self.client.get("/api/watchlist")
         self.assertEqual(resp.status_code, 200)
-        mock_db.get_watchlist.assert_called_once_with(preferred_source="", collection_status="")
+        mock_db.get_watchlist.assert_called_once_with(preferred_source="", collection_status="", sort="name")
 
 
 # ---------------------------------------------------------------------------
@@ -1157,7 +1188,7 @@ class TestApiCollectionStatus(ServerTestCase):
         mock_db.COLLECTION_STATUSES = {"new", "complete", "new_release", "in_progress"}
         resp = self.client.get("/api/watchlist?collection_status=complete")
         self.assertEqual(resp.status_code, 200)
-        mock_db.get_watchlist.assert_called_once_with(preferred_source="", collection_status="complete")
+        mock_db.get_watchlist.assert_called_once_with(preferred_source="", collection_status="complete", sort="name")
 
     @patch("server.db")
     def test_get_watchlist_invalid_collection_status(self, mock_db):

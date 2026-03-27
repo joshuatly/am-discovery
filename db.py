@@ -227,7 +227,17 @@ def get_artist_albums(artist_id: str):
         return [dict(r) for r in rows]
 
 
-def get_watchlist(preferred_source: str = "", collection_status: str = ""):
+WATCHLIST_SORT_OPTIONS = {"name", "added", "recent_release"}
+
+
+def get_watchlist(preferred_source: str = "", collection_status: str = "", sort: str = "name"):
+    if sort not in WATCHLIST_SORT_OPTIONS:
+        sort = "name"
+    order_by = {
+        "name": "w.name",
+        "added": "w.added_at DESC",
+        "recent_release": "latest_release_date DESC NULLS LAST, w.name",
+    }[sort]
     with get_conn() as conn:
         conditions = []
         params: list = []
@@ -239,11 +249,13 @@ def get_watchlist(preferred_source: str = "", collection_status: str = ""):
             params.append(collection_status)
         where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
         rows = conn.execute(
-            f"""SELECT w.*, a.artwork_url, a.genre
+            f"""SELECT w.*, ar.artwork_url, ar.genre, MAX(alb.release_date) AS latest_release_date
                FROM watched_artists w
-               LEFT JOIN artists a USING (artist_id)
+               LEFT JOIN artists ar ON w.artist_id = ar.artist_id
+               LEFT JOIN albums alb ON w.artist_id = alb.artist_id
                {where}
-               ORDER BY w.name""",
+               GROUP BY w.artist_id
+               ORDER BY {order_by}""",
             params,
         ).fetchall()
         return [dict(r) for r in rows]

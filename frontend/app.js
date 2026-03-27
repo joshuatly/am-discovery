@@ -934,7 +934,7 @@ const COLLECTION_TRANSITIONS = {
   in_progress: ["complete"],
 };
 
-async function renderWatchlist(main, preferredSourceFilter = "", collectionStatusFilter = "") {
+async function renderWatchlist(main, preferredSourceFilter = "", collectionStatusFilter = "", sortFilter = "name") {
   main.innerHTML = "";
   const wrap = el("div", "page-enter");
   wrap.appendChild(buildHeader("⭐ Artist Watchlist", "Artists you're following"));
@@ -954,6 +954,7 @@ async function renderWatchlist(main, preferredSourceFilter = "", collectionStatu
   const qpParts = [];
   if (preferredSourceFilter) qpParts.push(`preferred_source=${preferredSourceFilter}`);
   if (collectionStatusFilter) qpParts.push(`collection_status=${collectionStatusFilter}`);
+  if (sortFilter && sortFilter !== "name") qpParts.push(`sort=${sortFilter}`);
   const qp = qpParts.length ? `?${qpParts.join("&")}` : "";
   let list;
   try {
@@ -985,7 +986,7 @@ async function renderWatchlist(main, preferredSourceFilter = "", collectionStatu
   psButtons.forEach(([label, code]) => {
     const btn = el("button", "sf-filter-btn" + (code ? ` ${code}` : "") + (preferredSourceFilter === code ? " active" : ""));
     btn.textContent = label;
-    btn.addEventListener("click", () => renderWatchlist(main, code, collectionStatusFilter));
+    btn.addEventListener("click", () => renderWatchlist(main, code, collectionStatusFilter, sortFilter));
     psFilterBar.appendChild(btn);
   });
   const psRow = el("div", "filter-row");
@@ -1000,13 +1001,27 @@ async function renderWatchlist(main, preferredSourceFilter = "", collectionStatu
     const cls = "cs-filter-btn" + (code ? ` status-${code}` : "") + (collectionStatusFilter === code ? " active" : "");
     const btn = el("button", cls);
     btn.textContent = label;
-    btn.addEventListener("click", () => renderWatchlist(main, preferredSourceFilter, code));
+    btn.addEventListener("click", () => renderWatchlist(main, preferredSourceFilter, code, sortFilter));
     csFilterBar.appendChild(btn);
   });
   const csRow = el("div", "filter-row");
   csRow.appendChild(el("span", "filter-row-label", "Status"));
   csRow.appendChild(csFilterBar);
   filtersDiv.appendChild(csRow);
+
+  // Sort filter bar
+  const sortFilterBar = el("div", "cs-filter-bar sort-filter-bar");
+  const sortOptions = [["name", "Name"], ["added", "Added"], ["recent_release", "Recent Release"]];
+  sortOptions.forEach(([code, label]) => {
+    const btn = el("button", "cs-filter-btn sort-filter-btn" + (sortFilter === code ? " active" : ""));
+    btn.textContent = label;
+    btn.addEventListener("click", () => renderWatchlist(main, preferredSourceFilter, collectionStatusFilter, code));
+    sortFilterBar.appendChild(btn);
+  });
+  const sortRow = el("div", "filter-row");
+  sortRow.appendChild(el("span", "filter-row-label", "Sort"));
+  sortRow.appendChild(sortFilterBar);
+  filtersDiv.appendChild(sortRow);
 
   // Results area: watched list + AM search suggestions
   const grid = el("div", "watchlist-grid");
@@ -1039,10 +1054,18 @@ async function renderWatchlist(main, preferredSourceFilter = "", collectionStatu
     });
     info.appendChild(name);
 
-    const _addedAt = typeof artist.added_at === "number"
-      ? new Date(artist.added_at * 1000).toISOString().slice(0, 10)
-      : artist.added_at?.slice(0, 10);
-    const date = el("div", "watchlist-date", `Added ${formatDate(_addedAt)}`);
+    let dateText = "";
+    if (sortFilter === "added") {
+      const _addedAt = typeof artist.added_at === "number"
+        ? new Date(artist.added_at * 1000).toISOString().slice(0, 10)
+        : artist.added_at?.slice(0, 10);
+      dateText = `Added ${formatDate(_addedAt)}`;
+    } else if (sortFilter === "recent_release") {
+      dateText = artist.latest_release_date
+        ? `Latest: ${formatDate(artist.latest_release_date.slice(0, 10))}`
+        : "No releases";
+    }
+    const date = el("div", "watchlist-date", dateText);
     if (artist.preferred_source) {
       const psBadge = el("span", `sf-chip ${artist.preferred_source}`);
       psBadge.textContent = artist.preferred_source.toUpperCase();

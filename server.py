@@ -674,7 +674,10 @@ def api_watchlist_get():
     collection_status = request.args.get("collection_status", "").strip().lower()
     if collection_status and collection_status not in db.COLLECTION_STATUSES:
         return jsonify({"error": "invalid collection_status"}), 400
-    return jsonify(db.get_watchlist(preferred_source=preferred_source, collection_status=collection_status))
+    sort = request.args.get("sort", "name").strip().lower()
+    if sort not in {"name", "added", "recent_release"}:
+        return jsonify({"error": "invalid sort"}), 400
+    return jsonify(db.get_watchlist(preferred_source=preferred_source, collection_status=collection_status, sort=sort))
 
 
 @app.route("/api/watchlist", methods=["POST"])

@@ -1913,6 +1913,7 @@ describe("page-controls layout — Watchlist", () => {
     expect(filtersDiv).not.toBeNull();
     expect(filtersDiv.querySelector(".sf-filter-bar")).not.toBeNull();
     expect(filtersDiv.querySelector(".cs-filter-bar")).not.toBeNull();
+    expect(filtersDiv.querySelector(".sort-filter-bar")).not.toBeNull();
   });
 
   test(".page-controls-filters comes before .page-controls-search in DOM order", async () => {
@@ -1922,5 +1923,158 @@ describe("page-controls layout — Watchlist", () => {
     const filtersIdx = children.findIndex(c => c.classList.contains("page-controls-filters"));
     const searchIdx = children.findIndex(c => c.classList.contains("page-controls-search"));
     expect(filtersIdx).toBeLessThan(searchIdx);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Watchlist sort filter bar
+// ---------------------------------------------------------------------------
+
+describe("renderWatchlist sort filter bar", () => {
+  let main;
+
+  function mockFetch() {
+    appWindow.fetch.mockImplementation((url) => {
+      if (url === "/api/config") {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ check_storefronts: ["us"], home_storefront: "us" }),
+        });
+      }
+      if (url.startsWith("/api/watchlist")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve([
+            { artist_id: "ART1", name: "Artist One", collection_status: "new", added_at: 1700000000, latest_release_date: "2024-06-01" },
+          ]),
+        });
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
+    });
+  }
+
+  beforeEach(() => {
+    main = appWindow.document.getElementById("main-content");
+    main.innerHTML = "";
+    mockFetch();
+  });
+
+  test("sort=added is passed to API when sort is added", async () => {
+    await appWindow.__test_renderWatchlist(main, "", "", "added");
+    await new Promise(r => setTimeout(r, 100));
+
+    const calls = appWindow.fetch.mock.calls;
+    const watchlistCall = calls.find(([url]) => url.includes("/api/watchlist") && url.includes("sort=added"));
+    expect(watchlistCall).toBeDefined();
+  });
+
+  test("sort param is omitted from API when sort is name (default)", async () => {
+    await appWindow.__test_renderWatchlist(main, "", "", "name");
+    await new Promise(r => setTimeout(r, 100));
+
+    const calls = appWindow.fetch.mock.calls;
+    const watchlistCall = calls.find(([url]) => url.includes("/api/watchlist") && !url.includes("sort="));
+    expect(watchlistCall).toBeDefined();
+  });
+
+  test("Name sort button is active by default", async () => {
+    await appWindow.__test_renderWatchlist(main);
+    await new Promise(r => setTimeout(r, 100));
+
+    const buttons = main.querySelectorAll(".sort-filter-btn");
+    expect(buttons[0].classList.contains("active")).toBe(true);
+    expect(buttons[1].classList.contains("active")).toBe(false);
+    expect(buttons[2].classList.contains("active")).toBe(false);
+  });
+
+  test("Added sort button is active when sortFilter is added", async () => {
+    await appWindow.__test_renderWatchlist(main, "", "", "added");
+    await new Promise(r => setTimeout(r, 100));
+
+    const buttons = main.querySelectorAll(".sort-filter-btn");
+    expect(buttons[1].classList.contains("active")).toBe(true);
+    expect(buttons[0].classList.contains("active")).toBe(false);
+  });
+
+  test("Recent Release sort button is active when sortFilter is recent_release", async () => {
+    await appWindow.__test_renderWatchlist(main, "", "", "recent_release");
+    await new Promise(r => setTimeout(r, 100));
+
+    const buttons = main.querySelectorAll(".sort-filter-btn");
+    expect(buttons[2].classList.contains("active")).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Watchlist card date display per sort mode
+// ---------------------------------------------------------------------------
+
+describe("makeWatchedCard date display based on sort", () => {
+  let main;
+  const artist = {
+    artist_id: "ART1",
+    name: "Artist One",
+    collection_status: "new",
+    added_at: 1700000000,
+    latest_release_date: "2024-09-15",
+  };
+
+  function mockFetchWith(artistData) {
+    appWindow.fetch.mockImplementation((url) => {
+      if (url === "/api/config") {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ check_storefronts: ["us"], home_storefront: "us" }),
+        });
+      }
+      if (url.startsWith("/api/watchlist")) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve([artistData]) });
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
+    });
+  }
+
+  beforeEach(() => {
+    main = appWindow.document.getElementById("main-content");
+    main.innerHTML = "";
+  });
+
+  test("sort=name shows no date text on card", async () => {
+    mockFetchWith(artist);
+    await appWindow.__test_renderWatchlist(main, "", "", "name");
+    await new Promise(r => setTimeout(r, 100));
+
+    const dateEl = main.querySelector(".watchlist-date");
+    expect(dateEl).not.toBeNull();
+    // Should have no date text (only badges, no prefix text)
+    expect(dateEl.textContent.trim()).not.toMatch(/Added|Latest/);
+  });
+
+  test("sort=added shows Added date on card", async () => {
+    mockFetchWith(artist);
+    await appWindow.__test_renderWatchlist(main, "", "", "added");
+    await new Promise(r => setTimeout(r, 100));
+
+    const dateEl = main.querySelector(".watchlist-date");
+    expect(dateEl.textContent).toMatch(/Added/);
+  });
+
+  test("sort=recent_release shows Latest date on card", async () => {
+    mockFetchWith(artist);
+    await appWindow.__test_renderWatchlist(main, "", "", "recent_release");
+    await new Promise(r => setTimeout(r, 100));
+
+    const dateEl = main.querySelector(".watchlist-date");
+    expect(dateEl.textContent).toMatch(/Latest/);
+    expect(dateEl.textContent).toMatch(/2024/);
+  });
+
+  test("sort=recent_release shows 'No releases' when latest_release_date is null", async () => {
+    mockFetchWith({ ...artist, latest_release_date: null });
+    await appWindow.__test_renderWatchlist(main, "", "", "recent_release");
+    await new Promise(r => setTimeout(r, 100));
+
+    const dateEl = main.querySelector(".watchlist-date");
+    expect(dateEl.textContent).toMatch(/No releases/);
   });
 });

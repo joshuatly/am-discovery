@@ -529,6 +529,51 @@ class TestWatchlist(DBTestCase):
         names = [w["name"] for w in wl]
         self.assertEqual(names, sorted(names))
 
+    def test_watchlist_sort_by_added(self):
+        self.db.add_to_watchlist("A1", "Alice", None)
+        self.db.add_to_watchlist("A2", "Bob", None)
+        self.db.add_to_watchlist("A3", "Charlie", None)
+        # Set distinct added_at values directly so sort order is deterministic
+        with self.db.get_conn() as conn:
+            conn.execute("UPDATE watched_artists SET added_at = 100 WHERE artist_id = 'A1'")
+            conn.execute("UPDATE watched_artists SET added_at = 200 WHERE artist_id = 'A2'")
+            conn.execute("UPDATE watched_artists SET added_at = 300 WHERE artist_id = 'A3'")
+        wl = self.db.get_watchlist(sort="added")
+        names = [w["name"] for w in wl]
+        self.assertEqual(names, ["Charlie", "Bob", "Alice"])
+
+    def test_watchlist_sort_by_recent_release(self):
+        self.db.add_to_watchlist("A1", "Alice", None)
+        self.db.add_to_watchlist("A2", "Bob", None)
+        self.db.add_to_watchlist("A3", "Charlie", None)
+        self.db.upsert_album(_minimal_album(store_adam_id="R1", artist_id="A1", release_date="2024-06-01"))
+        self.db.upsert_album(_minimal_album(store_adam_id="R2", artist_id="A2", release_date="2024-12-01"))
+        wl = self.db.get_watchlist(sort="recent_release")
+        names = [w["name"] for w in wl]
+        # Bob has newest release, Alice next, Charlie has no release (NULLS LAST)
+        self.assertEqual(names[0], "Bob")
+        self.assertEqual(names[1], "Alice")
+        self.assertEqual(names[2], "Charlie")
+
+    def test_watchlist_includes_latest_release_date(self):
+        self.db.add_to_watchlist("A1", "Alice", None)
+        self.db.upsert_album(_minimal_album(store_adam_id="R1", artist_id="A1", release_date="2024-03-15"))
+        self.db.upsert_album(_minimal_album(store_adam_id="R2", artist_id="A1", release_date="2024-11-20"))
+        wl = self.db.get_watchlist()
+        self.assertEqual(wl[0]["latest_release_date"], "2024-11-20")
+
+    def test_watchlist_latest_release_date_none_when_no_albums(self):
+        self.db.add_to_watchlist("A1", "Alice", None)
+        wl = self.db.get_watchlist()
+        self.assertIsNone(wl[0]["latest_release_date"])
+
+    def test_watchlist_invalid_sort_defaults_to_name(self):
+        self.db.add_to_watchlist("C", "Charlie", None)
+        self.db.add_to_watchlist("A", "Alice", None)
+        wl = self.db.get_watchlist(sort="bogus")
+        names = [w["name"] for w in wl]
+        self.assertEqual(names, sorted(names))
+
     def test_watchlist_includes_artist_artwork(self):
         self.db.add_to_watchlist("ART1", "Artist One")
         self.db.upsert_artist("ART1", artwork_url="https://art.jpg", genre="Pop")
