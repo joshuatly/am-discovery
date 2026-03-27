@@ -1130,9 +1130,94 @@ async function renderSettings(main) {
   pollGroup.appendChild(pollLabel);
   const pollInput = el("input", "search-input");
   pollInput.type = "number";
+  pollInput.min = "1";
   pollInput.value = cfg.newrelease_poll_interval_days || 1;
+  pollInput.style.maxWidth = "120px";
   pollGroup.appendChild(pollInput);
   form.appendChild(pollGroup);
+
+  // Watchlist Poll Interval
+  const wlPollGroup = el("div");
+  wlPollGroup.style.display = "flex";
+  wlPollGroup.style.flexDirection = "column";
+  wlPollGroup.style.gap = "8px";
+  const wlPollLabel = el("label", "", "Watchlist Poll Interval (minutes)");
+  wlPollLabel.style.fontWeight = "600";
+  const wlPollDesc = el("p", "", "How often to check watched artists for new releases.");
+  wlPollDesc.style.fontSize = "12px";
+  wlPollDesc.style.color = "var(--text-dim)";
+  wlPollDesc.style.margin = "0";
+  wlPollGroup.appendChild(wlPollLabel);
+  wlPollGroup.appendChild(wlPollDesc);
+  const wlPollInput = el("input", "search-input");
+  wlPollInput.type = "number";
+  wlPollInput.min = "1";
+  wlPollInput.value = cfg.watchlist_poll_interval_minutes || 10;
+  wlPollInput.style.maxWidth = "120px";
+  wlPollGroup.appendChild(wlPollInput);
+  form.appendChild(wlPollGroup);
+
+  // Watchlist Poll Batch Size
+  const wlBatchGroup = el("div");
+  wlBatchGroup.style.display = "flex";
+  wlBatchGroup.style.flexDirection = "column";
+  wlBatchGroup.style.gap = "8px";
+  const wlBatchLabel = el("label", "", "Watchlist Poll Batch Size");
+  wlBatchLabel.style.fontWeight = "600";
+  const wlBatchDesc = el("p", "", "Number of watched artists to refresh per poll cycle.");
+  wlBatchDesc.style.fontSize = "12px";
+  wlBatchDesc.style.color = "var(--text-dim)";
+  wlBatchDesc.style.margin = "0";
+  wlBatchGroup.appendChild(wlBatchLabel);
+  wlBatchGroup.appendChild(wlBatchDesc);
+  const wlBatchInput = el("input", "search-input");
+  wlBatchInput.type = "number";
+  wlBatchInput.min = "1";
+  wlBatchInput.value = cfg.watchlist_poll_batch_size || 5;
+  wlBatchInput.style.maxWidth = "120px";
+  wlBatchGroup.appendChild(wlBatchInput);
+  form.appendChild(wlBatchGroup);
+
+  // Watchlist Refresh Interval
+  const wlRefreshGroup = el("div");
+  wlRefreshGroup.style.display = "flex";
+  wlRefreshGroup.style.flexDirection = "column";
+  wlRefreshGroup.style.gap = "8px";
+  const wlRefreshLabel = el("label", "", "Watchlist Artist Refresh Interval (days)");
+  wlRefreshLabel.style.fontWeight = "600";
+  const wlRefreshDesc = el("p", "", "Days before a watched artist's catalog is considered stale and re-fetched.");
+  wlRefreshDesc.style.fontSize = "12px";
+  wlRefreshDesc.style.color = "var(--text-dim)";
+  wlRefreshDesc.style.margin = "0";
+  wlRefreshGroup.appendChild(wlRefreshLabel);
+  wlRefreshGroup.appendChild(wlRefreshDesc);
+  const wlRefreshInput = el("input", "search-input");
+  wlRefreshInput.type = "number";
+  wlRefreshInput.min = "1";
+  wlRefreshInput.value = cfg.watchlist_refresh_interval_days || 7;
+  wlRefreshInput.style.maxWidth = "120px";
+  wlRefreshGroup.appendChild(wlRefreshInput);
+  form.appendChild(wlRefreshGroup);
+
+  // CORS Proxy
+  const proxyGroup = el("div");
+  proxyGroup.style.display = "flex";
+  proxyGroup.style.flexDirection = "column";
+  proxyGroup.style.gap = "8px";
+  const proxyLabel = el("label", "", "CORS Proxy");
+  proxyLabel.style.fontWeight = "600";
+  const proxyDesc = el("p", "", "Optional URL prefix to proxy outgoing Apple Music requests through. Leave blank to disable.");
+  proxyDesc.style.fontSize = "12px";
+  proxyDesc.style.color = "var(--text-dim)";
+  proxyDesc.style.margin = "0";
+  proxyGroup.appendChild(proxyLabel);
+  proxyGroup.appendChild(proxyDesc);
+  const proxyInput = el("input", "search-input");
+  proxyInput.type = "text";
+  proxyInput.value = cfg.cors_proxy || "";
+  proxyInput.placeholder = "e.g. https://proxy.example.com/";
+  proxyGroup.appendChild(proxyInput);
+  form.appendChild(proxyGroup);
 
   const errorMsg = el("div", "");
   errorMsg.style.color = "red";
@@ -1150,11 +1235,19 @@ async function renderSettings(main) {
       const parsedSfs = sfsInput.value.split(",").map(s => s.trim().toLowerCase()).filter(s => s);
       const parsedHome = homeInput.value.trim().toLowerCase();
       const parsedPoll = parseInt(pollInput.value, 10);
+      const parsedWlPoll = parseInt(wlPollInput.value, 10);
+      const parsedWlBatch = parseInt(wlBatchInput.value, 10);
+      const parsedWlRefresh = parseInt(wlRefreshInput.value, 10);
+      const parsedProxy = proxyInput.value.trim();
       const newCfg = {
         ...cfg,
         check_storefronts: parsedSfs,
         home_storefront: parsedHome || "my",
         newrelease_poll_interval_days: isNaN(parsedPoll) ? 1 : parsedPoll,
+        watchlist_poll_interval_minutes: isNaN(parsedWlPoll) ? 10 : parsedWlPoll,
+        watchlist_poll_batch_size: isNaN(parsedWlBatch) ? 5 : parsedWlBatch,
+        watchlist_refresh_interval_days: isNaN(parsedWlRefresh) ? 7 : parsedWlRefresh,
+        cors_proxy: parsedProxy,
       };
 
       await API.put("/api/config", newCfg);
