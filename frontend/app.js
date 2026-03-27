@@ -710,6 +710,52 @@ async function renderArtist(main, artistId) {
   srcWrap.appendChild(srcSelect);
   links.appendChild(srcWrap);
 
+  // Collection status selector — only visible when watched
+  const csWrap = el("div", "artist-src-wrap");
+  csWrap.style.cssText = `display:${isWatched ? "flex" : "none"};align-items:center;gap:6px;flex-wrap:wrap;`;
+  const csLabel = el("span", "artist-src-label", "Collection status:");
+  csWrap.appendChild(csLabel);
+  const csSelect = document.createElement("select");
+  csSelect.className = "src-select";
+
+  function buildCsOptions(currentCs) {
+    csSelect.innerHTML = "";
+    const current = currentCs || "new";
+    // Show current status as the first (selected) option
+    const currentOpt = document.createElement("option");
+    currentOpt.value = current;
+    currentOpt.textContent = COLLECTION_STATUS_LABELS[current] || current;
+    currentOpt.selected = true;
+    csSelect.appendChild(currentOpt);
+    // Show valid transitions as additional options
+    const transitions = COLLECTION_TRANSITIONS[current] || [];
+    transitions.forEach(s => {
+      const opt = document.createElement("option");
+      opt.value = s;
+      opt.textContent = COLLECTION_STATUS_LABELS[s];
+      csSelect.appendChild(opt);
+    });
+    csSelect.disabled = transitions.length === 0;
+  }
+
+  buildCsOptions(null); // placeholder until async load
+
+  csSelect.addEventListener("change", async () => {
+    const newStatus = csSelect.value;
+    const oldStatus = csSelect.querySelector("option")?.value;
+    if (!newStatus || newStatus === oldStatus) return;
+    try {
+      await API.patch(`/api/watchlist/${artistId}`, { collection_status: newStatus });
+      buildCsOptions(newStatus);
+    } catch {
+      alert("Failed to update status");
+      buildCsOptions(oldStatus);
+    }
+  });
+
+  csWrap.appendChild(csSelect);
+  links.appendChild(csWrap);
+
   watchBtn.addEventListener("click", async () => {
     const ps = state.metadataStorefront || state.homeStorefront || null;
     await toggleWatch(artistId, data.artist_name, data.artist_url, ps);
@@ -717,15 +763,20 @@ async function renderArtist(main, artistId) {
     watchBtn.textContent = nowWatched ? "⭐ Watching" : "☆ Watch";
     watchBtn.classList.toggle("watching", nowWatched);
     srcWrap.style.display = nowWatched ? "flex" : "none";
-    if (nowWatched) buildSrcOptions(ps);
+    csWrap.style.display = nowWatched ? "flex" : "none";
+    if (nowWatched) {
+      buildSrcOptions(ps);
+      buildCsOptions("new");
+    }
   });
   links.appendChild(watchBtn);
 
   if (isWatched) {
-    // Load current preferred_source and pre-select
+    // Load current preferred_source and collection_status, pre-select
     API.get("/api/watchlist").then(wl => {
       const entry = wl.find(a => a.artist_id === artistId);
       buildSrcOptions(entry?.preferred_source || null);
+      buildCsOptions(entry?.collection_status || "new");
     }).catch(() => {});
   }
 
@@ -978,46 +1029,13 @@ async function renderWatchlist(main, preferredSourceFilter = "", collectionStatu
       psBadge.style.fontSize = "9px";
       date.appendChild(psBadge);
     }
-    info.appendChild(date);
-
-    // Collection status badge + change dropdown
-    const statusRow = el("div", "watchlist-status-row");
-    statusRow.style.cssText = "display:flex;align-items:center;gap:6px;margin-top:3px;";
+    // Collection status chip (read-only, change on artist detail page)
     const currentStatus = artist.collection_status || "new";
     const badge = el("span", `collection-status-badge status-${currentStatus}`);
     badge.textContent = COLLECTION_STATUS_LABELS[currentStatus] || currentStatus;
-    statusRow.appendChild(badge);
-
-    const transitions = COLLECTION_TRANSITIONS[currentStatus] || [];
-    if (transitions.length) {
-      const select = el("select", "watchlist-status-select");
-      const defaultOpt = document.createElement("option");
-      defaultOpt.value = "";
-      defaultOpt.textContent = "Change...";
-      defaultOpt.disabled = true;
-      defaultOpt.selected = true;
-      select.appendChild(defaultOpt);
-      transitions.forEach(s => {
-        const opt = document.createElement("option");
-        opt.value = s;
-        opt.textContent = COLLECTION_STATUS_LABELS[s];
-        select.appendChild(opt);
-      });
-      select.addEventListener("change", async () => {
-        const newStatus = select.value;
-        if (!newStatus) return;
-        try {
-          await API.patch(`/api/watchlist/${artist.artist_id}`, { collection_status: newStatus });
-          artist.collection_status = newStatus;
-          renderGrid(searchInput.value.trim());
-        } catch (err) {
-          alert("Failed to update status");
-          select.value = "";
-        }
-      });
-      statusRow.appendChild(select);
-    }
-    info.appendChild(statusRow);
+    badge.style.marginLeft = "6px";
+    date.appendChild(badge);
+    info.appendChild(date);
     card.appendChild(info);
 
     const unwatchBtn = el("button", "btn-unwatch", "Remove");

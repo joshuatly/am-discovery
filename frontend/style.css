@@ -1298,20 +1298,6 @@ body {
 .cs-filter-btn.status-new_release.active { background: rgba(255,170,40,0.25);  color: #ffaa28; border-color: #ffaa2844; }
 .cs-filter-btn.status-in_progress.active { background: rgba(80,140,255,0.25);  color: #508cff; border-color: #508cff44; }
 
-.watchlist-status-select {
-  padding: 3px 8px;
-  border-radius: 12px;
-  font-size: 10px;
-  font-weight: 600;
-  font-family: inherit;
-  cursor: pointer;
-  border: 1px solid rgba(255,255,255,0.15);
-  background: rgba(255,255,255,0.06);
-  color: var(--text-muted);
-  outline: none;
-  transition: border-color 0.15s;
-}
-.watchlist-status-select:hover { border-color: rgba(255,255,255,0.3); }
 
 /* =========================================================
    Audio Format Badges
