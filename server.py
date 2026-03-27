@@ -896,16 +896,11 @@ def serve_frontend(path="index.html"):
 # ---------------------------------------------------------------------------
 
 
-def main():
-    import argparse
+def init_scheduler():
+    """Initialise the database and start background polling timers.
 
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--debug", action="store_true", help="Enable debug logging and Flask debug mode")
-    args = parser.parse_args()
-
-    log_level = logging.DEBUG if args.debug else logging.INFO
-    logging.basicConfig(level=log_level, format="%(asctime)s %(name)s %(levelname)s %(message)s")
-    logger.info("Initialising database...")
+    Called by both main() and the gunicorn WSGI entry point (wsgi.py).
+    """
     db.init_db()
 
     cfg = load_config()
@@ -928,10 +923,22 @@ def main():
         logger.info("Last poll was recent, scheduling next poll in %.1f minutes...", delay / 60)
         _schedule_next(override_delay=delay)
 
-    # Start watchlist background polling
     watchlist_interval = cfg.get("watchlist_poll_interval_minutes", 10) * 60
     logger.info("Starting watchlist polling (every %.1f minutes)...", watchlist_interval / 60)
     _schedule_watchlist_next()
+
+
+def main():
+    import argparse
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--debug", action="store_true", help="Enable debug logging and Flask debug mode")
+    args = parser.parse_args()
+
+    log_level = logging.DEBUG if args.debug else logging.INFO
+    logging.basicConfig(level=log_level, format="%(asctime)s %(name)s %(levelname)s %(message)s")
+    logger.info("Initialising database...")
+    init_scheduler()
 
     port = int(os.environ.get("PORT", 5000))
     logger.info("Serving on http://localhost:%d", port)
