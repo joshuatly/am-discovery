@@ -970,7 +970,7 @@ async function renderWatchlist(main, preferredSourceFilter = "", collectionStatu
   // Collection status filter bar
   const csFilterBar = el("div", "cs-filter-bar");
   const csButtons = [["All", ""], ...Object.entries(COLLECTION_STATUS_LABELS)];
-  csButtons.forEach(([label, code]) => {
+  csButtons.forEach(([code, label]) => {
     const cls = "cs-filter-btn" + (code ? ` status-${code}` : "") + (collectionStatusFilter === code ? " active" : "");
     const btn = el("button", cls);
     btn.textContent = label;
