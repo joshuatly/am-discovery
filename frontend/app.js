@@ -619,7 +619,7 @@ function renderArtistReleaseGrid(releases, container) {
 // ---------------------------------------------------------------------------
 async function renderArtist(main, artistId) {
   main.innerHTML = "";
-  const wrap = el("div", "page-enter");
+  const wrap = el("div", "page-enter artist-page");
   wrap.appendChild(skeletonGrid(6));
   main.appendChild(wrap);
 
@@ -664,12 +664,13 @@ async function renderArtist(main, artistId) {
   header.appendChild(avatar);
 
   const meta = el("div", "artist-meta");
+  const metaInfo = el("div", "artist-meta-info");
   const nameBig = el("h1", "artist-name-big", data.artist_name || "Unknown Artist");
-  meta.appendChild(nameBig);
+  metaInfo.appendChild(nameBig);
 
   if (data.artist_artwork_url && data.artist_genre) {
     const genreEl = el("div", "artist-genre", data.artist_genre);
-    meta.appendChild(genreEl);
+    metaInfo.appendChild(genreEl);
   }
 
   const detailParts = [];
@@ -682,10 +683,15 @@ async function renderArtist(main, artistId) {
   if (data.artist_origin) detailParts.push(data.artist_origin);
   if (detailParts.length) {
     const detailEl = el("div", "artist-detail", detailParts.join(" · "));
-    meta.appendChild(detailEl);
+    metaInfo.appendChild(detailEl);
   }
+  meta.appendChild(metaInfo);
 
   const links = el("div", "artist-links");
+
+  // Row 1: primary actions
+  const actionsRow = el("div", "artist-actions");
+
   if (data.artist_url) {
     const extLink = el("a", "artist-ext-link", "Open in Apple Music ↗");
     extLink.dataset.baseUrl = data.artist_url;
@@ -695,15 +701,40 @@ async function renderArtist(main, artistId) {
       : data.artist_url;
     extLink.target = "_blank";
     extLink.rel = "noopener";
-    links.appendChild(extLink);
+    actionsRow.appendChild(extLink);
   }
 
   const isWatched = state.watchedIds.has(artistId);
   const watchBtn = el("button", `btn-watch${isWatched ? " watching" : ""}`, isWatched ? "⭐ Watching" : "☆ Watch");
 
-  // Preferred source selector — only visible when watched
+  const sfLabel = state.metadataStorefront ? state.metadataStorefront.toUpperCase() : "";
+  const fetchBtn = el("button", "btn-fetch-artist", sfLabel ? `↓ Fetch from ${sfLabel}` : "↓ Fetch All");
+  fetchBtn.title = "Fetch all releases for this artist and store tracklists";
+  fetchBtn.addEventListener("click", async () => {
+    fetchBtn.disabled = true;
+    fetchBtn.textContent = "Fetching…";
+    try {
+      const sf = state.metadataStorefront;
+      const qp = sf ? `?storefront=${sf}` : "";
+      const res = await API.post(`/api/artists/${artistId}/fetch${qp}`, {});
+      fetchBtn.textContent = `✓ ${res.fetched} fetched`;
+      setTimeout(() => renderArtist(main, artistId), 800);
+    } catch {
+      fetchBtn.textContent = "Failed";
+      fetchBtn.disabled = false;
+    }
+  });
+
+  actionsRow.appendChild(watchBtn);
+  actionsRow.appendChild(fetchBtn);
+  links.appendChild(actionsRow);
+
+  // Row 2: watch settings (only visible when watched)
+  const settingsRow = el("div", "artist-settings");
+  settingsRow.style.display = isWatched ? "flex" : "none";
+
+  // Preferred source selector
   const srcWrap = el("div", "artist-src-wrap");
-  srcWrap.style.cssText = `display:${isWatched ? "flex" : "none"};align-items:center;gap:6px;flex-wrap:wrap;`;
   const srcLabel = el("span", "artist-src-label", "Preferred source:");
   srcWrap.appendChild(srcLabel);
   const srcSelect = document.createElement("select");
@@ -733,11 +764,10 @@ async function renderArtist(main, artistId) {
   });
 
   srcWrap.appendChild(srcSelect);
-  links.appendChild(srcWrap);
+  settingsRow.appendChild(srcWrap);
 
-  // Collection status selector — only visible when watched
+  // Collection status selector
   const csWrap = el("div", "artist-src-wrap");
-  csWrap.style.cssText = `display:${isWatched ? "flex" : "none"};align-items:center;gap:6px;flex-wrap:wrap;`;
   const csLabel = el("span", "artist-src-label", "Collection status:");
   csWrap.appendChild(csLabel);
   const csSelect = document.createElement("select");
@@ -779,7 +809,8 @@ async function renderArtist(main, artistId) {
   });
 
   csWrap.appendChild(csSelect);
-  links.appendChild(csWrap);
+  settingsRow.appendChild(csWrap);
+  links.appendChild(settingsRow);
 
   watchBtn.addEventListener("click", async () => {
     const ps = state.metadataStorefront || state.homeStorefront || null;
@@ -787,14 +818,12 @@ async function renderArtist(main, artistId) {
     const nowWatched = state.watchedIds.has(artistId);
     watchBtn.textContent = nowWatched ? "⭐ Watching" : "☆ Watch";
     watchBtn.classList.toggle("watching", nowWatched);
-    srcWrap.style.display = nowWatched ? "flex" : "none";
-    csWrap.style.display = nowWatched ? "flex" : "none";
+    settingsRow.style.display = nowWatched ? "flex" : "none";
     if (nowWatched) {
       buildSrcOptions(ps);
       buildCsOptions("new");
     }
   });
-  links.appendChild(watchBtn);
 
   if (isWatched) {
     // Load current preferred_source and collection_status, pre-select
@@ -805,32 +834,25 @@ async function renderArtist(main, artistId) {
     }).catch(() => {});
   }
 
-  const sfLabel = state.metadataStorefront ? state.metadataStorefront.toUpperCase() : "";
-  const fetchBtn = el("button", "btn-fetch-artist", sfLabel ? `↓ Fetch from ${sfLabel}` : "↓ Fetch All");
-  fetchBtn.title = "Fetch all releases for this artist and store tracklists";
-  fetchBtn.addEventListener("click", async () => {
-    fetchBtn.disabled = true;
-    fetchBtn.textContent = "Fetching…";
-    try {
-      const sf = state.metadataStorefront;
-      const qp = sf ? `?storefront=${sf}` : "";
-      const res = await API.post(`/api/artists/${artistId}/fetch${qp}`, {});
-      fetchBtn.textContent = `✓ ${res.fetched} fetched`;
-      setTimeout(() => renderArtist(main, artistId), 800);
-    } catch {
-      fetchBtn.textContent = "Failed";
-      fetchBtn.disabled = false;
-    }
-  });
-  links.appendChild(fetchBtn);
-
   meta.appendChild(links);
   header.appendChild(meta);
   wrap.appendChild(header);
 
   if (data.artist_bio) {
-    const bioEl = el("div", "artist-bio", data.artist_bio);
-    wrap.appendChild(bioEl);
+    const bioWrap = el("div", "artist-bio-wrap");
+    const bioEl = el("div", "artist-bio artist-bio--clamped", data.artist_bio);
+    bioWrap.appendChild(bioEl);
+    const bioToggle = el("a", "artist-bio-toggle", "Show more");
+    bioToggle.href = "#";
+    let bioExpanded = false;
+    bioToggle.addEventListener("click", e => {
+      e.preventDefault();
+      bioExpanded = !bioExpanded;
+      bioEl.classList.toggle("artist-bio--clamped", !bioExpanded);
+      bioToggle.textContent = bioExpanded ? "Show less" : "Show more";
+    });
+    bioWrap.appendChild(bioToggle);
+    wrap.appendChild(bioWrap);
   }
 
   // Stats
