@@ -1029,6 +1029,27 @@ class TestWatchedOnlyFilter(DBTestCase):
             self.assertEqual(r["source"], "discovered")
             self.assertIn(r["artist_id"], {"ART1", "ART3"})
 
+    def test_list_albums_watched_only_secondary_artist(self):
+        # Collab album: primary artist is ART2 (unwatched), secondary is ART1 (watched)
+        artists = [
+            {"id": "ART2", "name": "Artist Two", "url": "", "artwork_url": None, "genre": None},
+            {"id": "ART1", "name": "Artist One", "url": "", "artwork_url": None, "genre": None},
+        ]
+        self.db.upsert_album(_minimal_album("COLLAB", artist_id="ART2", artists_json=artists, title="Collab"))
+        rows, total = self.db.list_albums(watched_only=True)
+        ids = {r["store_adam_id"] for r in rows}
+        self.assertIn("COLLAB", ids)
+
+    def test_search_albums_watched_only_secondary_artist(self):
+        artists = [
+            {"id": "ART2", "name": "Artist Two", "url": "", "artwork_url": None, "genre": None},
+            {"id": "ART1", "name": "Artist One", "url": "", "artwork_url": None, "genre": None},
+        ]
+        self.db.upsert_album(_minimal_album("COLLAB", artist_id="ART2", artists_json=artists, title="Collab"))
+        rows, total = self.db.search_albums("Collab", watched_only=True)
+        self.assertEqual(total, 1)
+        self.assertEqual(rows[0]["store_adam_id"], "COLLAB")
+
 
 # ---------------------------------------------------------------------------
 # Collection Status
