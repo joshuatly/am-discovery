@@ -509,7 +509,7 @@ async function renderNewReleases(main, page = 1, query = "", storefront = "", wa
 // ---------------------------------------------------------------------------
 // Page: All Albums
 // ---------------------------------------------------------------------------
-async function renderAllReleases(main, page = 1, query = "", storefront = "") {
+async function renderAllReleases(main, page = 1, query = "", storefront = "", watchedOnly = false) {
   main.innerHTML = "";
   const wrap = el("div", "page-enter");
   wrap.appendChild(buildHeader("📀 All Albums", "Every album in your local database"));
@@ -522,7 +522,7 @@ async function renderAllReleases(main, page = 1, query = "", storefront = "") {
   inp.placeholder = "Search title or artist…";
   inp.value = query;
   inp.addEventListener("input", debounce(e => {
-    renderAllReleases(main, 1, e.target.value.trim(), storefront);
+    renderAllReleases(main, 1, e.target.value.trim(), storefront, watchedOnly);
   }, 350));
   searchDiv.appendChild(inp);
   controls.appendChild(filtersDiv);
@@ -542,9 +542,16 @@ async function renderAllReleases(main, page = 1, query = "", storefront = "") {
   sfButtons.forEach(([label, code]) => {
     const btn = el("button", "sf-filter-btn" + (code ? ` ${code}` : "") + (storefront === code ? " active" : ""));
     btn.textContent = label;
-    btn.addEventListener("click", () => renderAllReleases(main, 1, query, code));
+    btn.addEventListener("click", () => renderAllReleases(main, 1, query, code, watchedOnly));
     filterBar.appendChild(btn);
   });
+
+  // Watched-only toggle
+  const watchedToggle = el("button", `sf-filter-btn watched-toggle${watchedOnly ? " active" : ""}`, "Watched");
+  watchedToggle.title = "Show only albums from watched artists";
+  watchedToggle.addEventListener("click", () => renderAllReleases(main, 1, query, storefront, !watchedOnly));
+  filterBar.appendChild(watchedToggle);
+
   filtersDiv.appendChild(filterBar);
 
   const gridWrap = el("div");
@@ -556,6 +563,7 @@ async function renderAllReleases(main, page = 1, query = "", storefront = "") {
   let data;
   try {
     const qp = new URLSearchParams({ page, per_page: state.perPage });
+    if (watchedOnly) qp.set("watched", "true");
     if (query) qp.set("q", query);
     if (storefront) qp.set("storefront", storefront);
     data = await API.get(`/api/releases?${qp}`);
@@ -576,7 +584,7 @@ async function renderAllReleases(main, page = 1, query = "", storefront = "") {
 
   const totalPages = Math.ceil(data.total / state.perPage);
   if (totalPages > 1) {
-    gridWrap.appendChild(buildPagination(page, totalPages, p => renderAllReleases(main, p, query, storefront)));
+    gridWrap.appendChild(buildPagination(page, totalPages, p => renderAllReleases(main, p, query, storefront, watchedOnly)));
   }
 }
 
@@ -945,6 +953,17 @@ const COLLECTION_TRANSITIONS = {
   in_progress: ["complete"],
 };
 
+// Pure helper: slice a list for the given page and page size.
+// Returns { items, page (clamped), totalPages, total }.
+function paginateList(list, page, pageSize) {
+  const total = list.length;
+  const totalPages = Math.ceil(total / pageSize) || 1;
+  const safePage = Math.max(0, Math.min(page, totalPages - 1));
+  return { items: list.slice(safePage * pageSize, (safePage + 1) * pageSize), page: safePage, totalPages, total };
+}
+
+const WATCHLIST_PAGE_SIZE = 48;
+
 async function renderWatchlist(main, preferredSourceFilter = "", collectionStatusFilter = "", sortFilter = "name") {
   main.innerHTML = "";
   const wrap = el("div", "page-enter");
@@ -1156,20 +1175,32 @@ async function renderWatchlist(main, preferredSourceFilter = "", collectionStatu
   let _searchAbort = null;
   let _lastSuggestions = [];
   let _rateLimitedUntil = 0;
+  let _currentPage = 0;
 
-  function renderGrid(q) {
+  function renderGrid(q, page = 0) {
     grid.innerHTML = "";
 
+    const qLower = q.toLowerCase();
     const filtered = q
-      ? list.filter(a => a.name.toLowerCase().includes(q.toLowerCase()))
+      ? list.filter(a =>
+          a.name.toLowerCase().includes(qLower) ||
+          (a.artist_bio && a.artist_bio.toLowerCase().includes(qLower))
+        )
       : list;
 
-    filtered.forEach(a => grid.appendChild(makeWatchedCard(a)));
+    // Only paginate when not searching (search results are small enough to show all)
+    const usePagination = !q;
+    const { items: pageItems, page: safePage, totalPages } = usePagination
+      ? paginateList(filtered, page, WATCHLIST_PAGE_SIZE)
+      : { items: filtered, page: 0, totalPages: 1, total: filtered.length };
+    _currentPage = safePage;
+
+    pageItems.forEach(a => grid.appendChild(makeWatchedCard(a)));
 
     // Show AM suggestions (already-watched ones excluded)
     const suggestions = _lastSuggestions.filter(a => !state.watchedIds.has(a.id));
     if (suggestions.length) {
-      if (filtered.length) {
+      if (pageItems.length) {
         const sep = el("div", "watchlist-separator", "Also on Apple Music");
         sep.style.cssText = "grid-column:1/-1;font-size:11px;color:var(--text-dim);text-transform:uppercase;letter-spacing:.06em;padding:4px 0;";
         grid.appendChild(sep);
@@ -1183,6 +1214,13 @@ async function renderWatchlist(main, preferredSourceFilter = "", collectionStatu
       } else {
         grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1"><div class="empty-icon">⭐</div><div class="empty-title">Watchlist is empty</div></div>`;
       }
+    }
+
+    if (usePagination && totalPages > 1) {
+      grid.appendChild(buildPagination(_currentPage + 1, totalPages, p => {
+        renderGrid(q, p - 1);
+        document.getElementById("main-content").scrollTo(0, 0);
+      }));
     }
   }
 

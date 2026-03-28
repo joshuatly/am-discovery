@@ -16,6 +16,7 @@ _BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 class RateLimitError(Exception):
     """Raised when the Apple Music API returns HTTP 429."""
 
+
 _MUSIC_BASE = "https://music.apple.com"
 _AMP_API_BASE = "https://amp-api.music.apple.com"
 _BROWSE_PATH = "/us/browse"

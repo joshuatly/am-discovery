@@ -580,6 +580,17 @@ class TestWatchlist(DBTestCase):
         wl = self.db.get_watchlist()
         self.assertEqual(wl[0]["artwork_url"], "https://art.jpg")
 
+    def test_watchlist_includes_artist_bio(self):
+        self.db.add_to_watchlist("ART1", "Artist One")
+        self.db.upsert_artist("ART1", artist_bio="A pioneering rock band from London.")
+        wl = self.db.get_watchlist()
+        self.assertEqual(wl[0]["artist_bio"], "A pioneering rock band from London.")
+
+    def test_watchlist_artist_bio_none_when_not_set(self):
+        self.db.add_to_watchlist("ART1", "Artist One")
+        wl = self.db.get_watchlist()
+        self.assertIsNone(wl[0]["artist_bio"])
+
     def test_get_watched_artist_ids(self):
         self.db.add_to_watchlist("ART1", "Artist One")
         self.db.add_to_watchlist("ART2", "Artist Two")

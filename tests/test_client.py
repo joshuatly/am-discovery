@@ -4,9 +4,8 @@ import base64
 import json
 import time
 import unittest
-from unittest.mock import MagicMock, mock_open, patch
-
 import urllib.error
+from unittest.mock import MagicMock, mock_open, patch
 
 from client import AppleMusicClient, RateLimitError
 

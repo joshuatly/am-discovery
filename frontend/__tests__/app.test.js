@@ -89,8 +89,11 @@ beforeAll(() => {
     window.__test_COLLECTION_TRANSITIONS   = COLLECTION_TRANSITIONS;
     window.__test_renderArtist             = renderArtist;
     window.__test_renderNewReleases        = renderNewReleases;
+    window.__test_renderAllReleases        = renderAllReleases;
     window.__test_renderWatchlist          = renderWatchlist;
     window.__test_WatchlistPrefs           = WatchlistPrefs;
+    window.__test_paginateList             = paginateList;
+    window.__test_WATCHLIST_PAGE_SIZE      = WATCHLIST_PAGE_SIZE;
   `;
   appWindow.document.head.appendChild(exposeScript);
 });
@@ -1739,9 +1742,15 @@ describe("watchlist search suggestion card sets artistHint with extended fields"
     });
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     main.innerHTML = "";
     appWindow.fetch.mockClear();
+    // Flush any hashchange macrotask queued by clicking suggestion link names
+    // (setting location.hash fires hashchange as a macrotask, which calls route()
+    // and starts renderArtist — that must complete inside this afterEach so it
+    // does not bleed into subsequent tests and clear their main content)
+    await new Promise(r => setTimeout(r, 0));
+    main.innerHTML = "";
   });
 
   test("artistHint includes extended fields when clicking artist name in suggestion card", async () => {
@@ -1924,6 +1933,89 @@ describe("page-controls layout — Watchlist", () => {
     const filtersIdx = children.findIndex(c => c.classList.contains("page-controls-filters"));
     const searchIdx = children.findIndex(c => c.classList.contains("page-controls-search"));
     expect(filtersIdx).toBeLessThan(searchIdx);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Watchlist local search — bio matching
+// ---------------------------------------------------------------------------
+
+describe("renderWatchlist local search bio matching", () => {
+  let main;
+
+  beforeEach(() => {
+    main = appWindow.document.getElementById("main-content");
+    main.innerHTML = "";
+    appWindow.__test_state.configuredStorefronts = ["us"];
+    appWindow.fetch.mockImplementation((url) => {
+      if (url === "/api/config") {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ check_storefronts: ["us"], home_storefront: "us" }),
+        });
+      }
+      if (url.startsWith("/api/watchlist")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve([
+            { artist_id: "ART1", name: "Alice", artist_bio: "A pioneering jazz musician from New Orleans.", collection_status: "new", added_at: 1700000000 },
+            { artist_id: "ART2", name: "Bob", artist_bio: null, collection_status: "new", added_at: 1700000000 },
+            { artist_id: "ART3", name: "Carol", artist_bio: "Experimental electronic producer.", collection_status: "new", added_at: 1700000000 },
+          ]),
+        });
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
+    });
+  });
+
+  afterEach(() => {
+    main.innerHTML = "";
+    appWindow.fetch.mockClear();
+  });
+
+  test("typing a term matching artist bio shows that artist", async () => {
+    await appWindow.renderWatchlist(main);
+    await new Promise(r => setTimeout(r, 50));
+
+    const searchInput = main.querySelector("input[placeholder*='earch']");
+    expect(searchInput).not.toBeNull();
+    searchInput.value = "jazz";
+    searchInput.dispatchEvent(new appWindow.Event("input"));
+    await new Promise(r => setTimeout(r, 50));
+
+    const nameLinks = main.querySelectorAll(".watchlist-name");
+    const names = Array.from(nameLinks).map(a => a.textContent);
+    expect(names).toContain("Alice");
+    expect(names).not.toContain("Carol");
+  });
+
+  test("typing a term not in any name or bio shows no results", async () => {
+    await appWindow.renderWatchlist(main);
+    await new Promise(r => setTimeout(r, 50));
+
+    const searchInput = main.querySelector("input[placeholder*='earch']");
+    expect(searchInput).not.toBeNull();
+    searchInput.value = "zzznomatch";
+    searchInput.dispatchEvent(new appWindow.Event("input"));
+    await new Promise(r => setTimeout(r, 50));
+
+    const cards = main.querySelectorAll(".watchlist-card:not(.watchlist-card--suggestion)");
+    expect(cards.length).toBe(0);
+  });
+
+  test("artist with null bio is matched by name", async () => {
+    await appWindow.renderWatchlist(main);
+    await new Promise(r => setTimeout(r, 50));
+
+    const searchInput = main.querySelector("input[placeholder*='earch']");
+    expect(searchInput).not.toBeNull();
+    searchInput.value = "Bob";
+    searchInput.dispatchEvent(new appWindow.Event("input"));
+    await new Promise(r => setTimeout(r, 50));
+
+    const nameLinks = main.querySelectorAll(".watchlist-name");
+    const names = Array.from(nameLinks).map(a => a.textContent);
+    expect(names).toContain("Bob");
   });
 });
 
@@ -2225,5 +2317,136 @@ describe("watchlist search handles 429 rate-limit response", () => {
     const grid = main.querySelector(".watchlist-grid, .album-grid, [class*='grid']");
     expect(grid).not.toBeNull();
     expect(grid.textContent).toMatch(/[Rr]ate.?[Ll]imited|rate limited|temporarily unavailable/i);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// All Albums — Watched filter
+// ---------------------------------------------------------------------------
+
+describe("renderAllReleases — Watched filter", () => {
+  let main;
+
+  beforeEach(() => {
+    main = appWindow.document.getElementById("main-content");
+    const state = appWindow.__test_state;
+    state.configuredStorefronts = ["jp", "tw"];
+    appWindow.fetch.mockImplementation((url) => {
+      if (url.includes("/api/watchlist")) return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({ items: [], total: 0 }) });
+    });
+  });
+
+  afterEach(() => {
+    main.innerHTML = "";
+    appWindow.fetch.mockClear();
+  });
+
+  test("renders a Watched toggle button in the filter bar", async () => {
+    await appWindow.__test_renderAllReleases(main);
+    const toggle = main.querySelector(".watched-toggle");
+    expect(toggle).not.toBeNull();
+    expect(toggle.textContent).toBe("Watched");
+  });
+
+  test("Watched toggle is not active by default", async () => {
+    await appWindow.__test_renderAllReleases(main);
+    const toggle = main.querySelector(".watched-toggle");
+    expect(toggle.classList.contains("active")).toBe(false);
+  });
+
+  test("Watched toggle is active when watchedOnly=true", async () => {
+    await appWindow.__test_renderAllReleases(main, 1, "", "", true);
+    const toggle = main.querySelector(".watched-toggle");
+    expect(toggle.classList.contains("active")).toBe(true);
+  });
+
+  test("passes watched=true to API when watchedOnly is true", async () => {
+    await appWindow.__test_renderAllReleases(main, 1, "", "", true);
+    const calls = appWindow.fetch.mock.calls.map(c => c[0]);
+    const releaseCall = calls.find(u => u.startsWith("/api/releases"));
+    expect(releaseCall).toContain("watched=true");
+  });
+
+  test("does not pass watched param to API when watchedOnly is false", async () => {
+    await appWindow.__test_renderAllReleases(main, 1, "", "", false);
+    const calls = appWindow.fetch.mock.calls.map(c => c[0]);
+    const releaseCall = calls.find(u => u.startsWith("/api/releases"));
+    expect(releaseCall).not.toContain("watched=true");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// paginateList
+// ---------------------------------------------------------------------------
+
+describe("paginateList", () => {
+  const paginateList = () => appWindow.__test_paginateList;
+
+  test("returns all items when list fits in one page", () => {
+    const list = [1, 2, 3];
+    const result = appWindow.__test_paginateList(list, 0, 10);
+    expect(result.items).toEqual([1, 2, 3]);
+  });
+
+  test("returns correct slice for page 0", () => {
+    const list = Array.from({ length: 10 }, (_, i) => i);
+    const result = appWindow.__test_paginateList(list, 0, 3);
+    expect(result.items).toEqual([0, 1, 2]);
+  });
+
+  test("returns correct slice for page 1", () => {
+    const list = Array.from({ length: 10 }, (_, i) => i);
+    const result = appWindow.__test_paginateList(list, 1, 3);
+    expect(result.items).toEqual([3, 4, 5]);
+  });
+
+  test("returns correct slice for last partial page", () => {
+    const list = Array.from({ length: 10 }, (_, i) => i);
+    const result = appWindow.__test_paginateList(list, 3, 3);
+    expect(result.items).toEqual([9]);
+  });
+
+  test("computes totalPages correctly", () => {
+    const list = Array.from({ length: 10 }, (_, i) => i);
+    expect(appWindow.__test_paginateList(list, 0, 3).totalPages).toBe(4);
+  });
+
+  test("totalPages is 1 for empty list", () => {
+    expect(appWindow.__test_paginateList([], 0, 48).totalPages).toBe(1);
+  });
+
+  test("items is empty for empty list", () => {
+    expect(appWindow.__test_paginateList([], 0, 48).items).toEqual([]);
+  });
+
+  test("total reflects full list length", () => {
+    const list = Array.from({ length: 55 }, (_, i) => i);
+    expect(appWindow.__test_paginateList(list, 0, 48).total).toBe(55);
+  });
+
+  test("clamps page below 0 to 0", () => {
+    const list = [1, 2, 3];
+    const result = appWindow.__test_paginateList(list, -1, 2);
+    expect(result.page).toBe(0);
+    expect(result.items).toEqual([1, 2]);
+  });
+
+  test("clamps page beyond last to last page", () => {
+    const list = [1, 2, 3, 4, 5];
+    const result = appWindow.__test_paginateList(list, 99, 2);
+    expect(result.page).toBe(2);
+    expect(result.items).toEqual([5]);
+  });
+
+  test("page exactly on last page returns last slice", () => {
+    const list = Array.from({ length: 48 * 2 + 1 }, (_, i) => i);
+    const result = appWindow.__test_paginateList(list, 2, 48);
+    expect(result.items).toEqual([96]);
+    expect(result.totalPages).toBe(3);
+  });
+
+  test("WATCHLIST_PAGE_SIZE is 48", () => {
+    expect(appWindow.__test_WATCHLIST_PAGE_SIZE).toBe(48);
   });
 });

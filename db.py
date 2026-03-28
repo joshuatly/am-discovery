@@ -249,7 +249,7 @@ def get_watchlist(preferred_source: str = "", collection_status: str = "", sort:
             params.append(collection_status)
         where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
         rows = conn.execute(
-            f"""SELECT w.*, ar.artwork_url, ar.genre, MAX(alb.release_date) AS latest_release_date
+            f"""SELECT w.*, ar.artwork_url, ar.genre, ar.artist_bio, MAX(alb.release_date) AS latest_release_date
                FROM watched_artists w
                LEFT JOIN artists ar ON w.artist_id = ar.artist_id
                LEFT JOIN albums alb ON w.artist_id = alb.artist_id
