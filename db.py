@@ -208,7 +208,11 @@ def list_albums(
         if discovered_only:
             conditions.append("source = 'discovered'")
         if watched_only:
-            conditions.append("artist_id IN (SELECT artist_id FROM watched_artists)")
+            conditions.append(
+                "(artist_id IN (SELECT artist_id FROM watched_artists)"
+                " OR EXISTS (SELECT 1 FROM json_each(albums.artists_json)"
+                "  WHERE json_extract(value, '$.id') IN (SELECT artist_id FROM watched_artists)))"
+            )
         where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
         total = conn.execute(f"SELECT COUNT(*) FROM albums {where}", params).fetchone()[0]
         rows = conn.execute(
@@ -516,7 +520,11 @@ def search_albums(
         if discovered_only:
             conditions.append("source = 'discovered'")
         if watched_only:
-            conditions.append("artist_id IN (SELECT artist_id FROM watched_artists)")
+            conditions.append(
+                "(artist_id IN (SELECT artist_id FROM watched_artists)"
+                " OR EXISTS (SELECT 1 FROM json_each(albums.artists_json)"
+                "  WHERE json_extract(value, '$.id') IN (SELECT artist_id FROM watched_artists)))"
+            )
         where = "WHERE " + " AND ".join(conditions)
         total = conn.execute(f"SELECT COUNT(*) FROM albums {where}", params).fetchone()[0]
         rows = conn.execute(

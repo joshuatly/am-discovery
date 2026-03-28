@@ -106,6 +106,47 @@ class TestSerialize(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
+# _is_watched helper
+# ---------------------------------------------------------------------------
+
+
+class TestIsWatched(unittest.TestCase):
+    def setUp(self):
+        import server
+
+        self.is_watched = server._is_watched
+
+    def test_primary_artist_watched(self):
+        row = {"artist_id": "ART1", "artists_json": None}
+        self.assertTrue(self.is_watched(row, {"ART1"}))
+
+    def test_primary_artist_not_watched(self):
+        row = {"artist_id": "ART2", "artists_json": None}
+        self.assertFalse(self.is_watched(row, {"ART1"}))
+
+    def test_secondary_artist_watched(self):
+        row = {
+            "artist_id": "ART_PRIMARY",
+            "artists_json": [
+                {"id": "ART_PRIMARY", "name": "Primary"},
+                {"id": "ART_SECONDARY", "name": "Secondary"},
+            ],
+        }
+        self.assertTrue(self.is_watched(row, {"ART_SECONDARY"}))
+
+    def test_no_artist_matches(self):
+        row = {
+            "artist_id": "ART1",
+            "artists_json": [{"id": "ART1"}, {"id": "ART2"}],
+        }
+        self.assertFalse(self.is_watched(row, {"ART3"}))
+
+    def test_empty_watched_ids(self):
+        row = {"artist_id": "ART1", "artists_json": [{"id": "ART1"}]}
+        self.assertFalse(self.is_watched(row, set()))
+
+
+# ---------------------------------------------------------------------------
 # GET /api/releases
 # ---------------------------------------------------------------------------
 

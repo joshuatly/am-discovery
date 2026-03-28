@@ -344,6 +344,16 @@ def _serialize(row: dict) -> dict:
     return row
 
 
+def _is_watched(row: dict, watched_ids: set) -> bool:
+    """Return True if any artist credited on the album is in watched_ids."""
+    if row.get("artist_id") in watched_ids:
+        return True
+    for artist in row.get("artists_json") or []:
+        if artist.get("id") in watched_ids:
+            return True
+    return False
+
+
 @app.route("/api/releases")
 def api_releases():
     """Get a paginated list of releases.
@@ -402,7 +412,7 @@ def api_releases():
     result = []
     for r in rows:
         r = _serialize(r)
-        r["watched"] = r.get("artist_id") in watched_ids
+        r["watched"] = _is_watched(r, watched_ids)
         result.append(r)
 
     return jsonify({"items": result, "total": total, "page": page, "per_page": per_page})
@@ -430,7 +440,7 @@ def api_release_detail(store_adam_id):
         return jsonify({"error": "Not found"}), 404
     row = _serialize(row)
     watched_ids = db.get_watched_artist_ids()
-    row["watched"] = row.get("artist_id") in watched_ids
+    row["watched"] = _is_watched(row, watched_ids)
     return jsonify(row)
 
 
