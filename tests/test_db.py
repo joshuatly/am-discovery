@@ -487,6 +487,33 @@ class TestGetArtistAlbums(DBTestCase):
         dates = [r["release_date"] for r in rows]
         self.assertEqual(dates, sorted(dates, reverse=True))
 
+    def test_returns_album_where_artist_is_secondary_in_artists_json(self):
+        # Album's primary artist_id is ART_PRIMARY, but ART_SECONDARY appears in artists_json
+        artists = [
+            {"id": "ART_PRIMARY", "name": "Primary Artist", "url": "", "artwork_url": None, "genre": None},
+            {"id": "ART_SECONDARY", "name": "Secondary Artist", "url": "", "artwork_url": None, "genre": None},
+        ]
+        self.db.upsert_album(
+            _minimal_album("COLLAB1", artist_id="ART_PRIMARY", artists_json=artists)
+        )
+        # Should appear when querying primary artist
+        rows = self.db.get_artist_albums("ART_PRIMARY")
+        self.assertEqual(len(rows), 1)
+        # Should also appear when querying secondary artist
+        rows = self.db.get_artist_albums("ART_SECONDARY")
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["store_adam_id"], "COLLAB1")
+
+    def test_no_duplicate_when_artist_is_both_primary_and_in_artists_json(self):
+        artists = [
+            {"id": "ART1", "name": "Artist One", "url": "", "artwork_url": None, "genre": None},
+        ]
+        self.db.upsert_album(
+            _minimal_album("A1", artist_id="ART1", artists_json=artists)
+        )
+        rows = self.db.get_artist_albums("ART1")
+        self.assertEqual(len(rows), 1)
+
 
 # ---------------------------------------------------------------------------
 # Watchlist
