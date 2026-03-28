@@ -2,16 +2,17 @@
 
 > **Early development.** Things will break, the schema will change, and features are incomplete. Use at your own risk.
 
-AM Discovery monitors Apple Music regional "Room" pages to surface new releases across multiple storefronts. It polls configurable room URLs, fetches full album metadata, and presents everything through a web UI and REST API.
+AM Discovery monitors Apple Music regional new-release pages to surface new releases across multiple storefronts. It automatically discovers new releases from each configured storefront's `/new` browse page, fetches full album metadata, and presents everything through a web UI and REST API.
 
 ---
 
 ## Features
 
-- Polls Apple Music Room pages across multiple storefronts (HK, JP, MY, TW, etc.)
+- Polls Apple Music new-release pages across multiple storefronts (HK, JP, MY, TW, etc.)
+- Automatically discovers the new-release section from each storefront's `/new` browse page — no manual room URL configuration required
 - Aggregates releases and tracks which storefronts each album appears in
 - Fetches full metadata: artwork, genre, tracklist, audio formats (Dolby Atmos, lossless), release type
-- Artist watchlist — follow artists and fetch their full catalog on demand
+- Artist watchlist — follow artists and fetch their full catalog on demand; background polling keeps watchlist artists up to date
 - Storefront availability checker for any release
 - Configurable poll interval with manual refresh option
 - REST API with Swagger docs (`/apidocs`)
@@ -44,6 +45,8 @@ Edit `config.json` with your settings (see [Configuration](#configuration) below
 
 ## Running
 
+### Development
+
 ```bash
 uv run python server.py
 ```
@@ -61,9 +64,17 @@ PORT=8080 uv run python server.py
 AM_DB_PATH=/data/am.db uv run python server.py
 ```
 
+### Production (Gunicorn)
+
+```bash
+uv run gunicorn -c gunicorn.conf.py "wsgi:app"
+```
+
+`wsgi.py` is the WSGI entry point — it imports the Flask app and starts the background polling scheduler. `gunicorn.conf.py` pins the worker count to 1 (required because the scheduler runs as an in-process background thread).
+
 On first start the server will:
 1. Create a fresh SQLite database
-2. Immediately run a poll against your configured rooms
+2. Immediately run a poll against your configured storefronts
 3. Schedule subsequent polls at the configured interval
 
 ---
@@ -77,22 +88,21 @@ Copy `config.json.example` to `config.json` and edit it:
   "cors_proxy": "",
   "check_storefronts": ["jp", "tw", "my", "hk", "sg", "us"],
   "home_storefront": "my",
-  "poll_interval_minutes": 60,
-  "rooms": {
-    "hk": "https://music.apple.com/hk/room/...",
-    "jp": "https://music.apple.com/jp/room/...",
-    "my": "https://music.apple.com/my/room/...",
-    "tw": "https://music.apple.com/tw/room/..."
-  }
+  "newrelease_poll_interval_days": 1,
+  "watchlist_poll_interval_minutes": 10,
+  "watchlist_poll_batch_size": 5,
+  "watchlist_refresh_interval_days": 7
 }
 ```
 
 | Key | Description |
 |-----|-------------|
-| `rooms` | Map of storefront code → Apple Music Room URL. These are the pages polled for new releases. |
-| `check_storefronts` | Storefronts used when checking a release's availability. |
+| `check_storefronts` | Storefronts to poll for new releases and check availability. The app auto-discovers the new-release section from each storefront's `/new` page. |
 | `home_storefront` | Default storefront for metadata lookups in the UI. |
-| `poll_interval_minutes` | How often to poll rooms. Default: 60. |
+| `newrelease_poll_interval_days` | How often to poll for new releases. Default: 1. |
+| `watchlist_poll_interval_minutes` | How often to check watchlist artists for new releases. Default: 10. |
+| `watchlist_poll_batch_size` | Number of watchlist artists to refresh per poll cycle. Default: 5. |
+| `watchlist_refresh_interval_days` | How many days before a watchlist artist's catalog is considered stale and re-fetched. Default: 7. |
 | `cors_proxy` | Optional URL prefix to proxy outbound requests through (e.g. `https://proxy.example.com/`). Leave empty if not needed. |
 
 Config changes are picked up automatically on the next poll — no restart required.
@@ -147,6 +157,8 @@ The container exposes port 5000 and expects a single persistent volume mounted a
 | `/data/config.json` | Application config (seeded from `config.json.example` on first boot) |
 | `/data/am_discovery.db` | SQLite database |
 | `/data/bearer_token.txt` | Cached Apple Music bearer token (auto-generated) |
+
+The container runs Gunicorn via `wsgi.py` as its entry point.
 
 ### Deploying from Portainer via Gitea
 
@@ -213,7 +225,7 @@ docker exec -it am-discovery uv run python migrate.py
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `PORT` | `5000` | Port Flask listens on inside the container |
+| `PORT` | `5000` | Port Gunicorn listens on inside the container |
 | `AM_DB_PATH` | `/data/am_discovery.db` | Path to the SQLite database |
 
 ---
@@ -235,5 +247,5 @@ The `bearer_token.txt` file is auto-generated and gitignored. The client extract
 ## Notes
 
 - The app scrapes Apple Music web pages and uses their internal API. It does not use an official Apple Music API key. This means parsing can break if Apple changes their page structure.
-- Room URLs are specific to each storefront and region. Finding the right room URLs for your region requires browsing the Apple Music app or website.
+- New releases are discovered automatically by scanning each storefront's `/new` browse page. No manual room URL configuration is needed.
 - The database schema is still evolving — expect migration steps when updating.

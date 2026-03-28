@@ -11,15 +11,17 @@ AM Discovery is an Apple Music new-release discovery tool. It monitors regional 
 ## Architecture
 
 ```
-client.py   — AppleMusicClient: scrapes music.apple.com + amp-api.music.apple.com
-db.py       — SQLite database layer (all SQL lives here, nowhere else)
-server.py   — Flask REST API + background polling scheduler
-migrate.py  — Standalone migration runner for schema upgrades
-main.py     — Ad-hoc CLI script for manual testing/exploration
-frontend/   — Static SPA (index.html, app.js, style.css)
+client.py        — AppleMusicClient: scrapes music.apple.com + amp-api.music.apple.com
+db.py            — SQLite database layer (all SQL lives here, nowhere else)
+server.py        — Flask REST API + background polling scheduler
+wsgi.py          — Gunicorn WSGI entry point (production); imports app and starts scheduler
+gunicorn.conf.py — Gunicorn config (1 worker required — scheduler runs as in-process thread)
+migrate.py       — Standalone migration runner for schema upgrades
+main.py          — Ad-hoc CLI script for manual testing/exploration
+frontend/        — Static SPA (index.html, app.js, style.css)
 ```
 
-The server starts a background thread that polls configured Room URLs on a timer, fetches metadata for new albums concurrently, and persists everything to SQLite.
+The server starts a background thread that polls each configured storefront's `/new` browse page on a timer, auto-discovers the new-release room URL from that page, fetches metadata for new albums concurrently, and persists everything to SQLite.
 
 ---
 
@@ -36,7 +38,7 @@ cp config.json.example config.json
 # Edit config.json with your storefronts and settings
 ```
 
-**Start the server:**
+**Start the server (development):**
 ```bash
 uv run python server.py
 # or with debug logging:
@@ -44,6 +46,13 @@ uv run python server.py --debug
 ```
 
 Server runs on `http://localhost:5000` by default. Set `PORT` env var to change.
+
+**Start the server (production):**
+```bash
+uv run gunicorn -c gunicorn.conf.py "wsgi:app"
+```
+
+`wsgi.py` is the WSGI entry point used by Gunicorn (and the Docker container). It imports the Flask app and calls `init_scheduler()`. `gunicorn.conf.py` must keep `workers = 1` because the scheduler runs as an in-process background thread.
 
 **Run Python tests:**
 ```bash
@@ -106,9 +115,12 @@ AM_DB_PATH=/path/to/custom.db uv run python server.py
 
 | Key | Type | Description |
 |-----|------|-------------|
-| `check_storefronts` | array | Storefronts to poll for new releases and check availability |
+| `check_storefronts` | array | Storefronts to poll for new releases and check availability. The app auto-discovers the new-release room URL from each storefront's `/new` page. |
 | `home_storefront` | string | Default storefront for metadata lookups |
-| `newrelease_poll_interval_days` | integer | How often to poll for new releases (default: 1) |
+| `newrelease_poll_interval_days` | integer | How often to poll storefronts for new releases (default: 1) |
+| `watchlist_poll_interval_minutes` | integer | How often to check watchlist artists for new releases (default: 10) |
+| `watchlist_poll_batch_size` | integer | Artists refreshed per watchlist poll cycle (default: 5) |
+| `watchlist_refresh_interval_days` | integer | Days before a watchlist artist's catalog is considered stale (default: 7) |
 | `cors_proxy` | string | Optional URL prefix for proxying requests |
 
 The config is live-reloaded on every poll, so changes take effect on the next cycle without restarting.
@@ -140,6 +152,7 @@ Full Swagger docs at `/apidocs`.
 
 ## Key patterns
 
+- **Room URL discovery:** `client.discover_room_url(storefront)` fetches the storefront's `/new` browse page and locates the new-release room URL automatically. No room URLs are stored in config.
 - **Upsert pattern:** `upsert_album()` does `INSERT OR IGNORE` followed by `UPDATE` so concurrent inserts from multiple storefront pollers don't conflict.
 - **Storefront merging:** Each album tracks which storefronts it was seen in; storefronts are merged (not replaced) on each upsert.
 - **Source tracking:** Albums are tagged with `source='discovered'` (from room polling) or `source='artist_fetch'` (manually fetched via artist page). The `view=new` filter shows only discovered ones.
