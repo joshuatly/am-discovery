@@ -42,6 +42,16 @@ const el = (tag, cls, text) => {
   return e;
 };
 
+// localStorage helpers for watchlist preferences
+const WatchlistPrefs = {
+  getSortFilter() {
+    return localStorage.getItem("watchlist_sort") || "name";
+  },
+  setSortFilter(sort) {
+    localStorage.setItem("watchlist_sort", sort);
+  },
+};
+
 function formatDate(d) {
   if (!d || d === "Unknown") return "—";
   if (/^\d{4}-00-00/.test(d)) return d.slice(0, 4);
@@ -357,7 +367,8 @@ function route(hash) {
   if (hash === "#/all") {
     renderAllReleases(main);
   } else if (hash === "#/watchlist") {
-    renderWatchlist(main);
+    const sortFilter = WatchlistPrefs.getSortFilter();
+    renderWatchlist(main, "", "", sortFilter);
   } else if (hash === "#/settings") {
     renderSettings(main);
   } else if (hash.startsWith("#/artist/")) {
@@ -1015,7 +1026,10 @@ async function renderWatchlist(main, preferredSourceFilter = "", collectionStatu
   sortOptions.forEach(([code, label]) => {
     const btn = el("button", "cs-filter-btn sort-filter-btn" + (sortFilter === code ? " active" : ""));
     btn.textContent = label;
-    btn.addEventListener("click", () => renderWatchlist(main, preferredSourceFilter, collectionStatusFilter, code));
+    btn.addEventListener("click", () => {
+      WatchlistPrefs.setSortFilter(code);
+      renderWatchlist(main, preferredSourceFilter, collectionStatusFilter, code);
+    });
     sortFilterBar.appendChild(btn);
   });
   const sortRow = el("div", "filter-row");
