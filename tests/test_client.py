@@ -6,7 +6,9 @@ import time
 import unittest
 from unittest.mock import MagicMock, mock_open, patch
 
-from client import AppleMusicClient
+import urllib.error
+
+from client import AppleMusicClient, RateLimitError
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -229,6 +231,21 @@ class TestAmpApiGet(unittest.TestCase):
 
     @patch("urllib.request.urlopen", side_effect=Exception("network error"))
     def test_returns_empty_dict_on_exception(self, _):
+        self.assertEqual(self.client._amp_api_get("/v1/catalog/us/albums/123"), {})
+
+    @patch("urllib.request.urlopen")
+    def test_raises_rate_limit_error_on_429(self, mock_urlopen):
+        mock_urlopen.side_effect = urllib.error.HTTPError(
+            url="https://amp-api.music.apple.com/test", code=429, msg="Too Many Requests", hdrs={}, fp=None
+        )
+        with self.assertRaises(RateLimitError):
+            self.client._amp_api_get("/v1/catalog/us/albums/123")
+
+    @patch("urllib.request.urlopen")
+    def test_returns_empty_dict_on_other_http_error(self, mock_urlopen):
+        mock_urlopen.side_effect = urllib.error.HTTPError(
+            url="https://amp-api.music.apple.com/test", code=503, msg="Service Unavailable", hdrs={}, fp=None
+        )
         self.assertEqual(self.client._amp_api_get("/v1/catalog/us/albums/123"), {})
 
     @patch("urllib.request.urlopen")

@@ -1153,7 +1153,9 @@ async function renderWatchlist(main, preferredSourceFilter = "", collectionStatu
   }
 
   let _searchTimer = null;
+  let _searchAbort = null;
   let _lastSuggestions = [];
+  let _rateLimitedUntil = 0;
 
   function renderGrid(q) {
     grid.innerHTML = "";
@@ -1190,17 +1192,37 @@ async function renderWatchlist(main, preferredSourceFilter = "", collectionStatu
     renderGrid(q);
 
     clearTimeout(_searchTimer);
+    if (_searchAbort) { _searchAbort.abort(); _searchAbort = null; }
     if (!q) return;
+
+    const backoffMs = _rateLimitedUntil - Date.now();
+    const delay = backoffMs > 0 ? backoffMs : 350;
+
     _searchTimer = setTimeout(async () => {
+      if (Date.now() < _rateLimitedUntil) return;
+      const abort = new AbortController();
+      _searchAbort = abort;
       try {
         const sf = state.metadataStorefront || state.homeStorefront || "us";
-        const data = await API.get(`/api/search/artists?term=${encodeURIComponent(q)}&limit=10&storefront=${sf}`);
+        const r = await fetch(`/api/search/artists?term=${encodeURIComponent(q)}&limit=10&storefront=${sf}`, { signal: abort.signal });
+        if (r.status === 429) {
+          _rateLimitedUntil = Date.now() + 10000;
+          _lastSuggestions = [];
+          const notice = el("div", "empty-state", "");
+          notice.style.cssText = "grid-column:1/-1";
+          notice.innerHTML = `<div class="empty-icon">⏳</div><div class="empty-title">Rate limited</div><div class="empty-desc">Apple Music search is temporarily unavailable. Try again in a moment.</div>`;
+          grid.appendChild(notice);
+          return;
+        }
+        if (!r.ok) { _lastSuggestions = []; renderGrid(q); return; }
+        const data = await r.json();
         _lastSuggestions = data.results || [];
-      } catch {
-        _lastSuggestions = [];
+      } catch (e) {
+        if (e.name !== "AbortError") _lastSuggestions = [];
+        else return;
       }
       renderGrid(q);
-    }, 350);
+    }, delay);
   });
 
   renderGrid("");

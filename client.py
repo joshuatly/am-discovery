@@ -6,10 +6,15 @@ import os
 import re
 import time
 import traceback
+import urllib.error
 import urllib.parse
 import urllib.request
 
 _BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+
+class RateLimitError(Exception):
+    """Raised when the Apple Music API returns HTTP 429."""
 
 _MUSIC_BASE = "https://music.apple.com"
 _AMP_API_BASE = "https://amp-api.music.apple.com"
@@ -148,6 +153,12 @@ class AppleMusicClient:
         try:
             with urllib.request.urlopen(req, timeout=10) as resp:
                 return json.loads(resp.read().decode("utf-8"))
+        except urllib.error.HTTPError as e:
+            if e.code == 429:
+                logger.warning("[amp-api] Rate limited (429): %s", url)
+                raise RateLimitError("Apple Music API rate limit exceeded") from e
+            logger.warning("[amp-api] GET %s failed: %s", url, e)
+            return {}
         except Exception as e:
             logger.warning("[amp-api] GET %s failed: %s", url, e)
             return {}

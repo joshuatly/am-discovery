@@ -433,6 +433,17 @@ class TestApiSearchArtists(ServerTestCase):
         self.assertEqual(resp.status_code, 400)
         self.assertIn("error", resp.get_json())
 
+    @patch("server.AppleMusicClient")
+    def test_rate_limit_returns_429(self, MockClient):
+        from client import RateLimitError
+
+        mock_client = MockClient.return_value
+        mock_client.search_artists.side_effect = RateLimitError("rate limited")
+
+        resp = self.client.get("/api/search/artists?term=test")
+        self.assertEqual(resp.status_code, 429)
+        self.assertEqual(resp.get_json().get("error"), "rate_limited")
+
 
 # ---------------------------------------------------------------------------
 # GET/POST/DELETE /api/watchlist

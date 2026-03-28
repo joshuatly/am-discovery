@@ -16,7 +16,7 @@ from flasgger import Swagger
 from flask import Flask, jsonify, request, send_from_directory
 
 import db
-from client import AppleMusicClient
+from client import AppleMusicClient, RateLimitError
 
 # ---------------------------------------------------------------------------
 # App setup
@@ -644,7 +644,10 @@ def api_search_artists():
         return jsonify({"error": "limit must be an integer"}), 400
 
     client = AppleMusicClient()
-    results = client.search_artists(term, storefront=storefront, limit=limit)
+    try:
+        results = client.search_artists(term, storefront=storefront, limit=limit)
+    except RateLimitError:
+        return jsonify({"error": "rate_limited"}), 429
     return jsonify({"results": results})
 
 

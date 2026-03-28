@@ -2178,3 +2178,52 @@ describe("renderWatchlist sort button saves preference to localStorage", () => {
     expect(recentBtn.classList.contains("active")).toBe(true);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Watchlist search: 429 rate-limit handling
+// ---------------------------------------------------------------------------
+
+describe("watchlist search handles 429 rate-limit response", () => {
+  let main;
+
+  beforeEach(() => {
+    main = appWindow.document.getElementById("main-content");
+    main.innerHTML = "";
+    appWindow.fetch.mockImplementation((url) => {
+      if (url === "/api/config") {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ check_storefronts: ["us"], home_storefront: "us" }),
+        });
+      }
+      if (url.startsWith("/api/watchlist")) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
+      }
+      if (url.includes("/api/search/artists")) {
+        return Promise.resolve({ ok: false, status: 429, json: () => Promise.resolve({ error: "rate_limited" }) });
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
+    });
+  });
+
+  afterEach(() => {
+    main.innerHTML = "";
+    appWindow.fetch.mockClear();
+  });
+
+  test("shows rate-limit notice in grid when search returns 429", async () => {
+    await appWindow.renderWatchlist(main);
+    await new Promise(r => setTimeout(r, 50));
+
+    const searchInput = main.querySelector("input");
+    searchInput.value = "test";
+    searchInput.dispatchEvent(new appWindow.Event("input"));
+
+    // Wait for debounce + fetch
+    await new Promise(r => setTimeout(r, 500));
+
+    const grid = main.querySelector(".watchlist-grid, .album-grid, [class*='grid']");
+    expect(grid).not.toBeNull();
+    expect(grid.textContent).toMatch(/[Rr]ate.?[Ll]imited|rate limited|temporarily unavailable/i);
+  });
+});
