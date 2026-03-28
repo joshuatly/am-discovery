@@ -221,8 +221,16 @@ def list_albums(
 def get_artist_albums(artist_id: str):
     with get_conn() as conn:
         rows = conn.execute(
-            "SELECT * FROM albums WHERE artist_id = ? ORDER BY release_date DESC",
-            (artist_id,),
+            """
+            SELECT DISTINCT albums.* FROM albums
+            WHERE artist_id = ?
+               OR EXISTS (
+                   SELECT 1 FROM json_each(albums.artists_json)
+                   WHERE json_extract(value, '$.id') = ?
+               )
+            ORDER BY release_date DESC
+            """,
+            (artist_id, artist_id),
         ).fetchall()
         return [dict(r) for r in rows]
 
