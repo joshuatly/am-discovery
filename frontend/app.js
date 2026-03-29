@@ -175,6 +175,7 @@ const state = {
   homeStorefront: "",
   artistViewMode: "chrono",   // "chrono" | "grouped"
   artistTypeFilter: "",       // "" = all, else a release_type value
+  allReleasesTypeFilter: "",  // "" = all, else a release_type value
 };
 
 // ---------------------------------------------------------------------------
@@ -365,7 +366,7 @@ function route(hash) {
   });
 
   if (hash === "#/all") {
-    renderAllReleases(main);
+    renderAllReleases(main, 1, "", "", false, state.allReleasesTypeFilter);
   } else if (hash === "#/watchlist") {
     const sortFilter = WatchlistPrefs.getSortFilter();
     renderWatchlist(main, "", "", sortFilter);
@@ -509,7 +510,7 @@ async function renderNewReleases(main, page = 1, query = "", storefront = "", wa
 // ---------------------------------------------------------------------------
 // Page: All Albums
 // ---------------------------------------------------------------------------
-async function renderAllReleases(main, page = 1, query = "", storefront = "", watchedOnly = false) {
+async function renderAllReleases(main, page = 1, query = "", storefront = "", watchedOnly = false, typeFilter = "") {
   main.innerHTML = "";
   const wrap = el("div", "page-enter");
   wrap.appendChild(buildHeader("📀 All Albums", "Every album in your local database"));
@@ -522,7 +523,7 @@ async function renderAllReleases(main, page = 1, query = "", storefront = "", wa
   inp.placeholder = "Search title or artist…";
   inp.value = query;
   inp.addEventListener("input", debounce(e => {
-    renderAllReleases(main, 1, e.target.value.trim(), storefront, watchedOnly);
+    renderAllReleases(main, 1, e.target.value.trim(), storefront, watchedOnly, typeFilter);
   }, 350));
   searchDiv.appendChild(inp);
   controls.appendChild(filtersDiv);
@@ -542,17 +543,29 @@ async function renderAllReleases(main, page = 1, query = "", storefront = "", wa
   sfButtons.forEach(([label, code]) => {
     const btn = el("button", "sf-filter-btn" + (code ? ` ${code}` : "") + (storefront === code ? " active" : ""));
     btn.textContent = label;
-    btn.addEventListener("click", () => renderAllReleases(main, 1, query, code, watchedOnly));
+    btn.addEventListener("click", () => renderAllReleases(main, 1, query, code, watchedOnly, typeFilter));
     filterBar.appendChild(btn);
   });
 
   // Watched-only toggle
   const watchedToggle = el("button", `sf-filter-btn watched-toggle${watchedOnly ? " active" : ""}`, "Watched");
   watchedToggle.title = "Show only albums from watched artists";
-  watchedToggle.addEventListener("click", () => renderAllReleases(main, 1, query, storefront, !watchedOnly));
+  watchedToggle.addEventListener("click", () => renderAllReleases(main, 1, query, storefront, !watchedOnly, typeFilter));
   filterBar.appendChild(watchedToggle);
 
   filtersDiv.appendChild(filterBar);
+
+  const typeFilterBar = el("div", "type-filter-bar");
+  [["All", ""], ...RELEASE_TYPE_ORDER.map(k => [RELEASE_TYPE_LABELS[k], k])].forEach(([label, code]) => {
+    const btn = el("button", "type-filter-btn" + (typeFilter === code ? " active" : ""));
+    btn.textContent = label;
+    btn.addEventListener("click", () => {
+      state.allReleasesTypeFilter = code;
+      renderAllReleases(main, 1, query, storefront, watchedOnly, code);
+    });
+    typeFilterBar.appendChild(btn);
+  });
+  filtersDiv.appendChild(typeFilterBar);
 
   const gridWrap = el("div");
   gridWrap.appendChild(skeletonGrid(12));
@@ -566,6 +579,7 @@ async function renderAllReleases(main, page = 1, query = "", storefront = "", wa
     if (watchedOnly) qp.set("watched", "true");
     if (query) qp.set("q", query);
     if (storefront) qp.set("storefront", storefront);
+    if (typeFilter) qp.set("release_type", typeFilter);
     data = await API.get(`/api/releases?${qp}`);
   } catch {
     gridWrap.innerHTML = `<div class="empty-state"><div class="empty-icon">⚠️</div><div class="empty-title">Could not load</div></div>`;
@@ -584,7 +598,7 @@ async function renderAllReleases(main, page = 1, query = "", storefront = "", wa
 
   const totalPages = Math.ceil(data.total / state.perPage);
   if (totalPages > 1) {
-    gridWrap.appendChild(buildPagination(page, totalPages, p => renderAllReleases(main, p, query, storefront, watchedOnly)));
+    gridWrap.appendChild(buildPagination(page, totalPages, p => renderAllReleases(main, p, query, storefront, watchedOnly, typeFilter)));
   }
 }
 

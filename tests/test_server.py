@@ -1092,6 +1092,35 @@ class TestApiReleasesWatched(ServerTestCase):
         self.assertTrue(kwargs.get("watched_only"))
 
 
+class TestApiReleasesReleaseType(ServerTestCase):
+    @patch("server.db")
+    def test_release_type_passed_to_db(self, mock_db):
+        mock_db.list_albums.return_value = ([], 0)
+        mock_db.get_watched_artist_ids.return_value = set()
+
+        self.client.get("/api/releases?release_type=main-albums")
+        args, kwargs = mock_db.list_albums.call_args
+        self.assertEqual(kwargs.get("release_type"), "main-albums")
+
+    @patch("server.db")
+    def test_release_type_empty_by_default(self, mock_db):
+        mock_db.list_albums.return_value = ([], 0)
+        mock_db.get_watched_artist_ids.return_value = set()
+
+        self.client.get("/api/releases")
+        args, kwargs = mock_db.list_albums.call_args
+        self.assertEqual(kwargs.get("release_type", ""), "")
+
+    @patch("server.db")
+    def test_release_type_passed_to_search(self, mock_db):
+        mock_db.search_albums.return_value = ([], 0)
+        mock_db.get_watched_artist_ids.return_value = set()
+
+        self.client.get("/api/releases?q=test&release_type=singles-eps")
+        args, kwargs = mock_db.search_albums.call_args
+        self.assertEqual(kwargs.get("release_type"), "singles-eps")
+
+
 # ---------------------------------------------------------------------------
 # GET /api/watchlist/export
 # ---------------------------------------------------------------------------
