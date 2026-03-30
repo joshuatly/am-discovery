@@ -389,6 +389,7 @@ def api_releases():
         return jsonify({"error": "invalid storefront"}), 400
     discovered_only = request.args.get("view") == "new"
     watched_only = request.args.get("watched") == "true"
+    release_type = request.args.get("release_type", "").strip()
 
     if q:
         rows, total = db.search_albums(
@@ -398,6 +399,7 @@ def api_releases():
             storefront=storefront,
             discovered_only=discovered_only,
             watched_only=watched_only,
+            release_type=release_type,
         )
     else:
         rows, total = db.list_albums(
@@ -406,6 +408,7 @@ def api_releases():
             storefront=storefront,
             discovered_only=discovered_only,
             watched_only=watched_only,
+            release_type=release_type,
         )
 
     watched_ids = db.get_watched_artist_ids()

@@ -197,6 +197,7 @@ def list_albums(
     storefront: str = "",
     discovered_only: bool = False,
     watched_only: bool = False,
+    release_type: str = "",
 ):
     offset = (page - 1) * per_page
     with get_conn() as conn:
@@ -213,6 +214,9 @@ def list_albums(
                 " OR EXISTS (SELECT 1 FROM json_each(albums.artists_json)"
                 "  WHERE json_extract(value, '$.id') IN (SELECT artist_id FROM watched_artists)))"
             )
+        if release_type:
+            conditions.append("release_type = ?")
+            params.append(release_type)
         where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
         total = conn.execute(f"SELECT COUNT(*) FROM albums {where}", params).fetchone()[0]
         rows = conn.execute(
@@ -508,6 +512,7 @@ def search_albums(
     storefront: str = "",
     discovered_only: bool = False,
     watched_only: bool = False,
+    release_type: str = "",
 ):
     offset = (page - 1) * per_page
     q = f"%{query}%"
@@ -525,6 +530,9 @@ def search_albums(
                 " OR EXISTS (SELECT 1 FROM json_each(albums.artists_json)"
                 "  WHERE json_extract(value, '$.id') IN (SELECT artist_id FROM watched_artists)))"
             )
+        if release_type:
+            conditions.append("release_type = ?")
+            params.append(release_type)
         where = "WHERE " + " AND ".join(conditions)
         total = conn.execute(f"SELECT COUNT(*) FROM albums {where}", params).fetchone()[0]
         rows = conn.execute(

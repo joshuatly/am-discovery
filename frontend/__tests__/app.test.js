@@ -2377,6 +2377,78 @@ describe("renderAllReleases — Watched filter", () => {
 });
 
 // ---------------------------------------------------------------------------
+// renderAllReleases — Type filter
+// ---------------------------------------------------------------------------
+
+describe("renderAllReleases — Type filter", () => {
+  let main;
+
+  beforeEach(() => {
+    main = appWindow.document.getElementById("main-content");
+    const state = appWindow.__test_state;
+    state.configuredStorefronts = ["jp"];
+    appWindow.fetch.mockImplementation((url) => {
+      if (url.includes("/api/watchlist")) return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({ items: [], total: 0 }) });
+    });
+  });
+
+  afterEach(() => {
+    main.innerHTML = "";
+    appWindow.fetch.mockClear();
+  });
+
+  test("renders a type filter bar with All button", async () => {
+    await appWindow.__test_renderAllReleases(main);
+    const typeBar = main.querySelector(".type-filter-bar");
+    expect(typeBar).not.toBeNull();
+    const allBtn = Array.from(typeBar.querySelectorAll(".type-filter-btn")).find(b => b.textContent === "All");
+    expect(allBtn).not.toBeNull();
+  });
+
+  test("All button is active by default", async () => {
+    await appWindow.__test_renderAllReleases(main);
+    const typeBar = main.querySelector(".type-filter-bar");
+    const allBtn = Array.from(typeBar.querySelectorAll(".type-filter-btn")).find(b => b.textContent === "All");
+    expect(allBtn.classList.contains("active")).toBe(true);
+  });
+
+  test("renders buttons for each release type", async () => {
+    await appWindow.__test_renderAllReleases(main);
+    const typeBar = main.querySelector(".type-filter-bar");
+    const btns = typeBar.querySelectorAll(".type-filter-btn");
+    // All + 4 types
+    expect(btns.length).toBe(5);
+  });
+
+  test("selected type button is active", async () => {
+    await appWindow.__test_renderAllReleases(main, 1, "", "", false, "main-albums");
+    const typeBar = main.querySelector(".type-filter-bar");
+    const activeBtn = typeBar.querySelector(".type-filter-btn.active");
+    expect(activeBtn).not.toBeNull();
+    expect(activeBtn.textContent).toBe("Albums");
+  });
+
+  test("passes release_type to API when typeFilter is set", async () => {
+    await appWindow.__test_renderAllReleases(main, 1, "", "", false, "singles-eps");
+    const calls = appWindow.fetch.mock.calls.map(c => c[0]);
+    const releaseCall = calls.find(u => u.startsWith("/api/releases"));
+    expect(releaseCall).toContain("release_type=singles-eps");
+  });
+
+  test("does not pass release_type to API when typeFilter is empty", async () => {
+    await appWindow.__test_renderAllReleases(main, 1, "", "", false, "");
+    const calls = appWindow.fetch.mock.calls.map(c => c[0]);
+    const releaseCall = calls.find(u => u.startsWith("/api/releases"));
+    expect(releaseCall).not.toContain("release_type");
+  });
+
+  test("allReleasesTypeFilter initial state is empty string", () => {
+    expect(appWindow.__test_state.allReleasesTypeFilter).toBe("");
+  });
+});
+
+// ---------------------------------------------------------------------------
 // paginateList
 // ---------------------------------------------------------------------------
 

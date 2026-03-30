@@ -399,6 +399,21 @@ class TestListAlbums(DBTestCase):
         self.assertEqual(total, 0)
         self.assertEqual(rows, [])
 
+    def test_filter_by_release_type(self):
+        self.db.upsert_album(_minimal_album("A4", release_type="singles-eps"))
+        rows, total = self.db.list_albums(release_type="singles-eps")
+        self.assertEqual(total, 1)
+        for r in rows:
+            self.assertEqual(r["release_type"], "singles-eps")
+
+    def test_filter_release_type_no_match(self):
+        rows, total = self.db.list_albums(release_type="live-albums")
+        self.assertEqual(total, 0)
+
+    def test_release_type_empty_returns_all(self):
+        rows, total = self.db.list_albums(release_type="")
+        self.assertEqual(total, 3)
+
 
 # ---------------------------------------------------------------------------
 # search_albums
@@ -460,6 +475,16 @@ class TestSearchAlbums(DBTestCase):
         rows, total = self.db.search_albums("e")  # matches Alice, Green, Blue, Red
         self.assertGreater(total, 0)
 
+    def test_search_with_release_type_filter(self):
+        self.db.upsert_album(_minimal_album("A4", title="Live Night", artist="Alice", release_type="live-albums"))
+        rows, total = self.db.search_albums("Alice", release_type="live-albums")
+        self.assertEqual(total, 1)
+        self.assertEqual(rows[0]["release_type"], "live-albums")
+
+    def test_search_release_type_empty_returns_all_matches(self):
+        rows, total = self.db.search_albums("Alice", release_type="")
+        self.assertEqual(total, 2)
+
 
 # ---------------------------------------------------------------------------
 # get_artist_albums
@@ -493,9 +518,7 @@ class TestGetArtistAlbums(DBTestCase):
             {"id": "ART_PRIMARY", "name": "Primary Artist", "url": "", "artwork_url": None, "genre": None},
             {"id": "ART_SECONDARY", "name": "Secondary Artist", "url": "", "artwork_url": None, "genre": None},
         ]
-        self.db.upsert_album(
-            _minimal_album("COLLAB1", artist_id="ART_PRIMARY", artists_json=artists)
-        )
+        self.db.upsert_album(_minimal_album("COLLAB1", artist_id="ART_PRIMARY", artists_json=artists))
         # Should appear when querying primary artist
         rows = self.db.get_artist_albums("ART_PRIMARY")
         self.assertEqual(len(rows), 1)
@@ -508,9 +531,7 @@ class TestGetArtistAlbums(DBTestCase):
         artists = [
             {"id": "ART1", "name": "Artist One", "url": "", "artwork_url": None, "genre": None},
         ]
-        self.db.upsert_album(
-            _minimal_album("A1", artist_id="ART1", artists_json=artists)
-        )
+        self.db.upsert_album(_minimal_album("A1", artist_id="ART1", artists_json=artists))
         rows = self.db.get_artist_albums("ART1")
         self.assertEqual(len(rows), 1)
 
