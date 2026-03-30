@@ -2528,3 +2528,50 @@ describe("paginateList", () => {
     expect(appWindow.__test_WATCHLIST_PAGE_SIZE).toBe(48);
   });
 });
+
+// ---------------------------------------------------------------------------
+// albumCard — track-count chip
+// ---------------------------------------------------------------------------
+
+describe("albumCard track-count chip", () => {
+  const baseAlbum = {
+    store_adam_id: "123",
+    title: "Test Album",
+    artwork_url: null,
+    artists: [{ id: "A1", name: "Artist", url: null }],
+    release_date: "2024-01-01",
+    storefronts: [],
+    watched: false,
+  };
+
+  test("shows track-count chip when track_count is present", () => {
+    const card = appWindow.albumCard({ ...baseAlbum, track_count: 10 });
+    const chip = card.querySelector(".track-count-chip");
+    expect(chip).not.toBeNull();
+    expect(chip.textContent).toBe("10");
+  });
+
+  test("does not show track-count chip when track_count is absent", () => {
+    const card = appWindow.albumCard({ ...baseAlbum });
+    expect(card.querySelector(".track-count-chip")).toBeNull();
+  });
+
+  test("does not show track-count chip when track_count is 0", () => {
+    const card = appWindow.albumCard({ ...baseAlbum, track_count: 0 });
+    expect(card.querySelector(".track-count-chip")).toBeNull();
+  });
+
+  test("chip is inside album-art-wrap", () => {
+    const card = appWindow.albumCard({ ...baseAlbum, track_count: 5 });
+    const wrap = card.querySelector(".album-art-wrap");
+    expect(wrap).not.toBeNull();
+    expect(wrap.querySelector(".track-count-chip")).not.toBeNull();
+  });
+
+  test("artwork is inside album-art-wrap", () => {
+    const card = appWindow.albumCard({ ...baseAlbum, track_count: 3 });
+    const wrap = card.querySelector(".album-art-wrap");
+    // placeholder used when artwork_url is null
+    expect(wrap.querySelector(".album-artwork-placeholder")).not.toBeNull();
+  });
+});

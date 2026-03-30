@@ -1585,7 +1585,13 @@ function albumCard(album) {
     card.appendChild(badge);
   }
 
-  card.appendChild(artworkEl(album.artwork_url, "album-artwork"));
+  const artWrap = el("div", "album-art-wrap");
+  artWrap.appendChild(artworkEl(album.artwork_url, "album-artwork"));
+  if (album.track_count) {
+    const tc = el("span", "track-count-chip", `${album.track_count}`);
+    artWrap.appendChild(tc);
+  }
+  card.appendChild(artWrap);
 
   const info = el("div", "album-info");
 
