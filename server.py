@@ -802,6 +802,18 @@ def api_watchlist_remove(artist_id):
     return jsonify({"ok": True})
 
 
+@app.route("/api/watchlist/ids", methods=["GET"])
+def api_watchlist_ids():
+    """Get only the artist IDs from the watchlist.
+    ---
+    responses:
+      200:
+        description: List of watched artist IDs
+
+    """
+    return jsonify(db.get_watchlist_ids())
+
+
 @app.route("/api/watchlist/export", methods=["GET"])
 def api_watchlist_export():
     """Export the watchlist as a downloadable JSON file.

@@ -163,6 +163,7 @@ function skeletonGrid(n = 12) {
 // ---------------------------------------------------------------------------
 const state = {
   watchedIds: new Set(),
+  watchedIdsLoaded: false,
   currentPage: 1,
   currentTotal: 0,
   currentQuery: "",
@@ -384,9 +385,11 @@ function route(hash) {
 // Watchlist helpers
 // ---------------------------------------------------------------------------
 async function loadWatchedIds() {
+  if (state.watchedIdsLoaded) return;
   try {
-    const list = await API.get("/api/watchlist");
-    state.watchedIds = new Set(list.map(a => a.artist_id));
+    const ids = await API.get("/api/watchlist/ids");
+    state.watchedIds = new Set(ids);
+    state.watchedIdsLoaded = true;
   } catch {}
 }
 
@@ -1008,13 +1011,9 @@ async function renderWatchlist(main, preferredSourceFilter = "", collectionStatu
     return;
   }
 
-  // Also load full watchlist for IDs (unfiltered)
-  try {
-    const full = await API.get("/api/watchlist");
-    state.watchedIds = new Set(full.map(a => a.artist_id));
-  } catch {
-    state.watchedIds = new Set(list.map(a => a.artist_id));
-  }
+  // Sync watchedIds from the unfiltered list result (watchlist page always has full data)
+  state.watchedIds = new Set(list.map(a => a.artist_id));
+  state.watchedIdsLoaded = true;
 
   // Filter by preferred source
   if (state.configuredStorefronts === null) {
