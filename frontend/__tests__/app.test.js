@@ -105,6 +105,8 @@ afterAll(() => {
 beforeEach(() => {
   // Reset fetch mock between tests
   appWindow.fetch.mockClear();
+  // Reset watchedIds cache so each test gets a clean slate
+  appWindow.__test_state.watchedIdsLoaded = false;
 });
 
 // ---------------------------------------------------------------------------
@@ -724,6 +726,10 @@ describe("API helper", () => {
 describe("state initial values", () => {
   test("watchedIds is a Set", () => {
     expect(appWindow.__test_state.watchedIds).toBeInstanceOf(appWindow.Set);
+  });
+
+  test("watchedIdsLoaded is false initially", () => {
+    expect(appWindow.__test_state.watchedIdsLoaded).toBe(false);
   });
 
   test("currentPage is 1", () => {

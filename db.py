@@ -246,6 +246,12 @@ def get_artist_albums(artist_id: str):
 WATCHLIST_SORT_OPTIONS = {"name", "added", "recent_release"}
 
 
+def get_watchlist_ids() -> list[str]:
+    with get_conn() as conn:
+        rows = conn.execute("SELECT artist_id FROM watched_artists").fetchall()
+        return [r["artist_id"] for r in rows]
+
+
 def get_watchlist(preferred_source: str = "", collection_status: str = "", sort: str = "name"):
     if sort not in WATCHLIST_SORT_OPTIONS:
         sort = "name"

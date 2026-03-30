@@ -545,6 +545,17 @@ class TestWatchlist(DBTestCase):
     def test_empty_watchlist(self):
         self.assertEqual(self.db.get_watchlist(), [])
 
+    def test_get_watchlist_ids_empty(self):
+        self.assertEqual(self.db.get_watchlist_ids(), [])
+
+    def test_get_watchlist_ids_returns_only_ids(self):
+        self.db.add_to_watchlist("ART1", "Artist One", None)
+        self.db.add_to_watchlist("ART2", "Artist Two", None)
+        ids = self.db.get_watchlist_ids()
+        self.assertCountEqual(ids, ["ART1", "ART2"])
+        # Must be plain strings, not dicts
+        self.assertIsInstance(ids[0], str)
+
     def test_add_to_watchlist(self):
         self.db.add_to_watchlist("ART1", "Artist One", "https://music.apple.com/us/artist/ART1")
         wl = self.db.get_watchlist()

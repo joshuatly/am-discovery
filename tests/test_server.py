@@ -600,6 +600,27 @@ class TestApiWatchlist(ServerTestCase):
 
 
 # ---------------------------------------------------------------------------
+# GET /api/watchlist/ids
+# ---------------------------------------------------------------------------
+
+
+class TestApiWatchlistIds(ServerTestCase):
+    @patch("server.db")
+    def test_get_ids_returns_list(self, mock_db):
+        mock_db.get_watchlist_ids.return_value = ["ART1", "ART2"]
+        resp = self.client.get("/api/watchlist/ids")
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.get_json(), ["ART1", "ART2"])
+
+    @patch("server.db")
+    def test_get_ids_empty(self, mock_db):
+        mock_db.get_watchlist_ids.return_value = []
+        resp = self.client.get("/api/watchlist/ids")
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.get_json(), [])
+
+
+# ---------------------------------------------------------------------------
 # GET/PUT /api/config
 # ---------------------------------------------------------------------------
 
