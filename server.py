@@ -352,10 +352,7 @@ def _is_watched(row: dict, watched_ids: set) -> bool:
     """Return True if any artist credited on the album is in watched_ids."""
     if row.get("artist_id") in watched_ids:
         return True
-    for artist in row.get("artists_json") or []:
-        if artist.get("id") in watched_ids:
-            return True
-    return False
+    return any(artist.get("id") in watched_ids for artist in row.get("artists_json") or [])
 
 
 @app.route("/api/releases")
