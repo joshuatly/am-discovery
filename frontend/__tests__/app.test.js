@@ -386,6 +386,133 @@ describe("sfChips", () => {
 });
 
 // ---------------------------------------------------------------------------
+// sfPaletteColor / sfChipInlineStyle / sfChipHtml / applysfChipColor
+// ---------------------------------------------------------------------------
+
+describe("sfPaletteColor", () => {
+  test("returns an object with bg and fg", () => {
+    const color = appWindow.sfPaletteColor("us");
+    expect(color).toHaveProperty("bg");
+    expect(color).toHaveProperty("fg");
+  });
+
+  test("same storefront always returns same color (deterministic)", () => {
+    expect(appWindow.sfPaletteColor("kr")).toEqual(appWindow.sfPaletteColor("kr"));
+  });
+
+  test("different storefronts may return different colors", () => {
+    // Not guaranteed but statistically very likely for distinct codes
+    const codes = ["us", "kr", "gb", "au", "fr", "de", "cn", "in"];
+    const colors = codes.map(c => appWindow.sfPaletteColor(c).fg);
+    const unique = new Set(colors);
+    expect(unique.size).toBeGreaterThan(1);
+  });
+});
+
+describe("sfChipInlineStyle", () => {
+  test("returns empty string for known storefronts", () => {
+    expect(appWindow.sfChipInlineStyle("hk")).toBe("");
+    expect(appWindow.sfChipInlineStyle("jp")).toBe("");
+    expect(appWindow.sfChipInlineStyle("my")).toBe("");
+    expect(appWindow.sfChipInlineStyle("tw")).toBe("");
+    expect(appWindow.sfChipInlineStyle("sg")).toBe("");
+  });
+
+  test("returns non-empty style string for unknown storefront", () => {
+    const style = appWindow.sfChipInlineStyle("us");
+    expect(style.length).toBeGreaterThan(0);
+    expect(style).toContain("background:");
+    expect(style).toContain("color:");
+  });
+
+  test("is case-insensitive — HK treated as known", () => {
+    expect(appWindow.sfChipInlineStyle("HK")).toBe("");
+  });
+});
+
+describe("sfChipHtml", () => {
+  test("known storefront has no inline style attribute", () => {
+    const html = appWindow.sfChipHtml("jp");
+    expect(html).not.toContain("style=");
+    expect(html).toContain("sf-chip jp");
+    expect(html).toContain("JP");
+  });
+
+  test("unknown storefront includes inline style", () => {
+    const html = appWindow.sfChipHtml("us");
+    expect(html).toContain("style=");
+    expect(html).toContain("sf-chip us");
+    expect(html).toContain("US");
+  });
+
+  test("extra style is merged in", () => {
+    const html = appWindow.sfChipHtml("us", "font-size:10px;");
+    expect(html).toContain("font-size:10px;");
+  });
+
+  test("extra style applies to known storefronts too", () => {
+    const html = appWindow.sfChipHtml("jp", "vertical-align:middle;");
+    expect(html).toContain("style=");
+    expect(html).toContain("vertical-align:middle;");
+  });
+});
+
+describe("applysfChipColor", () => {
+  test("does not set style on known storefronts", () => {
+    const span = appWindow.document.createElement("span");
+    appWindow.applysfChipColor(span, "hk");
+    expect(span.style.background).toBe("");
+  });
+
+  test("sets background and color style on unknown storefronts", () => {
+    const span = appWindow.document.createElement("span");
+    appWindow.applysfChipColor(span, "us");
+    expect(span.style.background).not.toBe("");
+    expect(span.style.color).not.toBe("");
+  });
+});
+
+describe("applyMetaSrcBtnColor", () => {
+  test("does nothing for known storefront", () => {
+    const btn = appWindow.document.createElement("button");
+    appWindow.applyMetaSrcBtnColor(btn, "jp", true);
+    expect(btn.style.color).toBe("");
+  });
+
+  test("does nothing when not active", () => {
+    const btn = appWindow.document.createElement("button");
+    appWindow.applyMetaSrcBtnColor(btn, "us", false);
+    expect(btn.style.color).toBe("");
+  });
+
+  test("sets color, background, and borderColor when active and unknown", () => {
+    const btn = appWindow.document.createElement("button");
+    appWindow.applyMetaSrcBtnColor(btn, "us", true);
+    expect(btn.style.color).not.toBe("");
+    expect(btn.style.background).not.toBe("");
+    expect(btn.style.borderColor).not.toBe("");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// sfChips — unknown storefront gets palette color
+// ---------------------------------------------------------------------------
+
+describe("sfChips dynamic color", () => {
+  test("unknown storefront chip has inline style applied", () => {
+    const chips = appWindow.sfChips(["us"]);
+    const chip = chips.children[0];
+    expect(chip.style.background).not.toBe("");
+  });
+
+  test("known storefront chip has no inline background style", () => {
+    const chips = appWindow.sfChips(["jp"]);
+    const chip = chips.children[0];
+    expect(chip.style.background).toBe("");
+  });
+});
+
+// ---------------------------------------------------------------------------
 // skeletonGrid
 // ---------------------------------------------------------------------------
 

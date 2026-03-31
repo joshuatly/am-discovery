@@ -138,10 +138,64 @@ function placeholderEl(cls) {
   return d;
 }
 
+// Storefronts with hardcoded CSS colors — all others get a palette color
+const SF_CSS_KNOWN = new Set(["hk", "jp", "my", "tw", "sg"]);
+const SF_PALETTE = [
+  { bg: "rgba(180,100,255,0.2)", fg: "#b464ff" }, // purple
+  { bg: "rgba(255,140,0,0.2)",   fg: "#ff8c00" }, // orange
+  { bg: "rgba(0,200,200,0.2)",   fg: "#00c8c8" }, // cyan
+  { bg: "rgba(255,100,180,0.2)", fg: "#ff64b4" }, // pink
+  { bg: "rgba(100,220,150,0.2)", fg: "#64dc96" }, // mint
+  { bg: "rgba(255,180,100,0.2)", fg: "#ffb464" }, // peach
+  { bg: "rgba(150,100,255,0.2)", fg: "#9664ff" }, // violet
+  { bg: "rgba(0,180,255,0.2)",   fg: "#00b4ff" }, // sky
+  { bg: "rgba(255,60,60,0.2)",   fg: "#ff3c3c" }, // red
+  { bg: "rgba(180,220,60,0.2)",  fg: "#b4dc3c" }, // lime
+  { bg: "rgba(255,120,180,0.2)", fg: "#ff78b4" }, // rose
+  { bg: "rgba(60,180,255,0.2)",  fg: "#3cb4ff" }, // azure
+];
+
+function sfPaletteColor(sf) {
+  const code = sf.toLowerCase();
+  let hash = 0;
+  for (let i = 0; i < code.length; i++) hash = (hash * 31 + code.charCodeAt(i)) & 0xffff;
+  return SF_PALETTE[hash % SF_PALETTE.length];
+}
+
+// Returns an inline style string for storefronts not covered by CSS
+function sfChipInlineStyle(sf) {
+  if (SF_CSS_KNOWN.has(sf.toLowerCase())) return "";
+  const { bg, fg } = sfPaletteColor(sf);
+  return `background:${bg};color:${fg};`;
+}
+
+// Applies dynamic palette color to a chip element if needed
+function applysfChipColor(el, sf) {
+  const style = sfChipInlineStyle(sf);
+  if (style) el.style.cssText += style;
+}
+
+// Applies palette color to a meta-src-btn for unknown storefronts (active state only)
+function applyMetaSrcBtnColor(btn, sf, isActive) {
+  if (SF_CSS_KNOWN.has(sf.toLowerCase()) || !isActive) return;
+  const { bg, fg } = sfPaletteColor(sf);
+  btn.style.color = fg;
+  btn.style.background = bg;
+  btn.style.borderColor = bg.replace("0.2)", "0.4)");
+}
+
+// Returns full <span class="sf-chip ..."> HTML for use in innerHTML, with optional extra style
+function sfChipHtml(sf, extraStyle = "") {
+  const inlineStyle = sfChipInlineStyle(sf) + extraStyle;
+  const styleAttr = inlineStyle ? ` style="${inlineStyle}"` : "";
+  return `<span class="sf-chip ${sf.toLowerCase()}"${styleAttr}>${sf.toUpperCase()}</span>`;
+}
+
 function sfChips(storefronts) {
   const div = el("div", "sf-chips");
   (storefronts || []).forEach(sf => {
     const c = el("span", `sf-chip ${sf.toLowerCase()}`);
+    applysfChipColor(c, sf);
     c.textContent = sf.toUpperCase();
     div.appendChild(c);
   });
@@ -299,6 +353,7 @@ function renderMetaSourceWidget() {
   storefronts.forEach(sf => {
     const isActive = state.metadataStorefront === sf;
     const btn = el("button", `meta-src-btn ${sf}${isActive ? " active" : ""}`, sf.toUpperCase());
+    applyMetaSrcBtnColor(btn, sf, isActive);
     btn.title = `Fetch metadata from ${sf.toUpperCase()} storefront`;
     btn.addEventListener("click", () => {
       state.metadataStorefront = sf;
@@ -1126,6 +1181,7 @@ async function renderWatchlist(main, preferredSourceFilter = "", collectionStatu
     const date = el("div", "watchlist-date", dateText);
     if (artist.preferred_source) {
       const psBadge = el("span", `sf-chip ${artist.preferred_source}`);
+      applysfChipColor(psBadge, artist.preferred_source);
       psBadge.textContent = artist.preferred_source.toUpperCase();
       psBadge.style.marginLeft = "6px";
       psBadge.style.fontSize = "9px";
@@ -1755,7 +1811,7 @@ async function openModal(storeAdamId) {
 
   if (album._metaSf) {
     const sfBadge = el("div", "modal-meta-sf-badge");
-    sfBadge.innerHTML = `<span class="sf-chip ${album._metaSf}">${album._metaSf.toUpperCase()}</span> metadata`;
+    sfBadge.innerHTML = `${sfChipHtml(album._metaSf)} metadata`;
     headerInfo.appendChild(sfBadge);
   }
 
@@ -1797,7 +1853,7 @@ async function openModal(storeAdamId) {
   if (hasDiff) {
     const diffBanner = el("div", "tracklist-diff-banner");
     const sfLabel = album._metaSf.toUpperCase();
-    diffBanner.innerHTML = `<span class="diff-warn-icon">⚠</span> Track titles differ between <span class="sf-chip ${album._metaSf}">${sfLabel}</span> and <span class="sf-chip ${homeForDiff}">${homeForDiff.toUpperCase()}</span>`;
+    diffBanner.innerHTML = `<span class="diff-warn-icon">⚠</span> Track titles differ between ${sfChipHtml(album._metaSf)} and ${sfChipHtml(homeForDiff)}`;
     details.appendChild(diffBanner);
   }
 
@@ -1910,6 +1966,7 @@ async function openModal(storeAdamId) {
         const chips = el("div", "sf-result-chips");
         res.available.forEach(sf => {
           const a = el("a", `sf-chip ${sf}`, sf.toUpperCase());
+          applysfChipColor(a, sf);
           a.href = `https://music.apple.com/${sf}/album/${album.store_adam_id}`;
           a.target = "_blank";
           a.rel = "noopener";
@@ -1962,7 +2019,7 @@ async function openModal(storeAdamId) {
     const tl = el("div", "tracklist");
     const tlHead = el("div", "tracklist-header");
     if (hasDiff) {
-      tlHead.innerHTML = `<span class="sf-chip ${album._metaSf}" style="font-size:10px;vertical-align:middle">${album._metaSf.toUpperCase()}</span> &nbsp;Tracklist — ${tracks.length} track${tracks.length !== 1 ? "s" : ""}`;
+      tlHead.innerHTML = `${sfChipHtml(album._metaSf, "font-size:10px;vertical-align:middle;")} &nbsp;Tracklist — ${tracks.length} track${tracks.length !== 1 ? "s" : ""}`;
     } else {
       tlHead.textContent = `Tracklist — ${tracks.length} track${tracks.length !== 1 ? "s" : ""}`;
     }
@@ -1989,7 +2046,7 @@ async function openModal(storeAdamId) {
   if (hasDiff && myTracks.length) {
     const myTl = el("div", "tracklist");
     const myTlHead = el("div", "tracklist-header tracklist-header-my");
-    myTlHead.innerHTML = `<span class="sf-chip ${homeForDiff}" style="font-size:10px;vertical-align:middle">${homeForDiff.toUpperCase()}</span> &nbsp;Tracklist — ${myTracks.length} track${myTracks.length !== 1 ? "s" : ""}`;
+    myTlHead.innerHTML = `${sfChipHtml(homeForDiff, "font-size:10px;vertical-align:middle;")} &nbsp;Tracklist — ${myTracks.length} track${myTracks.length !== 1 ? "s" : ""}`;
     myTl.appendChild(myTlHead);
     myTracks.forEach((t, i) => {
       const mainTrack = tracks[i];
