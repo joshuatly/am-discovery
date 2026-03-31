@@ -666,6 +666,92 @@ def api_search_artists():
     return jsonify({"results": results})
 
 
+@app.route("/api/search/artists/local")
+def api_search_artists_local():
+    """Search local database for artists without querying Apple Music.
+
+    Results come exclusively from the local SQLite database — no external
+    network requests are made.  Only artists that have previously been
+    discovered through album polling, artist fetches, or watchlist additions
+    will appear.
+
+    Results are ranked by match quality (best match first):
+
+    - **name_exact** — artist name exactly matches the term (case-insensitive)
+    - **name_prefix** — artist name starts with the term
+    - **name_contains** — artist name contains the term anywhere
+    - **info_contains** — term found in bio, genre, or origin (name doesn't match)
+    ---
+
+    parameters:
+      - name: term
+        in: query
+        type: string
+        required: true
+        description: >
+          Search term matched against artist name (primary), and against
+          artist bio, genre, and origin (secondary, ranked lower).
+      - name: limit
+        in: query
+        type: integer
+        default: 25
+        description: Maximum number of results to return (capped at 50).
+    responses:
+      200:
+        description: Ranked list of matching artists from the local database.
+        schema:
+          type: object
+          properties:
+            results:
+              type: array
+              items:
+                type: object
+                properties:
+                  artist_id:
+                    type: string
+                    description: Apple Music artist ID.
+                  name:
+                    type: string
+                  artwork_url:
+                    type: string
+                  genre:
+                    type: string
+                  born_or_formed:
+                    type: string
+                  origin:
+                    type: string
+                  artist_bio:
+                    type: string
+                  is_group:
+                    type: boolean
+                  watched:
+                    type: boolean
+                    description: Whether the artist is on the watchlist.
+                  collection_status:
+                    type: string
+                    description: Watchlist collection status; null if not watched.
+                  match_reason:
+                    type: string
+                    enum: [name_exact, name_prefix, name_contains, info_contains]
+                    description: >
+                      Why this result was included and its relevance tier.
+                      name_exact > name_prefix > name_contains > info_contains.
+      400:
+        description: Missing or invalid parameters.
+
+    """
+    term = request.args.get("term", "").strip()
+    if not term:
+        return jsonify({"error": "term is required"}), 400
+    try:
+        limit = min(int(request.args.get("limit", 25)), 50)
+    except (ValueError, TypeError):
+        return jsonify({"error": "limit must be an integer"}), 400
+
+    results = db.search_artists_local(term, limit=limit)
+    return jsonify({"results": results})
+
+
 @app.route("/api/watchlist", methods=["GET"])
 def api_watchlist_get():
     """Get the current watchlist.

@@ -1296,5 +1296,164 @@ class TestCheckAndUpdateNewReleases(DBTestCase):
         self.assertIsNone(latest)
 
 
+# ---------------------------------------------------------------------------
+# search_artists_local
+# ---------------------------------------------------------------------------
+
+
+def _minimal_album_row(store_id, artist_id, artist_name):
+    return {
+        "store_adam_id": store_id,
+        "title": "Album Title",
+        "artist": artist_name,
+        "artist_id": artist_id,
+        "url": f"https://music.apple.com/us/album/{store_id}",
+        "storefronts": '["us"]',
+        "release_date": "2024-01-01",
+        "artwork_url": None,
+        "track_count": 1,
+        "genre": None,
+        "description": None,
+        "info_fetched": 0,
+        "audio_formats": "[]",
+        "release_type": "main-albums",
+        "first_seen": 1700000000,
+        "last_seen": 1700000000,
+        "source": "discovered",
+        "artists_json": "[]",
+        "artist_url": None,
+    }
+
+
+class TestSearchArtistsLocal(DBTestCase):
+    def _seed_artist(self, artist_id, name, bio=None, genre=None, origin=None, watched=False):
+        self.db.upsert_artist(artist_id, name=name, artist_bio=bio, genre=genre, origin=origin)
+        if watched:
+            self.db.add_to_watchlist(artist_id, name)
+
+    def _seed_album_artist(self, store_id, artist_id, artist_name, watched=False):
+        """Insert an artist only via an album row (no artists table entry)."""
+        self.db.upsert_album(_minimal_album_row(store_id, artist_id, artist_name))
+        if watched:
+            self.db.add_to_watchlist(artist_id, artist_name)
+
+    # --- ranking tests ---
+
+    def test_exact_name_ranked_first(self):
+        self._seed_artist("A1", "Taylor Swift")
+        self._seed_artist("A2", "Taylor")
+        results = self.db.search_artists_local("Taylor")
+        self.assertEqual(results[0]["name"], "Taylor")
+        self.assertEqual(results[0]["match_reason"], "name_exact")
+
+    def test_prefix_ranked_before_contains(self):
+        self._seed_artist("A1", "Swift Taylor")  # contains
+        self._seed_artist("A2", "Taylor Swift")  # prefix
+        results = self.db.search_artists_local("Taylor")
+        names = [r["name"] for r in results]
+        self.assertLess(names.index("Taylor Swift"), names.index("Swift Taylor"))
+
+    def test_name_contains_ranked_before_info_match(self):
+        self._seed_artist("A1", "Pop Star", bio="Taylor Swift fan account")
+        self._seed_artist("A2", "Taylor Made")
+        results = self.db.search_artists_local("Taylor")
+        names = [r["name"] for r in results]
+        self.assertLess(names.index("Taylor Made"), names.index("Pop Star"))
+
+    def test_info_match_has_correct_reason(self):
+        self._seed_artist("A1", "Pop Star", bio="Known for Taylor-esque pop")
+        results = self.db.search_artists_local("Taylor")
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["match_reason"], "info_contains")
+
+    def test_genre_match_included(self):
+        self._seed_artist("A1", "Artist One", genre="Jazz Fusion")
+        results = self.db.search_artists_local("jazz")
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["match_reason"], "info_contains")
+
+    def test_origin_match_included(self):
+        self._seed_artist("A1", "Artist One", origin="Seoul, South Korea")
+        results = self.db.search_artists_local("seoul")
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["match_reason"], "info_contains")
+
+    def test_no_match_returns_empty(self):
+        self._seed_artist("A1", "Taylor Swift")
+        results = self.db.search_artists_local("Beyonce")
+        self.assertEqual(results, [])
+
+    # --- album-only artists ---
+
+    def test_album_only_artist_included(self):
+        """Artists only in the albums table (no metadata row) are returned."""
+        self._seed_album_artist("ALB1", "A1", "New Artist")
+        results = self.db.search_artists_local("New Artist")
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["artist_id"], "A1")
+        self.assertIsNone(results[0]["artist_bio"])
+
+    def test_album_only_artist_not_duplicated_when_in_artists_table(self):
+        """If an artist has both a metadata row and album rows, they appear once."""
+        self._seed_artist("A1", "Taylor Swift")
+        self._seed_album_artist("ALB1", "A1", "Taylor Swift")
+        results = self.db.search_artists_local("Taylor")
+        ids = [r["artist_id"] for r in results]
+        self.assertEqual(len(ids), len(set(ids)))
+
+    # --- watchlist info ---
+
+    def test_watched_flag_true_for_watched_artist(self):
+        self._seed_artist("A1", "Taylor Swift", watched=True)
+        results = self.db.search_artists_local("Taylor")
+        self.assertTrue(results[0]["watched"])
+
+    def test_watched_flag_false_for_unwatched_artist(self):
+        self._seed_artist("A1", "Taylor Swift")
+        results = self.db.search_artists_local("Taylor")
+        self.assertFalse(results[0]["watched"])
+
+    def test_collection_status_included_for_watched(self):
+        self._seed_artist("A1", "Taylor Swift", watched=True)
+        results = self.db.search_artists_local("Taylor")
+        self.assertIsNotNone(results[0]["collection_status"])
+
+    def test_collection_status_null_for_unwatched(self):
+        self._seed_artist("A1", "Taylor Swift")
+        results = self.db.search_artists_local("Taylor")
+        self.assertIsNone(results[0]["collection_status"])
+
+    # --- limit ---
+
+    def test_limit_caps_results(self):
+        for i in range(10):
+            self._seed_artist(f"A{i}", f"Taylor {i}")
+        results = self.db.search_artists_local("Taylor", limit=3)
+        self.assertEqual(len(results), 3)
+
+    def test_default_limit_is_25(self):
+        for i in range(30):
+            self._seed_artist(f"A{i}", f"Taylor {i}")
+        results = self.db.search_artists_local("Taylor")
+        self.assertLessEqual(len(results), 25)
+
+    # --- case insensitivity ---
+
+    def test_case_insensitive_name_match(self):
+        self._seed_artist("A1", "Taylor Swift")
+        results = self.db.search_artists_local("TAYLOR")
+        self.assertEqual(len(results), 1)
+
+    def test_match_reason_prefix_correct(self):
+        self._seed_artist("A1", "Taylor Swift")
+        results = self.db.search_artists_local("Taylor")
+        self.assertEqual(results[0]["match_reason"], "name_prefix")
+
+    def test_match_reason_contains_correct(self):
+        self._seed_artist("A1", "The Taylors")
+        results = self.db.search_artists_local("taylor")
+        self.assertEqual(results[0]["match_reason"], "name_contains")
+
+
 if __name__ == "__main__":
     unittest.main()

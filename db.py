@@ -546,3 +546,88 @@ def search_albums(
             params + [per_page, offset],
         ).fetchall()
         return [dict(r) for r in rows], total
+
+
+def search_artists_local(query: str, limit: int = 25) -> list[dict]:
+    """Search the local database for artists by name, bio, genre, or origin.
+
+    Results are ranked by match quality (best first):
+      1. Exact name match (case-insensitive)
+      2. Name starts with the query (prefix match)
+      3. Name contains the query anywhere
+      4. Query found in artist_bio, genre, or origin (name does not match)
+
+    Artists from the ``artists`` metadata table are searched first.  Artists
+    that appear only in the ``albums`` table (i.e. their full metadata has not
+    yet been fetched) are included as a fallback with minimal fields.
+
+    Args:
+        query: The search term.
+        limit: Maximum number of results to return (default 25).
+
+    Returns:
+        A list of artist dicts, each containing ``artist_id``, ``name``,
+        ``artwork_url``, ``genre``, ``born_or_formed``, ``origin``,
+        ``artist_bio``, ``is_group``, ``watched`` (bool), ``collection_status``,
+        and ``match_reason`` (one of ``name_exact``, ``name_prefix``,
+        ``name_contains``, ``info_contains``).
+    """
+    q_lower = query.lower()
+    q_contains = f"%{q_lower}%"
+    with get_conn() as conn:
+        rows_artists = conn.execute(
+            """SELECT ar.artist_id, ar.name, ar.artwork_url, ar.genre,
+                      ar.born_or_formed, ar.origin, ar.artist_bio, ar.is_group,
+                      (w.artist_id IS NOT NULL) AS watched, w.collection_status
+               FROM artists ar
+               LEFT JOIN watched_artists w ON ar.artist_id = w.artist_id
+               WHERE LOWER(ar.name) LIKE ?
+                  OR LOWER(ar.artist_bio) LIKE ?
+                  OR LOWER(ar.genre) LIKE ?
+                  OR LOWER(ar.origin) LIKE ?""",
+            (q_contains, q_contains, q_contains, q_contains),
+        ).fetchall()
+
+        rows_albums = conn.execute(
+            """SELECT DISTINCT alb.artist_id, alb.artist AS name,
+                      NULL AS artwork_url, NULL AS genre, NULL AS born_or_formed,
+                      NULL AS origin, NULL AS artist_bio, NULL AS is_group,
+                      (w.artist_id IS NOT NULL) AS watched, w.collection_status
+               FROM albums alb
+               LEFT JOIN watched_artists w ON alb.artist_id = w.artist_id
+               WHERE alb.artist_id IS NOT NULL
+                 AND alb.artist_id NOT IN (SELECT artist_id FROM artists)
+                 AND LOWER(alb.artist) LIKE ?""",
+            (q_contains,),
+        ).fetchall()
+
+    def _rank(row: dict) -> tuple:
+        n = (row["name"] or "").lower()
+        if n == q_lower:
+            return (1, n)
+        if n.startswith(q_lower):
+            return (2, n)
+        if q_lower in n:
+            return (3, n)
+        return (4, n)
+
+    def _match_reason(row: dict) -> str:
+        n = (row["name"] or "").lower()
+        if n == q_lower:
+            return "name_exact"
+        if n.startswith(q_lower):
+            return "name_prefix"
+        if q_lower in n:
+            return "name_contains"
+        return "info_contains"
+
+    seen: set = set()
+    combined: list[dict] = []
+    for r in [dict(r) for r in rows_artists] + [dict(r) for r in rows_albums]:
+        if r["artist_id"] not in seen:
+            seen.add(r["artist_id"])
+            r["match_reason"] = _match_reason(r)
+            combined.append(r)
+
+    combined.sort(key=_rank)
+    return combined[:limit]

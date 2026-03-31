@@ -1498,5 +1498,104 @@ class TestWatchlistPollCollectionStatus(ServerTestCase):
         mock_db.check_and_update_new_releases.assert_called_once_with("ART1")
 
 
+# ---------------------------------------------------------------------------
+# GET /api/search/artists/local
+# ---------------------------------------------------------------------------
+
+
+def _make_local_artist_result(artist_id="A1", name="Test Artist", match_reason="name_contains", watched=False):
+    return {
+        "artist_id": artist_id,
+        "name": name,
+        "artwork_url": None,
+        "genre": None,
+        "born_or_formed": None,
+        "origin": None,
+        "artist_bio": None,
+        "is_group": None,
+        "watched": watched,
+        "collection_status": None,
+        "match_reason": match_reason,
+    }
+
+
+class TestApiSearchArtistsLocal(ServerTestCase):
+    @patch("server.db")
+    def test_returns_200_with_results(self, mock_db):
+        mock_db.search_artists_local.return_value = [_make_local_artist_result()]
+        resp = self.client.get("/api/search/artists/local?term=test")
+        self.assertEqual(resp.status_code, 200)
+        data = resp.get_json()
+        self.assertIn("results", data)
+        self.assertEqual(len(data["results"]), 1)
+
+    @patch("server.db")
+    def test_missing_term_returns_400(self, mock_db):
+        resp = self.client.get("/api/search/artists/local")
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn("error", resp.get_json())
+
+    @patch("server.db")
+    def test_blank_term_returns_400(self, mock_db):
+        resp = self.client.get("/api/search/artists/local?term=")
+        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(resp.get_json()["error"], "term is required")
+
+    @patch("server.db")
+    def test_invalid_limit_returns_400(self, mock_db):
+        resp = self.client.get("/api/search/artists/local?term=foo&limit=abc")
+        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(resp.get_json()["error"], "limit must be an integer")
+
+    @patch("server.db")
+    def test_limit_clamped_to_50(self, mock_db):
+        mock_db.search_artists_local.return_value = []
+        self.client.get("/api/search/artists/local?term=foo&limit=999")
+        mock_db.search_artists_local.assert_called_once_with("foo", limit=50)
+
+    @patch("server.db")
+    def test_default_limit_is_25(self, mock_db):
+        mock_db.search_artists_local.return_value = []
+        self.client.get("/api/search/artists/local?term=foo")
+        mock_db.search_artists_local.assert_called_once_with("foo", limit=25)
+
+    @patch("server.db")
+    def test_custom_limit_passed_to_db(self, mock_db):
+        mock_db.search_artists_local.return_value = []
+        self.client.get("/api/search/artists/local?term=foo&limit=10")
+        mock_db.search_artists_local.assert_called_once_with("foo", limit=10)
+
+    @patch("server.db")
+    def test_term_stripped_of_whitespace(self, mock_db):
+        mock_db.search_artists_local.return_value = []
+        self.client.get("/api/search/artists/local?term=+foo+")
+        args, kwargs = mock_db.search_artists_local.call_args
+        self.assertEqual(args[0], "foo")
+
+    @patch("server.db")
+    def test_result_fields_passed_through(self, mock_db):
+        artist = _make_local_artist_result(
+            artist_id="ART1",
+            name="Taylor Swift",
+            match_reason="name_exact",
+            watched=True,
+        )
+        artist["collection_status"] = "complete"
+        mock_db.search_artists_local.return_value = [artist]
+        resp = self.client.get("/api/search/artists/local?term=Taylor")
+        result = resp.get_json()["results"][0]
+        self.assertEqual(result["artist_id"], "ART1")
+        self.assertEqual(result["match_reason"], "name_exact")
+        self.assertTrue(result["watched"])
+        self.assertEqual(result["collection_status"], "complete")
+
+    @patch("server.db")
+    def test_empty_results_returned_as_empty_list(self, mock_db):
+        mock_db.search_artists_local.return_value = []
+        resp = self.client.get("/api/search/artists/local?term=nobody")
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.get_json()["results"], [])
+
+
 if __name__ == "__main__":
     unittest.main()
