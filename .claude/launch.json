@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "AM Discovery (Flask)",
+      "runtimeExecutable": "uv",
+      "runtimeArgs": ["run", "python", "server.py"],
+      "port": 5000
+    }
+  ]
+}

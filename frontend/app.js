@@ -177,6 +177,7 @@ const state = {
   artistViewMode: "chrono",   // "chrono" | "grouped"
   artistTypeFilter: "",       // "" = all, else a release_type value
   allReleasesTypeFilter: "",  // "" = all, else a release_type value
+  cliSchedulerEnabled: false, // true when cli_scheduler_url is configured
 };
 
 // ---------------------------------------------------------------------------
@@ -336,9 +337,11 @@ async function initMetaSourceWidget() {
       const cfg = await API.get("/api/config");
       state.configuredStorefronts = cfg.check_storefronts || [];
       state.homeStorefront = cfg.home_storefront || "my";
+      state.cliSchedulerEnabled = !!(cfg.cli_scheduler_url);
     } catch {
       state.configuredStorefronts = [];
       state.homeStorefront = "my";
+      state.cliSchedulerEnabled = false;
     }
   }
   if (localStorage.getItem("metadataStorefront") === null) {
@@ -391,6 +394,15 @@ async function loadWatchedIds() {
     state.watchedIds = new Set(ids);
     state.watchedIdsLoaded = true;
   } catch {}
+}
+
+async function submitCliSchedulerJob(storefront, albumId) {
+  const r = await fetch("/api/cli_scheduler/submit", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ storefront, album_id: albumId }),
+  });
+  return r.status;
 }
 
 async function toggleWatch(artistId, name, artistUrl, preferredSource) {
@@ -1436,6 +1448,46 @@ async function renderSettings(main) {
   proxyGroup.appendChild(proxyInput);
   form.appendChild(proxyGroup);
 
+  // CLI Scheduler URL
+  const cliUrlGroup = el("div");
+  cliUrlGroup.style.display = "flex";
+  cliUrlGroup.style.flexDirection = "column";
+  cliUrlGroup.style.gap = "8px";
+  const cliUrlLabel = el("label", "", "CLI Scheduler URL");
+  cliUrlLabel.style.fontWeight = "600";
+  const cliUrlDesc = el("p", "", "Base URL of your CLI Scheduler instance. Leave blank to disable.");
+  cliUrlDesc.style.fontSize = "12px";
+  cliUrlDesc.style.color = "var(--text-dim)";
+  cliUrlDesc.style.margin = "0";
+  cliUrlGroup.appendChild(cliUrlLabel);
+  cliUrlGroup.appendChild(cliUrlDesc);
+  const cliUrlInput = el("input", "search-input");
+  cliUrlInput.type = "text";
+  cliUrlInput.value = cfg.cli_scheduler_url || "";
+  cliUrlInput.placeholder = "http://192.168.5.198:5000";
+  cliUrlGroup.appendChild(cliUrlInput);
+  form.appendChild(cliUrlGroup);
+
+  // CLI Scheduler Preset
+  const cliPresetGroup = el("div");
+  cliPresetGroup.style.display = "flex";
+  cliPresetGroup.style.flexDirection = "column";
+  cliPresetGroup.style.gap = "8px";
+  const cliPresetLabel = el("label", "", "CLI Scheduler Preset");
+  cliPresetLabel.style.fontWeight = "600";
+  const cliPresetDesc = el("p", "", "Preset name to use when submitting jobs to the CLI Scheduler.");
+  cliPresetDesc.style.fontSize = "12px";
+  cliPresetDesc.style.color = "var(--text-dim)";
+  cliPresetDesc.style.margin = "0";
+  cliPresetGroup.appendChild(cliPresetLabel);
+  cliPresetGroup.appendChild(cliPresetDesc);
+  const cliPresetInput = el("input", "search-input");
+  cliPresetInput.type = "text";
+  cliPresetInput.value = cfg.cli_scheduler_preset || "";
+  cliPresetInput.placeholder = "e.g. amdl";
+  cliPresetGroup.appendChild(cliPresetInput);
+  form.appendChild(cliPresetGroup);
+
   const errorMsg = el("div", "");
   errorMsg.style.color = "red";
   errorMsg.style.display = "none";
@@ -1465,6 +1517,8 @@ async function renderSettings(main) {
         watchlist_poll_batch_size: isNaN(parsedWlBatch) ? 5 : parsedWlBatch,
         watchlist_refresh_interval_days: isNaN(parsedWlRefresh) ? 7 : parsedWlRefresh,
         cors_proxy: parsedProxy,
+        cli_scheduler_url: cliUrlInput.value.trim(),
+        cli_scheduler_preset: cliPresetInput.value.trim(),
       };
 
       await API.put("/api/config", newCfg);
@@ -1472,6 +1526,7 @@ async function renderSettings(main) {
       // Update in-memory state so widget/modal reflect new values immediately
       state.configuredStorefronts = parsedSfs;
       state.homeStorefront = newCfg.home_storefront;
+      state.cliSchedulerEnabled = !!(newCfg.cli_scheduler_url);
       renderMetaSourceWidget();
 
       saveBtn.textContent = "Saved!";
@@ -1805,9 +1860,39 @@ async function openModal(storeAdamId) {
 
   const sfCheckBtn = el("button", "btn-secondary", "Check Storefronts");
   const sfResultContainer = el("div", "sf-check-results");
-  sfResultContainer.style.marginTop = "16px";
+  sfResultContainer.style.display = "none";
+  sfResultContainer.style.width = "100%";
   sfResultContainer.style.fontSize = "14px";
   sfResultContainer.style.lineHeight = "1.5";
+
+  let cliBtns = null;
+  const makeCliBtn = (storefront) => {
+    const btn = el("button", "btn-cli-sf", storefront.toUpperCase());
+    btn.addEventListener("click", async () => {
+      btn.textContent = "…";
+      btn.disabled = true;
+      try {
+        const status = await submitCliSchedulerJob(storefront, album.store_adam_id);
+        if (status === 201) {
+          btn.textContent = `✓ ${storefront.toUpperCase()}`;
+          btn.className = "btn-cli-sf cli-sf-success";
+        } else if (status === 400) {
+          btn.textContent = `✗ ${storefront.toUpperCase()}`;
+          btn.className = "btn-cli-sf cli-sf-error";
+          btn.disabled = false;
+        } else {
+          btn.textContent = `! ${storefront.toUpperCase()}`;
+          btn.className = "btn-cli-sf cli-sf-unreachable";
+          btn.disabled = false;
+        }
+      } catch {
+        btn.textContent = `! ${storefront.toUpperCase()}`;
+        btn.className = "btn-cli-sf cli-sf-unreachable";
+        btn.disabled = false;
+      }
+    });
+    return btn;
+  };
 
   sfCheckBtn.addEventListener("click", async () => {
     sfCheckBtn.textContent = "Checking...";
@@ -1815,42 +1900,62 @@ async function openModal(storeAdamId) {
     try {
       const res = await API.get(`/api/releases/${album.store_adam_id}/check_storefronts`);
       sfCheckBtn.textContent = `Available in ${res.available.length} / ${res.available.length + res.unavailable.length}`;
-      
+
       sfResultContainer.innerHTML = "";
-      
+      sfResultContainer.style.display = "";
+
       if (res.available.length > 0) {
-        const availDiv = el("div");
-        availDiv.textContent = "Available: ";
+        const row = el("div", "sf-result-row");
+        row.appendChild(el("span", "sf-result-label", "Available"));
+        const chips = el("div", "sf-result-chips");
         res.available.forEach(sf => {
-          const a = el("a");
+          const a = el("a", `sf-chip ${sf}`, sf.toUpperCase());
           a.href = `https://music.apple.com/${sf}/album/${album.store_adam_id}`;
           a.target = "_blank";
           a.rel = "noopener";
-          a.style.marginRight = "8px";
-          a.style.color = "inherit";
-          a.style.textDecoration = "underline";
-          a.textContent = sf.toUpperCase();
-          availDiv.appendChild(a);
+          chips.appendChild(a);
         });
-        sfResultContainer.appendChild(availDiv);
+        row.appendChild(chips);
+        sfResultContainer.appendChild(row);
+
+        if (state.cliSchedulerEnabled && cliBtns) {
+          cliBtns.innerHTML = "";
+          res.available.forEach(sf => cliBtns.appendChild(makeCliBtn(sf)));
+        }
       }
-      
+
       if (res.unavailable.length > 0) {
-        const unavailDiv = el("div");
-        unavailDiv.style.color = "var(--text-dim)";
-        unavailDiv.textContent = "Unavailable: " + res.unavailable.map(s => s.toUpperCase()).join(", ");
-        sfResultContainer.appendChild(unavailDiv);
+        const row = el("div", "sf-result-row");
+        row.appendChild(el("span", "sf-result-label", "Unavailable"));
+        const chips = el("div", "sf-result-chips");
+        res.unavailable.forEach(sf => chips.appendChild(el("span", "sf-chip sf-chip-dim", sf.toUpperCase())));
+        row.appendChild(chips);
+        sfResultContainer.appendChild(row);
       }
-      
+
     } catch {
       sfCheckBtn.textContent = "Check Failed";
       sfCheckBtn.disabled = false;
     }
   });
   actions.appendChild(sfCheckBtn);
+  actions.appendChild(sfResultContainer);
+
+  if (state.cliSchedulerEnabled) {
+    const initialSfs = [];
+    if (state.metadataStorefront) initialSfs.push(state.metadataStorefront);
+    if (state.homeStorefront && state.homeStorefront !== state.metadataStorefront) initialSfs.push(state.homeStorefront);
+    if (!initialSfs.length && state.homeStorefront) initialSfs.push(state.homeStorefront);
+    const cliSection = el("div", "cli-scheduler-section");
+    const cliLabel = el("span", "cli-scheduler-label", "CLI Scheduler");
+    cliBtns = el("div", "cli-scheduler-btns");
+    initialSfs.forEach(sf => cliBtns.appendChild(makeCliBtn(sf)));
+    cliSection.appendChild(cliLabel);
+    cliSection.appendChild(cliBtns);
+    actions.appendChild(cliSection);
+  }
 
   details.appendChild(actions);
-  details.appendChild(sfResultContainer);
 
   // Tracklist
   if (tracks.length) {
