@@ -10,6 +10,8 @@ import os
 import re
 import threading
 import time
+import urllib.error
+import urllib.request
 from datetime import UTC, datetime
 
 from flasgger import Swagger
@@ -52,6 +54,8 @@ def load_config() -> dict:
         "watchlist_poll_interval_minutes": 10,
         "watchlist_poll_batch_size": 5,
         "watchlist_refresh_interval_days": 7,
+        "cli_scheduler_url": "",
+        "cli_scheduler_preset": "",
     }
     if os.path.exists(CONFIG_PATH):
         with open(CONFIG_PATH, encoding="utf-8") as f:
@@ -998,6 +1002,60 @@ def api_config_put():
     # Reschedule with new interval
     _schedule_next()
     return jsonify({"ok": True})
+
+
+@app.route("/api/cli_scheduler/submit", methods=["POST"])
+def api_cli_scheduler_submit():
+    """Proxy a job submission to the configured CLI Scheduler.
+    ---
+    parameters:
+      - name: body
+        in: body
+        required: true
+        schema:
+          type: object
+          properties:
+            storefront:
+              type: string
+            album_id:
+              type: string
+    responses:
+      201:
+        description: Job accepted by CLI Scheduler
+      400:
+        description: Job rejected by CLI Scheduler
+      502:
+        description: Could not reach CLI Scheduler
+      503:
+        description: CLI Scheduler not configured
+    """
+    cfg = load_config()
+    scheduler_url = cfg.get("cli_scheduler_url", "").rstrip("/")
+    preset = cfg.get("cli_scheduler_preset", "")
+    if not scheduler_url:
+        return jsonify({"error": "CLI Scheduler not configured"}), 503
+
+    data = request.get_json(force=True)
+    storefront = data.get("storefront", "")
+    album_id = data.get("album_id", "")
+    if not storefront or not album_id:
+        return jsonify({"error": "Missing storefront or album_id"}), 400
+
+    apple_url = f"https://music.apple.com/{storefront}/album/{album_id}"
+    payload = json.dumps({"preset": preset, "urls": [apple_url]}).encode()
+    req = urllib.request.Request(
+        f"{scheduler_url}/api/jobs",
+        data=payload,
+        headers={"Content-Type": "application/json", "accept": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            return jsonify({"ok": True}), resp.status
+    except urllib.error.HTTPError as e:
+        return jsonify({"error": e.reason}), e.code
+    except Exception as e:
+        return jsonify({"error": str(e)}), 502
 
 
 @app.route("/api/refresh", methods=["POST"])
