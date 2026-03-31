@@ -578,6 +578,8 @@ def api_artist_fetch(artist_id):
     with concurrent.futures.ThreadPoolExecutor(max_workers=8) as ex:
         list(ex.map(fetch_one, releases))
 
+    db.check_and_update_new_releases(artist_id)
+
     return jsonify({"ok": True, "fetched": len(releases)})
 
 
