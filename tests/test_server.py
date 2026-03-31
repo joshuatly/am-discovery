@@ -905,6 +905,52 @@ class TestApiArtistFetch(ServerTestCase):
         self.assertEqual(resp.status_code, 400)
         self.assertIn("error", resp.get_json())
 
+    @patch("server.db")
+    @patch("server.AppleMusicClient")
+    def test_fetch_artist_checks_new_releases_for_complete_artist(self, MockClient, mock_db):
+        mock_client = MockClient.return_value
+        mock_client.get_artist_all_releases.return_value = (
+            [
+                {
+                    "storeAdamID": "A1",
+                    "title": "New Album",
+                    "artist": "Artist",
+                    "url": "https://x.com",
+                    "storefronts": ["us"],
+                    "release_type": "main-albums",
+                },
+            ],
+            {"artwork_url": "https://art.jpg", "genre": "Pop"},
+        )
+        mock_client.get_album_full_info.return_value = {
+            "release_date": "2026-04-09",
+            "artwork_url": "https://art.jpg",
+            "track_count": 10,
+            "genre": "Pop",
+            "description": "Desc",
+            "artist_id": "ART1",
+            "artist_url": "https://x.com/artist",
+            "audio_formats": ["lossless"],
+        }
+        mock_db.get_album.return_value = None
+        mock_db.upsert_artist.return_value = None
+        mock_db.upsert_album.return_value = None
+        mock_db.check_and_update_new_releases.return_value = True
+
+        resp = self.client.post("/api/artists/ART1/fetch")
+        self.assertEqual(resp.status_code, 200)
+        mock_db.check_and_update_new_releases.assert_called_once_with("ART1")
+
+    @patch("server.db")
+    @patch("server.AppleMusicClient")
+    def test_fetch_artist_no_releases_skips_new_release_check(self, MockClient, mock_db):
+        mock_client = MockClient.return_value
+        mock_client.get_artist_all_releases.return_value = ([], {})
+
+        resp = self.client.post("/api/artists/ART1/fetch")
+        self.assertEqual(resp.status_code, 200)
+        mock_db.check_and_update_new_releases.assert_not_called()
+
 
 # ---------------------------------------------------------------------------
 # Frontend serving
