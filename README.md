@@ -16,7 +16,7 @@ AM Discovery monitors Apple Music regional new-release pages to surface new rele
 - Storefront availability checker for any release
 - Configurable poll interval with manual refresh option
 - REST API with Swagger docs (`/apidocs`)
-- Lightweight single-page frontend
+- Lightweight single-page frontend (vanilla JS, no build step)
 
 ---
 
@@ -233,12 +233,34 @@ docker exec -it am-discovery uv run python migrate.py
 ## Development
 
 ```bash
-# Run tests
+# Run Python tests
 uv run pytest
+
+# Run frontend JS tests
+cd frontend && npm test
 
 # One-off manual test / exploration
 uv run python main.py
 ```
+
+### Frontend structure
+
+The frontend is vanilla JS with no build step. JS is split into focused modules loaded via `<script>` tags in `frontend/index.html`:
+
+| File | Responsibility |
+|------|---------------|
+| `utils.js` | API helpers, DOM utilities, date/time, constants |
+| `components.js` | Reusable UI components (cards, chips, pagination) |
+| `state.js` | Global app state and watchlist helpers |
+| `status.js` | Status bar and metadata source widget |
+| `modal.js` | Album detail modal |
+| `page-releases.js` | New Releases and All Albums pages |
+| `page-artist.js` | Artist Detail page |
+| `page-watchlist.js` | Artist Watchlist page |
+| `page-settings.js` | Settings page |
+| `app.js` | Router and bootstrap |
+
+See `CLAUDE.md` for the full breakdown of where to put new frontend code.
 
 The `bearer_token.txt` file is auto-generated and gitignored. The client extracts a JWT from the Apple Music web app and caches it locally; it will refresh automatically when it expires.
 
