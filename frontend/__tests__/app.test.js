@@ -2790,11 +2790,14 @@ describe("CLI Scheduler modal buttons", () => {
 });
 
 describe("buildPagination scroll-to-top", () => {
-  test("scrolls main-content to top when a page button is clicked", () => {
-    const mainContent = appWindow.document.getElementById("main-content");
-    const scrollCalls = [];
-    mainContent.scrollTo = (...args) => scrollCalls.push(args);
+  let windowScrollCalls;
 
+  beforeEach(() => {
+    windowScrollCalls = [];
+    appWindow.scrollTo = (...args) => windowScrollCalls.push(args);
+  });
+
+  test("scrolls window to top when a page button is clicked", () => {
     const onPage = jest.fn();
     const pagination = appWindow.__test_buildPagination(2, 5, onPage);
 
@@ -2802,32 +2805,24 @@ describe("buildPagination scroll-to-top", () => {
     const pageBtn = pagination.querySelector(".page-btn:not([disabled])");
     pageBtn.click();
 
-    expect(scrollCalls.length).toBeGreaterThan(0);
-    expect(scrollCalls[0]).toEqual([0, 0]);
+    expect(windowScrollCalls.length).toBeGreaterThan(0);
+    expect(windowScrollCalls[0]).toEqual([0, 0]);
     expect(onPage).toHaveBeenCalled();
   });
 
-  test("scrolls main-content to top when Prev button is clicked", () => {
-    const mainContent = appWindow.document.getElementById("main-content");
-    const scrollCalls = [];
-    mainContent.scrollTo = (...args) => scrollCalls.push(args);
-
+  test("scrolls window to top when Prev button is clicked", () => {
     const onPage = jest.fn();
     const pagination = appWindow.__test_buildPagination(3, 5, onPage);
 
     const prevBtn = pagination.querySelector(".page-btn");
     prevBtn.click();
 
-    expect(scrollCalls.length).toBeGreaterThan(0);
-    expect(scrollCalls[0]).toEqual([0, 0]);
+    expect(windowScrollCalls.length).toBeGreaterThan(0);
+    expect(windowScrollCalls[0]).toEqual([0, 0]);
     expect(onPage).toHaveBeenCalledWith(2);
   });
 
-  test("scrolls main-content to top when Next button is clicked", () => {
-    const mainContent = appWindow.document.getElementById("main-content");
-    const scrollCalls = [];
-    mainContent.scrollTo = (...args) => scrollCalls.push(args);
-
+  test("scrolls window to top when Next button is clicked", () => {
     const onPage = jest.fn();
     const pagination = appWindow.__test_buildPagination(2, 5, onPage);
 
@@ -2835,8 +2830,8 @@ describe("buildPagination scroll-to-top", () => {
     const nextBtn = buttons[buttons.length - 1];
     nextBtn.click();
 
-    expect(scrollCalls.length).toBeGreaterThan(0);
-    expect(scrollCalls[0]).toEqual([0, 0]);
+    expect(windowScrollCalls.length).toBeGreaterThan(0);
+    expect(windowScrollCalls[0]).toEqual([0, 0]);
     expect(onPage).toHaveBeenCalledWith(3);
   });
 });
