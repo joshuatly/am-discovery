@@ -4,6 +4,8 @@ node_modules/
 # Project Specific
 .env
 am_discovery.db
+.claude/settings.local.json
+.claude/worktrees/
 am_discovery.db*
 bearer_token.txt
 config.json

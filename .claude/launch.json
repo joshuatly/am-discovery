@@ -3,8 +3,8 @@
   "configurations": [
     {
       "name": "AM Discovery (Flask)",
-      "runtimeExecutable": "bash",
-      "runtimeArgs": ["-c", "AM_DB_PATH=$(dirname $(git rev-parse --git-common-dir))/am_discovery.db uv run python server.py"],
+      "runtimeExecutable": "uv",
+      "runtimeArgs": ["run", "python", "scripts/dev_server.py"],
       "port": 5000
     }
   ]

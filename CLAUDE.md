@@ -39,9 +39,11 @@ cp config.json.example config.json
 ```
 
 **Start the server (development):**
+
+When running inside Claude Desktop or any environment with preview tool support, use `preview_start` with the "AM Discovery (Flask)" configuration from `.claude/launch.json` — do **not** run `uv` manually. The launch.json config uses `scripts/dev_server.py` which sets the correct DB path and enables debug mode.
+
 ```bash
-uv run python server.py
-# or with debug logging:
+# Only use this when running outside Claude Desktop (e.g. a plain terminal):
 uv run python server.py --debug
 ```
 
