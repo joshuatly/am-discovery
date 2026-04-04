@@ -96,6 +96,7 @@ beforeAll(() => {
     window.__test_WATCHLIST_PAGE_SIZE      = WATCHLIST_PAGE_SIZE;
     window.__test_submitCliSchedulerJob    = submitCliSchedulerJob;
     window.__test_albumCard                = albumCard;
+    window.__test_buildPagination          = buildPagination;
   `;
   appWindow.document.head.appendChild(exposeScript);
 });
@@ -2785,5 +2786,57 @@ describe("CLI Scheduler modal buttons", () => {
     expect(appWindow.__test_state.cliSchedulerEnabled).toBe(true);
     appWindow.__test_state.cliSchedulerEnabled = false;
     expect(appWindow.__test_state.cliSchedulerEnabled).toBe(false);
+  });
+});
+
+describe("buildPagination scroll-to-top", () => {
+  test("scrolls main-content to top when a page button is clicked", () => {
+    const mainContent = appWindow.document.getElementById("main-content");
+    const scrollCalls = [];
+    mainContent.scrollTo = (...args) => scrollCalls.push(args);
+
+    const onPage = jest.fn();
+    const pagination = appWindow.__test_buildPagination(2, 5, onPage);
+
+    // Click the first numbered page button (start = max(1, 2-2) = 1)
+    const pageBtn = pagination.querySelector(".page-btn:not([disabled])");
+    pageBtn.click();
+
+    expect(scrollCalls.length).toBeGreaterThan(0);
+    expect(scrollCalls[0]).toEqual([0, 0]);
+    expect(onPage).toHaveBeenCalled();
+  });
+
+  test("scrolls main-content to top when Prev button is clicked", () => {
+    const mainContent = appWindow.document.getElementById("main-content");
+    const scrollCalls = [];
+    mainContent.scrollTo = (...args) => scrollCalls.push(args);
+
+    const onPage = jest.fn();
+    const pagination = appWindow.__test_buildPagination(3, 5, onPage);
+
+    const prevBtn = pagination.querySelector(".page-btn");
+    prevBtn.click();
+
+    expect(scrollCalls.length).toBeGreaterThan(0);
+    expect(scrollCalls[0]).toEqual([0, 0]);
+    expect(onPage).toHaveBeenCalledWith(2);
+  });
+
+  test("scrolls main-content to top when Next button is clicked", () => {
+    const mainContent = appWindow.document.getElementById("main-content");
+    const scrollCalls = [];
+    mainContent.scrollTo = (...args) => scrollCalls.push(args);
+
+    const onPage = jest.fn();
+    const pagination = appWindow.__test_buildPagination(2, 5, onPage);
+
+    const buttons = pagination.querySelectorAll(".page-btn");
+    const nextBtn = buttons[buttons.length - 1];
+    nextBtn.click();
+
+    expect(scrollCalls.length).toBeGreaterThan(0);
+    expect(scrollCalls[0]).toEqual([0, 0]);
+    expect(onPage).toHaveBeenCalledWith(3);
   });
 });

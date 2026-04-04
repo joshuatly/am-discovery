@@ -1298,10 +1298,7 @@ async function renderWatchlist(main, preferredSourceFilter = "", collectionStatu
     }
 
     if (usePagination && totalPages > 1) {
-      grid.appendChild(buildPagination(_currentPage + 1, totalPages, p => {
-        renderGrid(q, p - 1);
-        document.getElementById("main-content").scrollTo(0, 0);
-      }));
+      grid.appendChild(buildPagination(_currentPage + 1, totalPages, p => renderGrid(q, p - 1)));
     }
   }
 
@@ -2105,9 +2102,11 @@ function buildHeader(title, subtitle) {
 function buildPagination(current, total, onPage) {
   const wrap = el("div", "pagination");
 
+  const scrollTop = () => document.getElementById("main-content").scrollTo(0, 0);
+
   const prev = el("button", "page-btn", "← Prev");
   prev.disabled = current <= 1;
-  prev.addEventListener("click", () => onPage(current - 1));
+  prev.addEventListener("click", () => { scrollTop(); onPage(current - 1); });
   wrap.appendChild(prev);
 
   // Show up to 5 page buttons
@@ -2115,7 +2114,7 @@ function buildPagination(current, total, onPage) {
   const end = Math.min(total, start + 4);
   for (let p = start; p <= end; p++) {
     const btn = el("button", `page-btn${p === current ? " active" : ""}`, String(p));
-    btn.addEventListener("click", () => onPage(p));
+    btn.addEventListener("click", () => { scrollTop(); onPage(p); });
     wrap.appendChild(btn);
   }
 
@@ -2124,7 +2123,7 @@ function buildPagination(current, total, onPage) {
 
   const next = el("button", "page-btn", "Next →");
   next.disabled = current >= total;
-  next.addEventListener("click", () => onPage(current + 1));
+  next.addEventListener("click", () => { scrollTop(); onPage(current + 1); });
   wrap.appendChild(next);
 
   return wrap;
