@@ -65,11 +65,25 @@ beforeAll(() => {
 
   // localStorage is provided by jsdom — no stub needed
 
-  // Inject app.js as a script element so function declarations land on window
-  const code = fs.readFileSync(path.join(__dirname, "../app.js"), "utf8");
-  const script = appWindow.document.createElement("script");
-  script.textContent = code;
-  appWindow.document.head.appendChild(script);
+  // Inject all JS modules in dependency order so function declarations land on window
+  const jsFiles = [
+    "utils.js",
+    "components.js",
+    "state.js",
+    "status.js",
+    "modal.js",
+    "page-releases.js",
+    "page-artist.js",
+    "page-watchlist.js",
+    "page-settings.js",
+    "app.js",
+  ];
+  for (const file of jsFiles) {
+    const code = fs.readFileSync(path.join(__dirname, "..", file), "utf8");
+    const script = appWindow.document.createElement("script");
+    script.textContent = code;
+    appWindow.document.head.appendChild(script);
+  }
 
   // Inject a second script to expose const-declared objects for testing.
   // (const at script top-level is NOT a window property, but IS accessible from

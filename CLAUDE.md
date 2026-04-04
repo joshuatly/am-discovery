@@ -18,10 +18,47 @@ wsgi.py          — Gunicorn WSGI entry point (production); imports app and sta
 gunicorn.conf.py — Gunicorn config (1 worker required — scheduler runs as in-process thread)
 migrate.py       — Standalone migration runner for schema upgrades
 main.py          — Ad-hoc CLI script for manual testing/exploration
-frontend/        — Static SPA (index.html, app.js, style.css)
+frontend/        — Static SPA (index.html, style.css, plus JS modules below)
 ```
 
 The server starts a background thread that polls each configured storefront's `/new` browse page on a timer, auto-discovers the new-release room URL from that page, fetches metadata for new albums concurrently, and persists everything to SQLite.
+
+### Frontend JS modules
+
+The frontend has no build step. JS is split into modules loaded via `<script>` tags in `index.html` in this order (each file depends on globals defined by files above it):
+
+```
+utils.js          — API helpers, DOM ($, el), sanitizeHtml, WatchlistPrefs, date/time
+                    utils, RELEASE_TYPE_LABELS/ORDER, FORMAT_LABELS,
+                    COLLECTION_STATUS_LABELS/TRANSITIONS, debounce, tracklistsDiffer
+components.js     — formatBadges, artworkEl, placeholderEl, SF color palette + chip
+                    helpers, skeletonGrid, buildHeader, buildPagination,
+                    makeArtistLinks, albumCard
+state.js          — global state object, loadWatchedIds, toggleWatch,
+                    submitCliSchedulerJob
+status.js         — refreshStatus, triggerRefresh, metadata source widget
+                    (renderMetaSourceWidget, initMetaSourceWidget, updateSrcBadge, …)
+modal.js          — openModal, closeModal, showImageLightbox
+page-releases.js  — renderArtistReleaseGrid, renderNewReleases, renderAllReleases
+page-artist.js    — renderArtist
+page-watchlist.js — paginateList, WATCHLIST_PAGE_SIZE, renderWatchlist
+page-settings.js  — renderSettings
+app.js            — route(), DOMContentLoaded bootstrap
+```
+
+**Where to put new frontend code:**
+- New shared utility or constant → `utils.js`
+- New reusable UI component (card, badge, etc.) → `components.js`
+- New state field or watchlist API helper → `state.js`
+- Changes to the status bar or metadata source widget → `status.js`
+- Changes to the album detail modal → `modal.js`
+- Changes to New Releases or All Albums pages → `page-releases.js`
+- Changes to Artist Detail page → `page-artist.js`
+- Changes to Artist Watchlist page → `page-watchlist.js`
+- Changes to Settings page → `page-settings.js`
+- Changes to routing or app-level bootstrap → `app.js`
+
+Each source file must stay under 800 lines. Tests live in `frontend/__tests__/app.test.js` (no line limit).
 
 ---
 
@@ -167,7 +204,7 @@ Full Swagger docs at `/apidocs`.
 
 ### Shared `state` fields with separate null-guards (recurring bug)
 
-`state` in `app.js` has multiple fields that are lazily loaded from the API (e.g. `configuredStorefronts`, `discoveryStorefronts`). Different page renderers each guard their own config fetch with `if (state.X === null)`, but they don't all set the same fields. This causes crashes when navigating between pages: page A sets field X, page B's guard sees X is non-null and skips the fetch, but field Y (only set by page B's fetch) remains null.
+`state` in `state.js` has multiple fields that are lazily loaded from the API (e.g. `configuredStorefronts`, `discoveryStorefronts`). Different page renderers each guard their own config fetch with `if (state.X === null)`, but they don't all set the same fields. This causes crashes when navigating between pages: page A sets field X, page B's guard sees X is non-null and skips the fetch, but field Y (only set by page B's fetch) remains null.
 
 **Rule:** When adding a new lazy-loaded state field, make sure every page that guards config loading also sets that field — or broaden the guard to `if (state.X === null || state.Y === null)`. Never assume all fields were populated just because one was.
 
@@ -176,6 +213,6 @@ Full Swagger docs at `/apidocs`.
 ## Things that are still in flux
 
 - Schema — new fields are being added regularly; always write a migration
-- Frontend — currently a single-file vanilla JS app; no build step
+- Frontend — vanilla JS, no build step; split across 10 modules (see Frontend JS modules above)
 
 When in doubt, keep changes small and don't over-engineer — the codebase is moving fast.
