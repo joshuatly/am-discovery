@@ -1750,6 +1750,53 @@ describe("renderArtist extended artist info", () => {
     expect(bio.textContent).toContain("Eason Chan");
   });
 
+  test("renders artist_bio HTML tags as markup not literal text", async () => {
+    makeArtistFetchMock({
+      artist_id: "137938148",
+      artist_name: "Eason Chan",
+      artist_artwork_url: null,
+      artist_genre: "Cantopop",
+      artist_born_or_formed: "Born July 27, 1974",
+      artist_origin: "Hong Kong",
+      artist_bio: "<b>Bold section</b><br>Plain text<br><i>Italic</i>",
+      artist_is_group: false,
+      watched: false,
+      releases: [],
+    });
+
+    await appWindow.__test_renderArtist(main, "137938148");
+    const bio = main.querySelector(".artist-bio");
+    expect(bio).not.toBeNull();
+    expect(bio.querySelector("b")).not.toBeNull();
+    expect(bio.querySelector("br")).not.toBeNull();
+    expect(bio.querySelector("i")).not.toBeNull();
+    expect(bio.textContent).not.toContain("<b>");
+    expect(bio.textContent).not.toContain("<br>");
+  });
+
+  test("sanitizeBioHtml strips unsafe tags but keeps their text", async () => {
+    makeArtistFetchMock({
+      artist_id: "137938148",
+      artist_name: "Eason Chan",
+      artist_artwork_url: null,
+      artist_genre: "Cantopop",
+      artist_born_or_formed: null,
+      artist_origin: null,
+      artist_bio: '<script>alert(1)</script><b>Safe</b><a href="x">link</a>',
+      artist_is_group: false,
+      watched: false,
+      releases: [],
+    });
+
+    await appWindow.__test_renderArtist(main, "137938148");
+    const bio = main.querySelector(".artist-bio");
+    expect(bio.querySelector("script")).toBeNull();
+    expect(bio.querySelector("a")).toBeNull();
+    expect(bio.querySelector("b")).not.toBeNull();
+    expect(bio.textContent).toContain("Safe");
+    expect(bio.textContent).toContain("link");
+  });
+
   test("omits detail line and bio when all extended fields are absent", async () => {
     makeArtistFetchMock({
       artist_id: "999",
