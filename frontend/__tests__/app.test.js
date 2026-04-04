@@ -97,7 +97,7 @@ beforeAll(() => {
     window.__test_submitCliSchedulerJob    = submitCliSchedulerJob;
     window.__test_albumCard                = albumCard;
     window.__test_buildPagination          = buildPagination;
-    window.__test_sanitizeBioHtml          = sanitizeBioHtml;
+    window.__test_sanitizeHtml          = sanitizeHtml;
   `;
   appWindow.document.head.appendChild(exposeScript);
 });
@@ -340,12 +340,12 @@ describe("el (DOM element factory)", () => {
 });
 
 // ---------------------------------------------------------------------------
-// sanitizeBioHtml
+// sanitizeHtml
 // ---------------------------------------------------------------------------
 
-describe("sanitizeBioHtml", () => {
+describe("sanitizeHtml", () => {
   let sanitize;
-  beforeEach(() => { sanitize = appWindow.__test_sanitizeBioHtml; });
+  beforeEach(() => { sanitize = appWindow.__test_sanitizeHtml; });
 
   test("passes through plain text unchanged", () => {
     expect(sanitize("Hello world")).toBe("Hello world");

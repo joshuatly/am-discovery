@@ -44,7 +44,7 @@ const el = (tag, cls, text) => {
 
 // Sanitize HTML from Apple Music bios — allow only safe inline formatting tags.
 const SAFE_BIO_TAGS = new Set(["BR", "B", "I", "EM", "STRONG"]);
-function sanitizeBioHtml(html) {
+function sanitizeHtml(html) {
   const tmp = document.createElement("div");
   tmp.innerHTML = html;
   function clean(node) {
@@ -971,7 +971,7 @@ async function renderArtist(main, artistId) {
   if (data.artist_bio) {
     const bioWrap = el("div", "artist-bio-wrap");
     const bioEl = el("div", "artist-bio artist-bio--clamped");
-    bioEl.innerHTML = sanitizeBioHtml(data.artist_bio);
+    bioEl.innerHTML = sanitizeHtml(data.artist_bio);
     bioWrap.appendChild(bioEl);
     const bioToggle = el("a", "artist-bio-toggle", "Show more");
     bioToggle.href = "#";
@@ -1918,7 +1918,7 @@ async function openModal(storeAdamId) {
   let descEl = null;
   if (album.description) {
     descEl = el("p", "modal-desc");
-    descEl.innerHTML = sanitizeBioHtml(album.description);
+    descEl.innerHTML = sanitizeHtml(album.description);
     const expandBtn = el("button", "modal-desc-expand", "Show more");
     expandBtn.style.display = "none";
     expandBtn.addEventListener("click", () => {
