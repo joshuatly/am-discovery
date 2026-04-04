@@ -1899,6 +1899,84 @@ describe("renderArtist extended artist info", () => {
 });
 
 // ---------------------------------------------------------------------------
+// renderArtist — alt name edit widget (Enter key saves)
+// ---------------------------------------------------------------------------
+
+describe("renderArtist alt name edit — Enter key saves", () => {
+  let main;
+
+  beforeEach(() => {
+    main = appWindow.document.createElement("div");
+    appWindow.document.getElementById("main-content").appendChild(main);
+    appWindow.__test_state.watchedIds = new appWindow.Set(["ART99"]);
+    appWindow.__test_state.watchedIdsLoaded = true;
+  });
+
+  afterEach(() => {
+    main.remove();
+    appWindow.fetch.mockClear();
+    appWindow.__test_state.watchedIds = new appWindow.Set();
+    appWindow.__test_state.watchedIdsLoaded = false;
+  });
+
+  test("pressing Enter in alt name input triggers save", async () => {
+    // Artist fetch
+    appWindow.fetch
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({
+          artist_id: "ART99",
+          artist_name: "Test Artist",
+          artist_artwork_url: null,
+          artist_genre: null,
+          artist_born_or_formed: null,
+          artist_origin: null,
+          artist_bio: null,
+          artist_is_group: null,
+          watched: true,
+          releases: [],
+        }),
+      })
+      // Watchlist fetch (for pre-populating alt_name)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve([
+          { artist_id: "ART99", name: "Test Artist", alt_name: "Old Name", collection_status: "new", added_at: 1700000000 },
+        ]),
+      })
+      // PATCH response
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ ok: true }),
+      });
+
+    await appWindow.__test_renderArtist(main, "ART99");
+    await new Promise(r => setTimeout(r, 100));
+
+    // Click Edit button to enter edit mode
+    const editBtn = main.querySelector(".btn-alt-name-edit");
+    expect(editBtn).not.toBeNull();
+    editBtn.click();
+
+    const input = main.querySelector(".alt-name-input");
+    expect(input).not.toBeNull();
+    input.value = "New Name";
+
+    // Press Enter
+    input.dispatchEvent(new appWindow.KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    await new Promise(r => setTimeout(r, 50));
+
+    // PATCH should have been called
+    const patchCall = appWindow.fetch.mock.calls.find(([url, opts]) =>
+      typeof url === "string" && url.includes("/api/watchlist/ART99") && opts?.method === "PATCH"
+    );
+    expect(patchCall).toBeDefined();
+    const body = JSON.parse(patchCall[1].body);
+    expect(body.alt_name).toBe("New Name");
+  });
+});
+
+// ---------------------------------------------------------------------------
 // renderArtist — type filter bar visibility
 // ---------------------------------------------------------------------------
 

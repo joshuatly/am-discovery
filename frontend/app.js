@@ -982,6 +982,9 @@ async function renderArtist(main, artistId) {
         }
       });
       cancelBtn.addEventListener("click", () => buildAltNameDisplay(_currentAltName));
+      input.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") saveBtn.click();
+      });
       altNameDisplay.appendChild(input);
       altNameDisplay.appendChild(saveBtn);
       altNameDisplay.appendChild(cancelBtn);
