@@ -1023,9 +1023,9 @@ async function renderArtist(main, artistId) {
   });
   toolbar.appendChild(viewToggle);
 
-  // Type filter — only shown when multiple types are present
+  // Type filter — shown whenever at least one type is present
   const typeSet = new Set(data.releases.map(r => r.release_type).filter(Boolean));
-  if (typeSet.size > 1) {
+  if (typeSet.size >= 1) {
     const typeFilter = el("div", "type-filter-bar");
     [["All", ""], ...RELEASE_TYPE_ORDER
       .filter(k => typeSet.has(k))
