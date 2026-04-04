@@ -1899,6 +1899,75 @@ describe("renderArtist extended artist info", () => {
 });
 
 // ---------------------------------------------------------------------------
+// renderArtist — type filter bar visibility
+// ---------------------------------------------------------------------------
+
+describe("renderArtist type filter bar", () => {
+  let main;
+
+  beforeEach(() => {
+    main = appWindow.document.createElement("div");
+    appWindow.document.getElementById("main-content").appendChild(main);
+    appWindow.__test_state.artistTypeFilter = "";
+  });
+
+  afterEach(() => {
+    main.remove();
+    appWindow.fetch.mockClear();
+  });
+
+  test("shows type filter bar when artist has only one release type", async () => {
+    makeArtistFetchMock({
+      artist_id: "42",
+      artist_name: "Singles Only",
+      artist_artwork_url: null,
+      artist_genre: null,
+      artist_born_or_formed: null,
+      artist_origin: null,
+      artist_bio: null,
+      artist_is_group: false,
+      watched: false,
+      releases: [
+        { id: "1", title: "Single A", release_type: "singles-eps", artist_name: "Singles Only" },
+        { id: "2", title: "Single B", release_type: "singles-eps", artist_name: "Singles Only" },
+      ],
+    });
+
+    await appWindow.__test_renderArtist(main, "42");
+    const typeBar = main.querySelector(".type-filter-bar");
+    expect(typeBar).not.toBeNull();
+    const btns = typeBar.querySelectorAll(".type-filter-btn");
+    // All + 1 type
+    expect(btns.length).toBe(2);
+  });
+
+  test("shows type filter bar when artist has multiple release types", async () => {
+    makeArtistFetchMock({
+      artist_id: "43",
+      artist_name: "Mixed Artist",
+      artist_artwork_url: null,
+      artist_genre: null,
+      artist_born_or_formed: null,
+      artist_origin: null,
+      artist_bio: null,
+      artist_is_group: false,
+      watched: false,
+      releases: [
+        { id: "1", title: "Album A", release_type: "main-albums", artist_name: "Mixed Artist" },
+        { id: "2", title: "Single B", release_type: "singles-eps", artist_name: "Mixed Artist" },
+      ],
+    });
+
+    await appWindow.__test_renderArtist(main, "43");
+    const typeBar = main.querySelector(".type-filter-bar");
+    expect(typeBar).not.toBeNull();
+    const btns = typeBar.querySelectorAll(".type-filter-btn");
+    // All + 2 types
+    expect(btns.length).toBe(3);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // artistHint extended fields from watchlist search suggestion card
 // ---------------------------------------------------------------------------
 
