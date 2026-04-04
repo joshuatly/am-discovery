@@ -452,16 +452,21 @@ function route(hash) {
   });
 
   if (hash === "#/all") {
+    document.title = "All Albums — AM Discovery";
     renderAllReleases(main, 1, "", "", false, state.allReleasesTypeFilter);
   } else if (hash === "#/watchlist") {
+    document.title = "Artist Watchlist — AM Discovery";
     const sortFilter = WatchlistPrefs.getSortFilter();
     renderWatchlist(main, "", "", sortFilter);
   } else if (hash === "#/settings") {
+    document.title = "Settings — AM Discovery";
     renderSettings(main);
   } else if (hash.startsWith("#/artist/")) {
+    document.title = "Artist — AM Discovery";
     const artistId = hash.slice("#/artist/".length);
     renderArtist(main, artistId);
   } else {
+    document.title = "New Releases — AM Discovery";
     renderNewReleases(main);
   }
 }
@@ -777,6 +782,7 @@ async function renderArtist(main, artistId) {
   if (data.artist_is_group == null && hint?.is_group != null) data.artist_is_group = hint.is_group;
 
   await loadWatchedIds();
+  if (data.artist_name) document.title = `${data.artist_name} — AM Discovery`;
   wrap.innerHTML = "";
 
   // Header
