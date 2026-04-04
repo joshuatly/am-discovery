@@ -794,6 +794,89 @@ a.sf-chip:hover { opacity: 0.75; }
 /* =========================================================
    Watchlist page
    ========================================================= */
+.watchlist-page-layout {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+.watchlist-grid-wrap {
+  flex: 1;
+  min-width: 0;
+}
+.alpha-index-container {
+  position: sticky;
+  top: 20px;
+  flex-shrink: 0;
+}
+.alpha-index {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 6px 4px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  user-select: none;
+}
+.alpha-index-btn {
+  width: 22px;
+  height: 18px;
+  font-size: 10px;
+  font-weight: 600;
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  cursor: default;
+  border-radius: 3px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  font-family: inherit;
+  transition: background 0.1s, color 0.1s;
+}
+.alpha-index-btn.has-artists {
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+.alpha-index-btn.has-artists:hover {
+  background: rgba(255,255,255,0.08);
+  color: var(--accent);
+}
+.alpha-index-btn.current {
+  background: var(--accent);
+  color: #fff;
+}
+
+/* Apple Music search toggle */
+.am-search-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text-dim);
+  cursor: default;
+  white-space: nowrap;
+  user-select: none;
+  margin-top: 6px;
+  opacity: 0.4;
+  pointer-events: none;
+  transition: opacity 0.2s;
+}
+.am-search-label input[type="checkbox"] {
+  accent-color: var(--accent);
+  cursor: pointer;
+  width: 13px;
+  height: 13px;
+}
+/* Activate once the search input has a value */
+.page-controls-search:has(input[type="text"]:not(:placeholder-shown)) .am-search-label {
+  opacity: 1;
+  pointer-events: auto;
+  cursor: pointer;
+  color: var(--text-secondary);
+}
+
 .watchlist-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
@@ -1508,6 +1591,7 @@ a.sf-chip:hover { opacity: 0.75; }
     max-width: 100%;
     width: 100%;
   }
+  .alpha-index-container { display: none; }
 }
 
 /* Sidebar backdrop (only active on small screens when expanded) */

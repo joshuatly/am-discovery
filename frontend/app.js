@@ -1145,7 +1145,13 @@ async function renderWatchlist(main, preferredSourceFilter = "", collectionStatu
   const searchInput = el("input", "search-input");
   searchInput.type = "text";
   searchInput.placeholder = "Search artists…";
+  const amSearchLabel = el("label", "am-search-label");
+  const amSearchCheck = el("input");
+  amSearchCheck.type = "checkbox";
+  amSearchLabel.appendChild(amSearchCheck);
+  amSearchLabel.appendChild(document.createTextNode(" Also search Apple Music"));
   searchDiv.appendChild(searchInput);
+  searchDiv.appendChild(amSearchLabel);
   controls.appendChild(filtersDiv);
   controls.appendChild(searchDiv);
   wrap.appendChild(controls);
@@ -1223,7 +1229,13 @@ async function renderWatchlist(main, preferredSourceFilter = "", collectionStatu
 
   // Results area: watched list + AM search suggestions
   const grid = el("div", "watchlist-grid");
-  wrap.appendChild(grid);
+  const alphaIndexContainer = el("div", "alpha-index-container");
+  const pageLayout = el("div", "watchlist-page-layout");
+  const gridWrap = el("div", "watchlist-grid-wrap");
+  gridWrap.appendChild(grid);
+  pageLayout.appendChild(gridWrap);
+  pageLayout.appendChild(alphaIndexContainer);
+  wrap.appendChild(pageLayout);
 
   function makeWatchedCard(artist) {
     const card = el("div", "watchlist-card");
@@ -1346,6 +1358,7 @@ async function renderWatchlist(main, preferredSourceFilter = "", collectionStatu
   let _searchTimer = null;
   let _searchAbort = null;
   let _lastSuggestions = [];
+  let _localSuggestions = [];
   let _rateLimitedUntil = 0;
   let _currentPage = 0;
 
@@ -1370,15 +1383,26 @@ async function renderWatchlist(main, preferredSourceFilter = "", collectionStatu
 
     pageItems.forEach(a => grid.appendChild(makeWatchedCard(a)));
 
-    // Show AM suggestions (already-watched ones excluded)
-    const suggestions = _lastSuggestions.filter(a => !state.watchedIds.has(a.id));
-    if (suggestions.length) {
+    // Show local DB suggestions (non-watchlist artists from local search)
+    const localSuggestions = _localSuggestions.filter(a => !state.watchedIds.has(a.id));
+    if (localSuggestions.length) {
       if (pageItems.length) {
+        const sep = el("div", "watchlist-separator", "Local Library");
+        sep.style.cssText = "grid-column:1/-1;font-size:11px;color:var(--text-dim);text-transform:uppercase;letter-spacing:.06em;padding:4px 0;";
+        grid.appendChild(sep);
+      }
+      localSuggestions.forEach(a => grid.appendChild(makeSuggestionCard(a)));
+    }
+
+    // Show AM suggestions (only when Apple Music search is enabled, already-watched excluded)
+    const amSuggestions = _lastSuggestions.filter(a => !state.watchedIds.has(a.id));
+    if (amSuggestions.length) {
+      if (pageItems.length || localSuggestions.length) {
         const sep = el("div", "watchlist-separator", "Also on Apple Music");
         sep.style.cssText = "grid-column:1/-1;font-size:11px;color:var(--text-dim);text-transform:uppercase;letter-spacing:.06em;padding:4px 0;";
         grid.appendChild(sep);
       }
-      suggestions.forEach(a => grid.appendChild(makeSuggestionCard(a)));
+      amSuggestions.forEach(a => grid.appendChild(makeSuggestionCard(a)));
     }
 
     if (!grid.children.length) {
@@ -1392,11 +1416,97 @@ async function renderWatchlist(main, preferredSourceFilter = "", collectionStatu
     if (usePagination && totalPages > 1) {
       grid.appendChild(buildPagination(_currentPage + 1, totalPages, p => renderGrid(q, p - 1)));
     }
+
+    // Build A-Z index (only when sorted by name with no active search and multiple pages)
+    alphaIndexContainer.innerHTML = "";
+    if (!q && sortFilter === "name" && filtered.length > WATCHLIST_PAGE_SIZE) {
+      const alphaIndex = el("div", "alpha-index");
+      const letters = ["#", ..."ABCDEFGHIJKLMNOPQRSTUVWXYZ"];
+      const letterPageMap = {};
+      filtered.forEach((artist, i) => {
+        const firstChar = ((artist.name || "?")[0]).toUpperCase();
+        const letter = /[A-Z]/.test(firstChar) ? firstChar : "#";
+        if (!(letter in letterPageMap)) {
+          letterPageMap[letter] = Math.floor(i / WATCHLIST_PAGE_SIZE);
+        }
+      });
+      letters.forEach(letter => {
+        const btn = el("button", "alpha-index-btn");
+        btn.textContent = letter;
+        if (letter in letterPageMap) {
+          btn.classList.add("has-artists");
+          const targetPage = letterPageMap[letter];
+          if (targetPage === safePage) btn.classList.add("current");
+          btn.addEventListener("click", () => {
+            renderGrid("", targetPage);
+            requestAnimationFrame(() => {
+              const cards = grid.querySelectorAll(".watchlist-card");
+              for (const card of cards) {
+                const nameEl = card.querySelector(".watchlist-name");
+                if (nameEl) {
+                  const firstChar = (nameEl.textContent.trim()[0] || "").toUpperCase();
+                  const cardLetter = /[A-Z]/.test(firstChar) ? firstChar : "#";
+                  if (cardLetter === letter) {
+                    card.scrollIntoView({ behavior: "smooth", block: "start" });
+                    break;
+                  }
+                }
+              }
+            });
+          });
+        } else {
+          btn.disabled = true;
+        }
+        alphaIndex.appendChild(btn);
+      });
+      alphaIndexContainer.appendChild(alphaIndex);
+    }
+  }
+
+  async function runSearch(q) {
+    if (Date.now() < _rateLimitedUntil) return;
+    const abort = new AbortController();
+    _searchAbort = abort;
+    try {
+      // Always search local DB first
+      const localR = await fetch(`/api/search/artists/local?term=${encodeURIComponent(q)}&limit=25`, { signal: abort.signal });
+      if (localR.ok) {
+        const localData = await localR.json();
+        _localSuggestions = (localData.results || [])
+          .filter(a => !a.watched)
+          .map(a => ({ id: a.artist_id, name: a.name, artwork_url: a.artwork_url, url: a.url, genre: a.genre, born_or_formed: a.born_or_formed, origin: a.origin, artist_bio: a.artist_bio, is_group: a.is_group }));
+      }
+
+      // Only search Apple Music when the checkbox is checked
+      if (amSearchCheck.checked) {
+        const sf = state.metadataStorefront || state.homeStorefront || "us";
+        const r = await fetch(`/api/search/artists?term=${encodeURIComponent(q)}&limit=10&storefront=${sf}`, { signal: abort.signal });
+        if (r.status === 429) {
+          _rateLimitedUntil = Date.now() + 10000;
+          _lastSuggestions = [];
+          renderGrid(q);
+          const notice = el("div", "empty-state", "");
+          notice.style.cssText = "grid-column:1/-1";
+          notice.innerHTML = `<div class="empty-icon">⏳</div><div class="empty-title">Rate limited</div><div class="empty-desc">Apple Music search is temporarily unavailable. Try again in a moment.</div>`;
+          grid.appendChild(notice);
+          return;
+        }
+        if (r.ok) {
+          const data = await r.json();
+          _lastSuggestions = data.results || [];
+        }
+      }
+    } catch (e) {
+      if (e.name !== "AbortError") { _localSuggestions = []; _lastSuggestions = []; }
+      else return;
+    }
+    renderGrid(q);
   }
 
   searchInput.addEventListener("input", () => {
     const q = searchInput.value.trim();
     _lastSuggestions = [];
+    _localSuggestions = [];
     renderGrid(q);
 
     clearTimeout(_searchTimer);
@@ -1405,32 +1515,19 @@ async function renderWatchlist(main, preferredSourceFilter = "", collectionStatu
 
     const backoffMs = _rateLimitedUntil - Date.now();
     const delay = backoffMs > 0 ? backoffMs : 350;
+    _searchTimer = setTimeout(() => runSearch(q), delay);
+  });
 
-    _searchTimer = setTimeout(async () => {
-      if (Date.now() < _rateLimitedUntil) return;
-      const abort = new AbortController();
-      _searchAbort = abort;
-      try {
-        const sf = state.metadataStorefront || state.homeStorefront || "us";
-        const r = await fetch(`/api/search/artists?term=${encodeURIComponent(q)}&limit=10&storefront=${sf}`, { signal: abort.signal });
-        if (r.status === 429) {
-          _rateLimitedUntil = Date.now() + 10000;
-          _lastSuggestions = [];
-          const notice = el("div", "empty-state", "");
-          notice.style.cssText = "grid-column:1/-1";
-          notice.innerHTML = `<div class="empty-icon">⏳</div><div class="empty-title">Rate limited</div><div class="empty-desc">Apple Music search is temporarily unavailable. Try again in a moment.</div>`;
-          grid.appendChild(notice);
-          return;
-        }
-        if (!r.ok) { _lastSuggestions = []; renderGrid(q); return; }
-        const data = await r.json();
-        _lastSuggestions = data.results || [];
-      } catch (e) {
-        if (e.name !== "AbortError") _lastSuggestions = [];
-        else return;
-      }
+  amSearchCheck.addEventListener("change", () => {
+    const q = searchInput.value.trim();
+    if (!amSearchCheck.checked) {
+      _lastSuggestions = [];
       renderGrid(q);
-    }, delay);
+    } else if (q) {
+      clearTimeout(_searchTimer);
+      if (_searchAbort) { _searchAbort.abort(); _searchAbort = null; }
+      _searchTimer = setTimeout(() => runSearch(q), 350);
+    }
   });
 
   renderGrid("");

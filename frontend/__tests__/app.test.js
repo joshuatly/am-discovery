@@ -1988,13 +1988,13 @@ describe("watchlist search suggestion card sets artistHint with extended fields"
       if (url.startsWith("/api/watchlist")) {
         return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
       }
-      if (url.includes("/api/search/artists")) {
+      if (url.includes("/api/search/artists/local")) {
         return Promise.resolve({
           ok: true,
           json: () => Promise.resolve({
             results: [
               {
-                id: 300117743,
+                artist_id: "300117743",
                 name: "The Pale White",
                 url: "https://music.apple.com/us/artist/the-pale-white/300117743",
                 artwork_url: "https://example.com/art.jpg",
@@ -2003,10 +2003,14 @@ describe("watchlist search suggestion card sets artistHint with extended fields"
                 origin: "Newcastle, England",
                 artist_bio: "British rock band.",
                 is_group: true,
+                watched: false,
               },
             ],
           }),
         });
+      }
+      if (url.includes("/api/search/artists")) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ results: [] }) });
       }
       return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
     });
@@ -2561,6 +2565,9 @@ describe("watchlist search handles 429 rate-limit response", () => {
       if (url.startsWith("/api/watchlist")) {
         return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
       }
+      if (url.includes("/api/search/artists/local")) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ results: [] }) });
+      }
       if (url.includes("/api/search/artists")) {
         return Promise.resolve({ ok: false, status: 429, json: () => Promise.resolve({ error: "rate_limited" }) });
       }
@@ -2577,7 +2584,13 @@ describe("watchlist search handles 429 rate-limit response", () => {
     await appWindow.renderWatchlist(main);
     await new Promise(r => setTimeout(r, 50));
 
-    const searchInput = main.querySelector("input");
+    // Enable Apple Music search so the 429 response from AM is exercised
+    const amCheckbox = main.querySelector("input[type=checkbox]");
+    expect(amCheckbox).not.toBeNull();
+    amCheckbox.checked = true;
+    amCheckbox.dispatchEvent(new appWindow.Event("change"));
+
+    const searchInput = main.querySelector("input[type=text], input[placeholder*='earch']");
     searchInput.value = "test";
     searchInput.dispatchEvent(new appWindow.Event("input"));
 
