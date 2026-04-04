@@ -259,6 +259,7 @@ const state = {
   artistTypeFilter: "",       // "" = all, else a release_type value
   allReleasesTypeFilter: "",  // "" = all, else a release_type value
   cliSchedulerEnabled: false, // true when cli_scheduler_url is configured
+  watchlistPage: 0,           // remembered page index for watchlist (0-based)
 };
 
 // ---------------------------------------------------------------------------
@@ -457,7 +458,7 @@ function route(hash) {
   } else if (hash === "#/watchlist") {
     document.title = "Artist Watchlist — AM Discovery";
     const sortFilter = WatchlistPrefs.getSortFilter();
-    renderWatchlist(main, "", "", sortFilter);
+    renderWatchlist(main, "", "", sortFilter, state.watchlistPage);
   } else if (hash === "#/settings") {
     document.title = "Settings — AM Discovery";
     renderSettings(main);
@@ -1136,7 +1137,7 @@ function paginateList(list, page, pageSize) {
 
 const WATCHLIST_PAGE_SIZE = 48;
 
-async function renderWatchlist(main, preferredSourceFilter = "", collectionStatusFilter = "", sortFilter = "name") {
+async function renderWatchlist(main, preferredSourceFilter = "", collectionStatusFilter = "", sortFilter = "name", initialPage = 0) {
   main.innerHTML = "";
   const wrap = el("div", "page-enter");
   wrap.appendChild(buildHeader("⭐ Artist Watchlist", "Artists you're following"));
@@ -1383,6 +1384,7 @@ async function renderWatchlist(main, preferredSourceFilter = "", collectionStatu
       ? paginateList(filtered, page, WATCHLIST_PAGE_SIZE)
       : { items: filtered, page: 0, totalPages: 1, total: filtered.length };
     _currentPage = safePage;
+    state.watchlistPage = safePage;
 
     pageItems.forEach(a => grid.appendChild(makeWatchedCard(a)));
 
@@ -1533,7 +1535,7 @@ async function renderWatchlist(main, preferredSourceFilter = "", collectionStatu
     }
   });
 
-  renderGrid("");
+  renderGrid("", initialPage);
 }
 
 // ---------------------------------------------------------------------------
