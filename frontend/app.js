@@ -1917,7 +1917,8 @@ async function openModal(storeAdamId) {
   let descExpandBtn = null;
   let descEl = null;
   if (album.description) {
-    descEl = el("p", "modal-desc", album.description);
+    descEl = el("p", "modal-desc");
+    descEl.innerHTML = sanitizeBioHtml(album.description);
     const expandBtn = el("button", "modal-desc-expand", "Show more");
     expandBtn.style.display = "none";
     expandBtn.addEventListener("click", () => {
