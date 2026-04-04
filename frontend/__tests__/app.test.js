@@ -3146,3 +3146,118 @@ describe("makeWatchedCard alt_name display", () => {
     expect(names).not.toContain("Alice");
   });
 });
+
+// ---------------------------------------------------------------------------
+// A-Z index — multi-page letter highlighting
+// ---------------------------------------------------------------------------
+
+describe("A-Z index letter highlighting across pages", () => {
+  const PAGE_SIZE = 48;
+  let main;
+
+  // Build a watchlist: 47 A-artists, 49 S-artists, 1 T-artist = 97 total (3 pages).
+  // Page 0 (indices 0–47): A[0..46] + S[0]
+  // Page 1 (indices 48–95): S[1..48]
+  // Page 2 (indices 96):   T[0]
+  const artists = [
+    ...Array.from({ length: 47 }, (_, i) => ({
+      artist_id: `A${i}`, name: `A-${String(i).padStart(3, "0")}`, alt_name: null,
+      collection_status: "new", added_at: 1700000000,
+    })),
+    ...Array.from({ length: 49 }, (_, i) => ({
+      artist_id: `S${i}`, name: `S-${String(i).padStart(3, "0")}`, alt_name: null,
+      collection_status: "new", added_at: 1700000000,
+    })),
+    { artist_id: "T0", name: "T-000", alt_name: null, collection_status: "new", added_at: 1700000000 },
+  ];
+
+  function mockFetch(data) {
+    appWindow.fetch.mockImplementation((url) => {
+      if (url === "/api/config") {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ check_storefronts: ["us"], home_storefront: "us" }) });
+      }
+      if (url.startsWith("/api/watchlist")) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve(data) });
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
+    });
+  }
+
+  beforeEach(() => {
+    main = appWindow.document.getElementById("main-content");
+    main.innerHTML = "";
+    appWindow.__test_state.configuredStorefronts = ["us"];
+    expect(artists.length).toBe(97);
+    expect(PAGE_SIZE).toBe(appWindow.__test_WATCHLIST_PAGE_SIZE);
+  });
+
+  test("S is highlighted on its first page (page 0)", async () => {
+    mockFetch(artists);
+    // page 0: A[0..46] + S[0] — S starts here
+    await appWindow.__test_renderWatchlist(main, "", "", "name", 0);
+    await new Promise(r => setTimeout(r, 100));
+
+    const sBtn = Array.from(main.querySelectorAll(".alpha-index-btn")).find(b => b.textContent === "S");
+    expect(sBtn).not.toBeNull();
+    expect(sBtn.classList.contains("current")).toBe(true);
+  });
+
+  test("S is highlighted on a middle page where it continues (page 1)", async () => {
+    mockFetch(artists);
+    // page 1: S[1..48] only — S started on page 0 but still has artists here
+    await appWindow.__test_renderWatchlist(main, "", "", "name", 1);
+    await new Promise(r => setTimeout(r, 100));
+
+    const sBtn = Array.from(main.querySelectorAll(".alpha-index-btn")).find(b => b.textContent === "S");
+    expect(sBtn).not.toBeNull();
+    expect(sBtn.classList.contains("current")).toBe(true);
+  });
+
+  test("A is not highlighted on page 1 (A ended on page 0)", async () => {
+    mockFetch(artists);
+    await appWindow.__test_renderWatchlist(main, "", "", "name", 1);
+    await new Promise(r => setTimeout(r, 100));
+
+    const aBtn = Array.from(main.querySelectorAll(".alpha-index-btn")).find(b => b.textContent === "A");
+    expect(aBtn).not.toBeNull();
+    expect(aBtn.classList.contains("current")).toBe(false);
+  });
+
+  test("T is not highlighted on page 1 (T starts on page 2)", async () => {
+    mockFetch(artists);
+    await appWindow.__test_renderWatchlist(main, "", "", "name", 1);
+    await new Promise(r => setTimeout(r, 100));
+
+    const tBtn = Array.from(main.querySelectorAll(".alpha-index-btn")).find(b => b.textContent === "T");
+    expect(tBtn).not.toBeNull();
+    expect(tBtn.classList.contains("current")).toBe(false);
+  });
+
+  test("T is highlighted on page 2 (T starts and ends there)", async () => {
+    mockFetch(artists);
+    await appWindow.__test_renderWatchlist(main, "", "", "name", 2);
+    await new Promise(r => setTimeout(r, 100));
+
+    const tBtn = Array.from(main.querySelectorAll(".alpha-index-btn")).find(b => b.textContent === "T");
+    expect(tBtn).not.toBeNull();
+    expect(tBtn.classList.contains("current")).toBe(true);
+  });
+
+  test("clicking S navigates to its first page (page 0) regardless of current page", async () => {
+    mockFetch(artists);
+    // Start on page 1
+    await appWindow.__test_renderWatchlist(main, "", "", "name", 1);
+    await new Promise(r => setTimeout(r, 100));
+
+    const sBtn = Array.from(main.querySelectorAll(".alpha-index-btn")).find(b => b.textContent === "S");
+    sBtn.click();
+    await new Promise(r => setTimeout(r, 100));
+
+    // After clicking S, should be on page 0 — A artists should be visible
+    const cards = main.querySelectorAll(".watchlist-card");
+    const names = Array.from(cards).map(c => c.dataset.artistId || "");
+    // Page 0 contains A-artists (A0..A46) and S0
+    expect(names).toContain("A0");
+    expect(names).toContain("S0");
+  });
+});

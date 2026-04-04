@@ -1429,22 +1429,24 @@ async function renderWatchlist(main, preferredSourceFilter = "", collectionStatu
     if (!q && sortFilter === "name" && filtered.length > WATCHLIST_PAGE_SIZE) {
       const alphaIndex = el("div", "alpha-index");
       const letters = ["#", ..."ABCDEFGHIJKLMNOPQRSTUVWXYZ"];
-      const letterPageMap = {};
+      const letterFirstPage = {};
+      const letterLastPage = {};
       filtered.forEach((artist, i) => {
         const displayName = (artist.alt_name || artist.name || "?");
         const firstChar = displayName[0].toUpperCase();
         const letter = /[A-Z]/.test(firstChar) ? firstChar : "#";
-        if (!(letter in letterPageMap)) {
-          letterPageMap[letter] = Math.floor(i / WATCHLIST_PAGE_SIZE);
-        }
+        const page = Math.floor(i / WATCHLIST_PAGE_SIZE);
+        if (!(letter in letterFirstPage)) letterFirstPage[letter] = page;
+        letterLastPage[letter] = page;
       });
       letters.forEach(letter => {
         const btn = el("button", "alpha-index-btn");
         btn.textContent = letter;
-        if (letter in letterPageMap) {
+        if (letter in letterFirstPage) {
           btn.classList.add("has-artists");
-          const targetPage = letterPageMap[letter];
-          if (targetPage === safePage) btn.classList.add("current");
+          const targetPage = letterFirstPage[letter];
+          // Highlight whenever the current page falls within this letter's page range.
+          if (safePage >= targetPage && safePage <= letterLastPage[letter]) btn.classList.add("current");
           btn.addEventListener("click", () => {
             renderGrid("", targetPage);
             requestAnimationFrame(() => {
