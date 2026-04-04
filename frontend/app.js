@@ -1244,6 +1244,8 @@ async function renderWatchlist(main, preferredSourceFilter = "", collectionStatu
   function makeWatchedCard(artist) {
     const card = el("div", "watchlist-card");
     card.dataset.artistId = artist.artist_id;
+    const _displayFirst = ((artist.alt_name || artist.name || "?")[0]).toUpperCase();
+    card.dataset.displayLetter = /[A-Z]/.test(_displayFirst) ? _displayFirst : "#";
 
     const avatar = el("div", "watchlist-avatar");
     if (artist.artwork_url) {
@@ -1429,7 +1431,8 @@ async function renderWatchlist(main, preferredSourceFilter = "", collectionStatu
       const letters = ["#", ..."ABCDEFGHIJKLMNOPQRSTUVWXYZ"];
       const letterPageMap = {};
       filtered.forEach((artist, i) => {
-        const firstChar = ((artist.name || "?")[0]).toUpperCase();
+        const displayName = (artist.alt_name || artist.name || "?");
+        const firstChar = displayName[0].toUpperCase();
         const letter = /[A-Z]/.test(firstChar) ? firstChar : "#";
         if (!(letter in letterPageMap)) {
           letterPageMap[letter] = Math.floor(i / WATCHLIST_PAGE_SIZE);
@@ -1447,14 +1450,9 @@ async function renderWatchlist(main, preferredSourceFilter = "", collectionStatu
             requestAnimationFrame(() => {
               const cards = grid.querySelectorAll(".watchlist-card");
               for (const card of cards) {
-                const nameEl = card.querySelector(".watchlist-name");
-                if (nameEl) {
-                  const firstChar = (nameEl.textContent.trim()[0] || "").toUpperCase();
-                  const cardLetter = /[A-Z]/.test(firstChar) ? firstChar : "#";
-                  if (cardLetter === letter) {
-                    card.scrollIntoView({ behavior: "smooth", block: "start" });
-                    break;
-                  }
+                if (card.dataset.displayLetter === letter) {
+                  card.scrollIntoView({ behavior: "smooth", block: "start" });
+                  break;
                 }
               }
             });
