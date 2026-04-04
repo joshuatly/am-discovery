@@ -1124,6 +1124,61 @@ class TestApiWatchlistPatch(ServerTestCase):
         self.assertEqual(resp.status_code, 200)
         mock_db.update_preferred_source.assert_called_once_with("ART1", "jp")
 
+    @patch("server.db")
+    def test_patch_sets_alt_name(self, mock_db):
+        mock_db.update_watchlist_alt_name.return_value = None
+        resp = self.client.patch(
+            "/api/watchlist/ART1",
+            data=json.dumps({"alt_name": "Hitsujibungaku"}),
+            content_type="application/json",
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(resp.get_json()["ok"])
+        mock_db.update_watchlist_alt_name.assert_called_once_with("ART1", "Hitsujibungaku")
+
+    @patch("server.db")
+    def test_patch_clears_alt_name_with_null(self, mock_db):
+        mock_db.update_watchlist_alt_name.return_value = None
+        resp = self.client.patch(
+            "/api/watchlist/ART1",
+            data=json.dumps({"alt_name": None}),
+            content_type="application/json",
+        )
+        self.assertEqual(resp.status_code, 200)
+        mock_db.update_watchlist_alt_name.assert_called_once_with("ART1", None)
+
+    @patch("server.db")
+    def test_patch_clears_alt_name_with_empty_string(self, mock_db):
+        mock_db.update_watchlist_alt_name.return_value = None
+        resp = self.client.patch(
+            "/api/watchlist/ART1",
+            data=json.dumps({"alt_name": ""}),
+            content_type="application/json",
+        )
+        self.assertEqual(resp.status_code, 200)
+        mock_db.update_watchlist_alt_name.assert_called_once_with("ART1", None)
+
+    @patch("server.db")
+    def test_patch_alt_name_too_long_returns_400(self, mock_db):
+        resp = self.client.patch(
+            "/api/watchlist/ART1",
+            data=json.dumps({"alt_name": "x" * 201}),
+            content_type="application/json",
+        )
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn("error", resp.get_json())
+
+    @patch("server.db")
+    def test_patch_alt_name_strips_whitespace(self, mock_db):
+        mock_db.update_watchlist_alt_name.return_value = None
+        resp = self.client.patch(
+            "/api/watchlist/ART1",
+            data=json.dumps({"alt_name": "  Hitsujibungaku  "}),
+            content_type="application/json",
+        )
+        self.assertEqual(resp.status_code, 200)
+        mock_db.update_watchlist_alt_name.assert_called_once_with("ART1", "Hitsujibungaku")
+
 
 # ---------------------------------------------------------------------------
 # GET /api/releases — watched filter

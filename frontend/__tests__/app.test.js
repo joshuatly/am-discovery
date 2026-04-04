@@ -2969,3 +2969,89 @@ describe("buildPagination scroll-to-top", () => {
     expect(onPage).toHaveBeenCalledWith(3);
   });
 });
+
+// ---------------------------------------------------------------------------
+// alt_name display in watchlist card
+// ---------------------------------------------------------------------------
+
+describe("makeWatchedCard alt_name display", () => {
+  let main;
+
+  function mockFetch(artists) {
+    appWindow.fetch.mockImplementation((url) => {
+      if (url === "/api/config") {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ check_storefronts: ["us"], home_storefront: "us" }),
+        });
+      }
+      if (url.startsWith("/api/watchlist")) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve(artists) });
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
+    });
+  }
+
+  beforeEach(() => {
+    main = appWindow.document.getElementById("main-content");
+    main.innerHTML = "";
+    appWindow.__test_state.configuredStorefronts = ["us"];
+  });
+
+  test("renders alt_name below artist name when set", async () => {
+    mockFetch([
+      { artist_id: "ART1", name: "羊文學", alt_name: "Hitsujibungaku", collection_status: "new", added_at: 1700000000 },
+    ]);
+    await appWindow.renderWatchlist(main);
+    await new Promise(r => setTimeout(r, 100));
+
+    const altEl = main.querySelector(".watchlist-alt-name");
+    expect(altEl).not.toBeNull();
+    expect(altEl.textContent).toBe("Hitsujibungaku");
+  });
+
+  test("does not render alt_name element when alt_name is null", async () => {
+    mockFetch([
+      { artist_id: "ART1", name: "Artist One", alt_name: null, collection_status: "new", added_at: 1700000000 },
+    ]);
+    await appWindow.renderWatchlist(main);
+    await new Promise(r => setTimeout(r, 100));
+
+    const altEl = main.querySelector(".watchlist-alt-name");
+    expect(altEl).toBeNull();
+  });
+
+  test("alt_name is rendered as textContent (not innerHTML)", async () => {
+    mockFetch([
+      { artist_id: "ART1", name: "Artist One", alt_name: "<script>alert(1)</script>", collection_status: "new", added_at: 1700000000 },
+    ]);
+    await appWindow.renderWatchlist(main);
+    await new Promise(r => setTimeout(r, 100));
+
+    const altEl = main.querySelector(".watchlist-alt-name");
+    expect(altEl).not.toBeNull();
+    // Must not have created a script element
+    expect(main.querySelector("script")).toBeNull();
+    // textContent should be the raw string, not parsed HTML
+    expect(altEl.textContent).toBe("<script>alert(1)</script>");
+  });
+
+  test("local search matches by alt_name", async () => {
+    mockFetch([
+      { artist_id: "ART1", name: "羊文學", alt_name: "Hitsujibungaku", collection_status: "new", added_at: 1700000000 },
+      { artist_id: "ART2", name: "Alice", alt_name: null, collection_status: "new", added_at: 1700000000 },
+    ]);
+    await appWindow.renderWatchlist(main);
+    await new Promise(r => setTimeout(r, 100));
+
+    const searchInput = main.querySelector("input[placeholder*='earch']");
+    searchInput.value = "Hitsuji";
+    searchInput.dispatchEvent(new appWindow.Event("input"));
+    await new Promise(r => setTimeout(r, 50));
+
+    const nameLinks = main.querySelectorAll(".watchlist-name");
+    const names = Array.from(nameLinks).map(a => a.textContent);
+    expect(names).toContain("羊文學");
+    expect(names).not.toContain("Alice");
+  });
+});

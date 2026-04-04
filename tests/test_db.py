@@ -662,6 +662,65 @@ class TestWatchlist(DBTestCase):
         self.assertIsInstance(ids, set)
         self.assertEqual(len(ids), 0)
 
+    def test_update_watchlist_alt_name_sets_value(self):
+        self.db.add_to_watchlist("ART1", "羊文學")
+        self.db.update_watchlist_alt_name("ART1", "Hitsujibungaku")
+        wl = self.db.get_watchlist()
+        self.assertEqual(wl[0]["alt_name"], "Hitsujibungaku")
+
+    def test_update_watchlist_alt_name_clear_with_none(self):
+        self.db.add_to_watchlist("ART1", "羊文學")
+        self.db.update_watchlist_alt_name("ART1", "Hitsujibungaku")
+        self.db.update_watchlist_alt_name("ART1", None)
+        wl = self.db.get_watchlist()
+        self.assertIsNone(wl[0]["alt_name"])
+
+    def test_alt_name_null_by_default(self):
+        self.db.add_to_watchlist("ART1", "Artist One")
+        wl = self.db.get_watchlist()
+        self.assertIsNone(wl[0]["alt_name"])
+
+    def test_watchlist_sorted_by_alt_name_when_set(self):
+        # 羊文學 → "Hitsujibungaku", sorts as H
+        # ずっと → "Zutomayo", sorts as Z
+        # Alice → no alt_name, sorts as A
+        self.db.add_to_watchlist("A1", "羊文學")
+        self.db.update_watchlist_alt_name("A1", "Hitsujibungaku")
+        self.db.add_to_watchlist("A2", "ずっと真夜中でいいのに。")
+        self.db.update_watchlist_alt_name("A2", "Zutomayo")
+        self.db.add_to_watchlist("A3", "Alice")
+        wl = self.db.get_watchlist()
+        names = [w["name"] for w in wl]
+        self.assertEqual(names, ["Alice", "羊文學", "ずっと真夜中でいいのに。"])
+
+    def test_watchlist_sort_falls_back_to_name_when_no_alt_name(self):
+        self.db.add_to_watchlist("A1", "Charlie")
+        self.db.add_to_watchlist("A2", "Alice")
+        self.db.add_to_watchlist("A3", "Bob")
+        wl = self.db.get_watchlist()
+        names = [w["name"] for w in wl]
+        self.assertEqual(names, ["Alice", "Bob", "Charlie"])
+
+    def test_export_includes_alt_name(self):
+        self.db.add_to_watchlist("ART1", "羊文學")
+        self.db.update_watchlist_alt_name("ART1", "Hitsujibungaku")
+        exported = self.db.export_watchlist()
+        self.assertEqual(exported[0]["alt_name"], "Hitsujibungaku")
+
+    def test_import_preserves_alt_name(self):
+        artists = [{"artist_id": "ART1", "name": "羊文學", "alt_name": "Hitsujibungaku"}]
+        self.db.import_watchlist(artists)
+        wl = self.db.get_watchlist()
+        self.assertEqual(wl[0]["alt_name"], "Hitsujibungaku")
+
+    def test_import_does_not_overwrite_alt_name_with_null(self):
+        self.db.add_to_watchlist("ART1", "羊文學")
+        self.db.update_watchlist_alt_name("ART1", "Hitsujibungaku")
+        # Re-import without alt_name
+        self.db.import_watchlist([{"artist_id": "ART1", "name": "羊文學"}])
+        wl = self.db.get_watchlist()
+        self.assertEqual(wl[0]["alt_name"], "Hitsujibungaku")
+
 
 # ---------------------------------------------------------------------------
 # upsert_artist / get_artist_info / get_artist_artwork
@@ -1453,6 +1512,42 @@ class TestSearchArtistsLocal(DBTestCase):
         self._seed_artist("A1", "The Taylors")
         results = self.db.search_artists_local("taylor")
         self.assertEqual(results[0]["match_reason"], "name_contains")
+
+    # --- alt_name search and ranking ---
+
+    def test_alt_name_match_found(self):
+        self._seed_artist("A1", "羊文學", watched=True)
+        self.db.update_watchlist_alt_name("A1", "Hitsujibungaku")
+        results = self.db.search_artists_local("hitsuji")
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["artist_id"], "A1")
+
+    def test_alt_name_exact_ranked_above_name_prefix(self):
+        self._seed_artist("A1", "Hitsujibungaku Fan", watched=False)  # name prefix match
+        self._seed_artist("A2", "羊文學", watched=True)
+        self.db.update_watchlist_alt_name("A2", "Hitsujibungaku")  # alt_name exact
+        results = self.db.search_artists_local("Hitsujibungaku")
+        ids = [r["artist_id"] for r in results]
+        self.assertLess(ids.index("A2"), ids.index("A1"))
+
+    def test_alt_name_prefix_ranked_above_name_exact(self):
+        self._seed_artist("A1", "Hitsuji", watched=False)  # name exact
+        self._seed_artist("A2", "羊文學", watched=True)
+        self.db.update_watchlist_alt_name("A2", "Hitsujibungaku")  # alt_name prefix
+        results = self.db.search_artists_local("Hitsuji")
+        ids = [r["artist_id"] for r in results]
+        self.assertLess(ids.index("A2"), ids.index("A1"))
+
+    def test_alt_name_included_in_result(self):
+        self._seed_artist("A1", "羊文學", watched=True)
+        self.db.update_watchlist_alt_name("A1", "Hitsujibungaku")
+        results = self.db.search_artists_local("羊")
+        self.assertEqual(results[0]["alt_name"], "Hitsujibungaku")
+
+    def test_alt_name_none_for_unwatched(self):
+        self._seed_artist("A1", "Taylor Swift")
+        results = self.db.search_artists_local("Taylor")
+        self.assertIsNone(results[0]["alt_name"])
 
 
 if __name__ == "__main__":

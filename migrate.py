@@ -106,6 +106,10 @@ MIGRATIONS = {
         -- Version 11: add is_group flag to artists table.
         ALTER TABLE artists ADD COLUMN is_group INTEGER;
     """,
+    12: """
+        -- Version 12: add user-defined alternate name to watched_artists.
+        ALTER TABLE watched_artists ADD COLUMN alt_name TEXT;
+    """,
 }
 
 

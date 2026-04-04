@@ -825,7 +825,7 @@ def api_watchlist_add():
 
 @app.route("/api/watchlist/<artist_id>", methods=["PATCH"])
 def api_watchlist_patch(artist_id):
-    """Update a watched artist's preferred source or collection status.
+    """Update a watched artist's preferred source, collection status, or alt name.
     ---
 
     parameters:
@@ -845,6 +845,9 @@ def api_watchlist_patch(artist_id):
             collection_status:
               type: string
               description: Collection status (complete, in_progress)
+            alt_name:
+              type: string
+              description: User-defined alternate name (e.g. English transliteration), or null to clear
     responses:
       200:
         description: Success
@@ -869,6 +872,14 @@ def api_watchlist_patch(artist_id):
             return jsonify({"error": "invalid collection_status"}), 400
         if not db.update_collection_status(artist_id, raw_cs):
             return jsonify({"error": "invalid status transition"}), 409
+    if "alt_name" in body:
+        raw_an = body["alt_name"]
+        if raw_an is not None:
+            raw_an = str(raw_an).strip()
+            if len(raw_an) > 200:
+                return jsonify({"error": "alt_name too long (max 200 characters)"}), 400
+            raw_an = raw_an or None  # treat empty string as null
+        db.update_watchlist_alt_name(artist_id, raw_an)
     return jsonify({"ok": True})
 
 

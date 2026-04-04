@@ -946,7 +946,55 @@ async function renderArtist(main, artistId) {
 
   csWrap.appendChild(csSelect);
   settingsRow.appendChild(csWrap);
+
+  // Alt name row (sibling of settingsRow in artist-links, so it doesn't affect settings width)
+  const altNameWrap = el("div", "artist-src-wrap");
+  const altNameLabel = el("span", "artist-src-label", "Alt name:");
+  altNameWrap.appendChild(altNameLabel);
+
+  const altNameDisplay = el("span", "artist-alt-name-display");
+  let _currentAltName = null;
+
+  function buildAltNameDisplay(currentAltName) {
+    _currentAltName = currentAltName || null;
+    altNameDisplay.innerHTML = "";
+    const valueEl = el("span", "artist-alt-name-value");
+    valueEl.textContent = currentAltName || "—";
+    altNameDisplay.appendChild(valueEl);
+    const editBtn = el("button", "btn-alt-name-edit", "Edit");
+    editBtn.addEventListener("click", () => {
+      altNameDisplay.innerHTML = "";
+      const input = document.createElement("input");
+      input.type = "text";
+      input.maxLength = 200;
+      input.className = "alt-name-input";
+      input.value = _currentAltName || "";
+      const saveBtn = el("button", "btn-alt-name-save", "Save");
+      const cancelBtn = el("button", "btn-alt-name-cancel", "Cancel");
+      saveBtn.addEventListener("click", async () => {
+        const newVal = input.value.trim() || null;
+        try {
+          await API.patch(`/api/watchlist/${artistId}`, { alt_name: newVal });
+          buildAltNameDisplay(newVal);
+        } catch {
+          alert("Failed to save alt name");
+          buildAltNameDisplay(_currentAltName);
+        }
+      });
+      cancelBtn.addEventListener("click", () => buildAltNameDisplay(_currentAltName));
+      altNameDisplay.appendChild(input);
+      altNameDisplay.appendChild(saveBtn);
+      altNameDisplay.appendChild(cancelBtn);
+      input.focus();
+    });
+    altNameDisplay.appendChild(editBtn);
+  }
+
+  buildAltNameDisplay(null); // placeholder until async load
+  altNameWrap.appendChild(altNameDisplay);
   links.appendChild(settingsRow);
+  altNameWrap.style.display = isWatched ? "flex" : "none";
+  links.appendChild(altNameWrap);
 
   watchBtn.addEventListener("click", async () => {
     const ps = state.metadataStorefront || state.homeStorefront || null;
@@ -955,18 +1003,21 @@ async function renderArtist(main, artistId) {
     watchBtn.textContent = nowWatched ? "⭐ Watching" : "☆ Watch";
     watchBtn.classList.toggle("watching", nowWatched);
     settingsRow.style.display = nowWatched ? "flex" : "none";
+    altNameWrap.style.display = nowWatched ? "flex" : "none";
     if (nowWatched) {
       buildSrcOptions(ps);
       buildCsOptions("new");
+      buildAltNameDisplay(null);
     }
   });
 
   if (isWatched) {
-    // Load current preferred_source and collection_status, pre-select
+    // Load current preferred_source, collection_status, and alt_name, pre-select
     API.get("/api/watchlist").then(wl => {
       const entry = wl.find(a => a.artist_id === artistId);
       buildSrcOptions(entry?.preferred_source || null);
       buildCsOptions(entry?.collection_status || "new");
+      buildAltNameDisplay(entry?.alt_name || null);
     }).catch(() => {});
   }
 
@@ -1201,6 +1252,12 @@ async function renderWatchlist(main, preferredSourceFilter = "", collectionStatu
     });
     info.appendChild(name);
 
+    if (artist.alt_name) {
+      const altNameEl = el("div", "watchlist-alt-name");
+      altNameEl.textContent = artist.alt_name;
+      info.appendChild(altNameEl);
+    }
+
     let dateText = "";
     if (sortFilter === "added") {
       const _addedAt = typeof artist.added_at === "number"
@@ -1298,6 +1355,7 @@ async function renderWatchlist(main, preferredSourceFilter = "", collectionStatu
     const qLower = q.toLowerCase();
     const filtered = q
       ? list.filter(a =>
+          (a.alt_name && a.alt_name.toLowerCase().includes(qLower)) ||
           a.name.toLowerCase().includes(qLower) ||
           (a.artist_bio && a.artist_bio.toLowerCase().includes(qLower))
         )

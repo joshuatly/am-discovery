@@ -358,6 +358,33 @@ body {
   color: #f0f0f8;
 }
 
+.artist-alt-name-display { display: flex; align-items: center; gap: 6px; flex: 1; min-width: 0; }
+.artist-alt-name-value { font-size: 12px; color: var(--text-dim); }
+.btn-alt-name-edit, .btn-alt-name-save, .btn-alt-name-cancel {
+  padding: 3px 10px;
+  border: 1px solid var(--border);
+  background: transparent;
+  border-radius: 12px;
+  color: var(--text-dim);
+  font-size: 11px;
+  cursor: pointer;
+}
+.btn-alt-name-edit:hover, .btn-alt-name-save:hover { border-color: var(--accent); color: var(--accent); }
+.btn-alt-name-cancel:hover { border-color: rgba(255,255,255,0.3); color: var(--text); }
+.alt-name-input {
+  flex: 1;
+  min-width: 0;
+  max-width: 200px;
+  font-size: 12px;
+  font-family: inherit;
+  padding: 3px 8px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+}
+.alt-name-input:focus { outline: none; border-color: var(--accent); }
+
 /* =========================================================
    Album Grid
    ========================================================= */
@@ -817,6 +844,7 @@ a.sf-chip:hover { opacity: 0.75; }
   text-decoration: none;
 }
 .watchlist-name:hover { text-decoration: underline; }
+.watchlist-alt-name { font-size: 11px; color: var(--text-dim); margin-top: 1px; }
 .watchlist-date { font-size: 11px; color: var(--text-dim); margin-top: 2px; }
 
 .btn-unwatch {

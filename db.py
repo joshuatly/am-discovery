@@ -27,7 +27,7 @@ def get_conn():
         conn.close()
 
 
-SCHEMA_VERSION = 11
+SCHEMA_VERSION = 12
 
 # Valid collection_status values and allowed transitions
 COLLECTION_STATUSES = {"new", "complete", "new_release", "in_progress"}
@@ -82,7 +82,8 @@ def init_db():
                     preferred_source             TEXT,
                     last_refreshed               INTEGER,
                     collection_status            TEXT DEFAULT 'new',
-                    collection_status_updated_at INTEGER
+                    collection_status_updated_at INTEGER,
+                    alt_name                     TEXT
                 );
 
                 CREATE TABLE IF NOT EXISTS artists (
@@ -256,9 +257,9 @@ def get_watchlist(preferred_source: str = "", collection_status: str = "", sort:
     if sort not in WATCHLIST_SORT_OPTIONS:
         sort = "name"
     order_by = {
-        "name": "w.name",
+        "name": "LOWER(COALESCE(NULLIF(TRIM(w.alt_name), ''), w.name))",
         "added": "w.added_at DESC",
-        "recent_release": "latest_release_date DESC NULLS LAST, w.name",
+        "recent_release": "latest_release_date DESC NULLS LAST, LOWER(COALESCE(NULLIF(TRIM(w.alt_name), ''), w.name))",
     }[sort]
     with get_conn() as conn:
         conditions = []
@@ -379,6 +380,15 @@ def update_preferred_source(artist_id: str, preferred_source):
         )
 
 
+def update_watchlist_alt_name(artist_id: str, alt_name):
+    """Set (or clear) the user-defined alternate name for a watched artist."""
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE watched_artists SET alt_name = ? WHERE artist_id = ?",
+            (alt_name, artist_id),
+        )
+
+
 def mark_artist_refreshed(artist_id: str):
     now = int(time.time())
     with get_conn() as conn:
@@ -460,7 +470,7 @@ def export_watchlist() -> list:
     with get_conn() as conn:
         rows = conn.execute(
             """SELECT artist_id, name, url, preferred_source,
-                      collection_status, collection_status_updated_at
+                      collection_status, collection_status_updated_at, alt_name
                FROM watched_artists ORDER BY name""",
         ).fetchall()
         return [dict(r) for r in rows]
@@ -474,8 +484,8 @@ def import_watchlist(artists: list):
             conn.execute(
                 """INSERT INTO watched_artists
                        (artist_id, name, url, added_at, preferred_source,
-                        collection_status, collection_status_updated_at)
-                   VALUES (?,?,?,?,?, ?,?)
+                        collection_status, collection_status_updated_at, alt_name)
+                   VALUES (?,?,?,?,?, ?,?,?)
                    ON CONFLICT(artist_id) DO UPDATE SET
                        name=excluded.name,
                        url=excluded.url,
@@ -483,7 +493,8 @@ def import_watchlist(artists: list):
                        collection_status=coalesce(excluded.collection_status, collection_status),
                        collection_status_updated_at=coalesce(
                            excluded.collection_status_updated_at, collection_status_updated_at
-                       )""",
+                       ),
+                       alt_name=coalesce(excluded.alt_name, alt_name)""",
                 (
                     a["artist_id"],
                     a["name"],
@@ -492,6 +503,7 @@ def import_watchlist(artists: list):
                     a.get("preferred_source"),
                     a.get("collection_status", "new"),
                     a.get("collection_status_updated_at", now),
+                    a.get("alt_name"),
                 ),
             )
 
@@ -578,41 +590,53 @@ def search_artists_local(query: str, limit: int = 25) -> list[dict]:
         rows_artists = conn.execute(
             """SELECT ar.artist_id, ar.name, ar.artwork_url, ar.genre,
                       ar.born_or_formed, ar.origin, ar.artist_bio, ar.is_group,
-                      (w.artist_id IS NOT NULL) AS watched, w.collection_status
+                      (w.artist_id IS NOT NULL) AS watched, w.collection_status, w.alt_name
                FROM artists ar
                LEFT JOIN watched_artists w ON ar.artist_id = w.artist_id
                WHERE LOWER(ar.name) LIKE ?
                   OR LOWER(ar.artist_bio) LIKE ?
                   OR LOWER(ar.genre) LIKE ?
-                  OR LOWER(ar.origin) LIKE ?""",
-            (q_contains, q_contains, q_contains, q_contains),
+                  OR LOWER(ar.origin) LIKE ?
+                  OR LOWER(w.alt_name) LIKE ?""",
+            (q_contains, q_contains, q_contains, q_contains, q_contains),
         ).fetchall()
 
         rows_albums = conn.execute(
             """SELECT DISTINCT alb.artist_id, alb.artist AS name,
                       NULL AS artwork_url, NULL AS genre, NULL AS born_or_formed,
                       NULL AS origin, NULL AS artist_bio, NULL AS is_group,
-                      (w.artist_id IS NOT NULL) AS watched, w.collection_status
+                      (w.artist_id IS NOT NULL) AS watched, w.collection_status, w.alt_name
                FROM albums alb
                LEFT JOIN watched_artists w ON alb.artist_id = w.artist_id
                WHERE alb.artist_id IS NOT NULL
                  AND alb.artist_id NOT IN (SELECT artist_id FROM artists)
-                 AND LOWER(alb.artist) LIKE ?""",
-            (q_contains,),
+                 AND (LOWER(alb.artist) LIKE ? OR LOWER(w.alt_name) LIKE ?)""",
+            (q_contains, q_contains),
         ).fetchall()
 
     def _rank(row: dict) -> tuple:
+        alt = (row.get("alt_name") or "").lower()
         n = (row["name"] or "").lower()
+        sort_key = alt if alt else n
+        if alt and alt == q_lower:
+            return (1, sort_key)
+        if alt and alt.startswith(q_lower):
+            return (2, sort_key)
         if n == q_lower:
-            return (1, n)
+            return (3, sort_key)
         if n.startswith(q_lower):
-            return (2, n)
+            return (4, sort_key)
         if q_lower in n:
-            return (3, n)
-        return (4, n)
+            return (5, sort_key)
+        return (6, sort_key)
 
     def _match_reason(row: dict) -> str:
+        alt = (row.get("alt_name") or "").lower()
         n = (row["name"] or "").lower()
+        if alt and alt == q_lower:
+            return "name_exact"
+        if alt and alt.startswith(q_lower):
+            return "name_prefix"
         if n == q_lower:
             return "name_exact"
         if n.startswith(q_lower):
