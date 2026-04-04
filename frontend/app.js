@@ -2102,7 +2102,7 @@ function buildHeader(title, subtitle) {
 function buildPagination(current, total, onPage) {
   const wrap = el("div", "pagination");
 
-  const scrollTop = () => document.getElementById("main-content").scrollTo(0, 0);
+  const scrollTop = () => window.scrollTo(0, 0);
 
   const prev = el("button", "page-btn", "← Prev");
   prev.disabled = current <= 1;
