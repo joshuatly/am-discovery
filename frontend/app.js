@@ -42,6 +42,33 @@ const el = (tag, cls, text) => {
   return e;
 };
 
+// Sanitize HTML from Apple Music bios — allow only safe inline formatting tags.
+const SAFE_BIO_TAGS = new Set(["BR", "B", "I", "EM", "STRONG"]);
+function sanitizeHtml(html) {
+  const tmp = document.createElement("div");
+  tmp.innerHTML = html;
+  function clean(node) {
+    const frag = document.createDocumentFragment();
+    for (const child of [...node.childNodes]) {
+      if (child.nodeType === Node.TEXT_NODE) {
+        frag.appendChild(document.createTextNode(child.textContent));
+      } else if (child.nodeType === Node.ELEMENT_NODE) {
+        if (SAFE_BIO_TAGS.has(child.tagName)) {
+          const safe = document.createElement(child.tagName);
+          safe.appendChild(clean(child));
+          frag.appendChild(safe);
+        } else {
+          frag.appendChild(clean(child));
+        }
+      }
+    }
+    return frag;
+  }
+  const out = document.createElement("div");
+  out.appendChild(clean(tmp));
+  return out.innerHTML;
+}
+
 // localStorage helpers for watchlist preferences
 const WatchlistPrefs = {
   getSortFilter() {
@@ -943,7 +970,8 @@ async function renderArtist(main, artistId) {
 
   if (data.artist_bio) {
     const bioWrap = el("div", "artist-bio-wrap");
-    const bioEl = el("div", "artist-bio artist-bio--clamped", data.artist_bio);
+    const bioEl = el("div", "artist-bio artist-bio--clamped");
+    bioEl.innerHTML = sanitizeHtml(data.artist_bio);
     bioWrap.appendChild(bioEl);
     const bioToggle = el("a", "artist-bio-toggle", "Show more");
     bioToggle.href = "#";
@@ -1889,7 +1917,8 @@ async function openModal(storeAdamId) {
   let descExpandBtn = null;
   let descEl = null;
   if (album.description) {
-    descEl = el("p", "modal-desc", album.description);
+    descEl = el("p", "modal-desc");
+    descEl.innerHTML = sanitizeHtml(album.description);
     const expandBtn = el("button", "modal-desc-expand", "Show more");
     expandBtn.style.display = "none";
     expandBtn.addEventListener("click", () => {

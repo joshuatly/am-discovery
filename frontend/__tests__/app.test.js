@@ -97,6 +97,7 @@ beforeAll(() => {
     window.__test_submitCliSchedulerJob    = submitCliSchedulerJob;
     window.__test_albumCard                = albumCard;
     window.__test_buildPagination          = buildPagination;
+    window.__test_sanitizeHtml          = sanitizeHtml;
   `;
   appWindow.document.head.appendChild(exposeScript);
 });
@@ -335,6 +336,46 @@ describe("el (DOM element factory)", () => {
     const e = appWindow.__test_el("button", "btn", "Click me");
     expect(e.className).toBe("btn");
     expect(e.textContent).toBe("Click me");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// sanitizeHtml
+// ---------------------------------------------------------------------------
+
+describe("sanitizeHtml", () => {
+  let sanitize;
+  beforeEach(() => { sanitize = appWindow.__test_sanitizeHtml; });
+
+  test("passes through plain text unchanged", () => {
+    expect(sanitize("Hello world")).toBe("Hello world");
+  });
+
+  test("renders <br> as <br>", () => {
+    expect(sanitize("line1<br>line2")).toContain("<br>");
+  });
+
+  test("renders <b> and <i> as markup", () => {
+    const result = sanitize("<b>bold</b> and <i>italic</i>");
+    expect(result).toContain("<b>bold</b>");
+    expect(result).toContain("<i>italic</i>");
+  });
+
+  test("strips <script> tags but keeps their text content", () => {
+    const result = sanitize('<script>alert(1)</script>safe');
+    expect(result).not.toContain("<script>");
+    expect(result).toContain("safe");
+  });
+
+  test("strips <a> tags but keeps their text content", () => {
+    const result = sanitize('<a href="x">link text</a>');
+    expect(result).not.toContain("<a");
+    expect(result).toContain("link text");
+  });
+
+  test("does not render raw angle brackets as literal text for allowed tags", () => {
+    const result = sanitize("<b>Title</b>");
+    expect(result).not.toContain("&lt;b&gt;");
   });
 });
 
@@ -1748,6 +1789,30 @@ describe("renderArtist extended artist info", () => {
     const bio = main.querySelector(".artist-bio");
     expect(bio).not.toBeNull();
     expect(bio.textContent).toContain("Eason Chan");
+  });
+
+  test("renders artist_bio HTML tags as markup not literal text", async () => {
+    makeArtistFetchMock({
+      artist_id: "137938148",
+      artist_name: "Eason Chan",
+      artist_artwork_url: null,
+      artist_genre: "Cantopop",
+      artist_born_or_formed: "Born July 27, 1974",
+      artist_origin: "Hong Kong",
+      artist_bio: "<b>Bold section</b><br>Plain text<br><i>Italic</i>",
+      artist_is_group: false,
+      watched: false,
+      releases: [],
+    });
+
+    await appWindow.__test_renderArtist(main, "137938148");
+    const bio = main.querySelector(".artist-bio");
+    expect(bio).not.toBeNull();
+    expect(bio.querySelector("b")).not.toBeNull();
+    expect(bio.querySelector("br")).not.toBeNull();
+    expect(bio.querySelector("i")).not.toBeNull();
+    expect(bio.textContent).not.toContain("<b>");
+    expect(bio.textContent).not.toContain("<br>");
   });
 
   test("omits detail line and bio when all extended fields are absent", async () => {
