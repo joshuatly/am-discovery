@@ -414,6 +414,21 @@ class TestListAlbums(DBTestCase):
         rows, total = self.db.list_albums(release_type="")
         self.assertEqual(total, 3)
 
+    def test_sort_first_seen_desc(self):
+        # Manually set first_seen to control order (A2 newest, A1 oldest)
+        with self.db.get_conn() as conn:
+            conn.execute("UPDATE albums SET first_seen = 100 WHERE store_adam_id = 'A1'")
+            conn.execute("UPDATE albums SET first_seen = 200 WHERE store_adam_id = 'A2'")
+            conn.execute("UPDATE albums SET first_seen = 300 WHERE store_adam_id = 'A3'")
+        rows, _ = self.db.list_albums(sort="first_seen")
+        ids = [r["store_adam_id"] for r in rows]
+        self.assertEqual(ids, ["A3", "A2", "A1"])
+
+    def test_sort_invalid_falls_back_to_release_date(self):
+        rows_default, _ = self.db.list_albums(sort="release_date")
+        rows_invalid, _ = self.db.list_albums(sort="invalid_sort")
+        self.assertEqual([r["store_adam_id"] for r in rows_default], [r["store_adam_id"] for r in rows_invalid])
+
 
 # ---------------------------------------------------------------------------
 # search_albums
@@ -484,6 +499,15 @@ class TestSearchAlbums(DBTestCase):
     def test_search_release_type_empty_returns_all_matches(self):
         rows, total = self.db.search_albums("Alice", release_type="")
         self.assertEqual(total, 2)
+
+    def test_search_sort_first_seen(self):
+        # A1 and A3 are both by Alice — set first_seen so A3 comes first
+        with self.db.get_conn() as conn:
+            conn.execute("UPDATE albums SET first_seen = 100 WHERE store_adam_id = 'A1'")
+            conn.execute("UPDATE albums SET first_seen = 200 WHERE store_adam_id = 'A3'")
+        rows, _ = self.db.search_albums("Alice", sort="first_seen")
+        self.assertEqual(rows[0]["store_adam_id"], "A3")
+        self.assertEqual(rows[1]["store_adam_id"], "A1")
 
 
 # ---------------------------------------------------------------------------

@@ -23,6 +23,7 @@ const state = {
   artistViewMode: "chrono",   // "chrono" | "grouped"
   artistTypeFilter: "",       // "" = all, else a release_type value
   allReleasesTypeFilter: "",  // "" = all, else a release_type value
+  currentSort: ReleasesPrefs.getSort(),  // "release_date" | "first_seen"
   cliSchedulerEnabled: false, // true when cli_scheduler_url is configured
   watchlistPage: 0,           // remembered page index for watchlist (0-based)
 };

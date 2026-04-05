@@ -391,6 +391,9 @@ def api_releases():
     discovered_only = request.args.get("view") == "new"
     watched_only = request.args.get("watched") == "true"
     release_type = request.args.get("release_type", "").strip()
+    sort = request.args.get("sort", "release_date").strip().lower()
+    if sort not in db.ALBUM_SORT_OPTIONS:
+        return jsonify({"error": "invalid sort"}), 400
 
     if q:
         rows, total = db.search_albums(
@@ -401,6 +404,7 @@ def api_releases():
             discovered_only=discovered_only,
             watched_only=watched_only,
             release_type=release_type,
+            sort=sort,
         )
     else:
         rows, total = db.list_albums(
@@ -410,6 +414,7 @@ def api_releases():
             discovered_only=discovered_only,
             watched_only=watched_only,
             release_type=release_type,
+            sort=sort,
         )
 
     watched_ids = db.get_watched_artist_ids()
