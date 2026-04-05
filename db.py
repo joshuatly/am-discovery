@@ -192,6 +192,9 @@ def upsert_album(data: dict):
         )
 
 
+ALBUM_SORT_OPTIONS = {"release_date", "first_seen"}
+
+
 def list_albums(
     page: int = 1,
     per_page: int = 50,
@@ -199,7 +202,11 @@ def list_albums(
     discovered_only: bool = False,
     watched_only: bool = False,
     release_type: str = "",
+    sort: str = "release_date",
 ):
+    if sort not in ALBUM_SORT_OPTIONS:
+        sort = "release_date"
+    order_by = "release_date DESC, first_seen DESC" if sort == "release_date" else "first_seen DESC, release_date DESC"
     offset = (page - 1) * per_page
     with get_conn() as conn:
         conditions = []
@@ -221,7 +228,7 @@ def list_albums(
         where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
         total = conn.execute(f"SELECT COUNT(*) FROM albums {where}", params).fetchone()[0]
         rows = conn.execute(
-            f"SELECT * FROM albums {where} ORDER BY release_date DESC, first_seen DESC LIMIT ? OFFSET ?",
+            f"SELECT * FROM albums {where} ORDER BY {order_by} LIMIT ? OFFSET ?",
             params + [per_page, offset],
         ).fetchall()
         return [dict(r) for r in rows], total
@@ -531,7 +538,11 @@ def search_albums(
     discovered_only: bool = False,
     watched_only: bool = False,
     release_type: str = "",
+    sort: str = "release_date",
 ):
+    if sort not in ALBUM_SORT_OPTIONS:
+        sort = "release_date"
+    order_by = "release_date DESC, first_seen DESC" if sort == "release_date" else "first_seen DESC, release_date DESC"
     offset = (page - 1) * per_page
     q = f"%{query}%"
     with get_conn() as conn:
@@ -554,7 +565,7 @@ def search_albums(
         where = "WHERE " + " AND ".join(conditions)
         total = conn.execute(f"SELECT COUNT(*) FROM albums {where}", params).fetchone()[0]
         rows = conn.execute(
-            f"SELECT * FROM albums {where} ORDER BY release_date DESC LIMIT ? OFFSET ?",
+            f"SELECT * FROM albums {where} ORDER BY {order_by} LIMIT ? OFFSET ?",
             params + [per_page, offset],
         ).fetchall()
         return [dict(r) for r in rows], total

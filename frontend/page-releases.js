@@ -52,11 +52,12 @@ function renderArtistReleaseGrid(releases, container) {
 // ---------------------------------------------------------------------------
 // Page: New Releases
 // ---------------------------------------------------------------------------
-async function renderNewReleases(main, page = 1, query = "", storefront = "", watchedOnly = false) {
+async function renderNewReleases(main, page = 1, query = "", storefront = "", watchedOnly = false, sort = state.currentSort) {
   state.currentPage = page;
   state.currentQuery = query;
   state.currentStorefront = storefront;
   state.currentWatchedOnly = watchedOnly;
+  state.currentSort = sort;
 
   // Load config once
   if (state.configuredStorefronts === null || state.discoveryStorefronts === null) {
@@ -117,6 +118,18 @@ async function renderNewReleases(main, page = 1, query = "", storefront = "", wa
 
   filtersDiv.appendChild(filterBar);
 
+  // Sort bar
+  const sortBar = el("div", "type-filter-bar");
+  [["release_date", "Release Date"], ["first_seen", "First Seen"]].forEach(([code, label]) => {
+    const btn = el("button", "type-filter-btn" + (sort === code ? " active" : ""), label);
+    btn.addEventListener("click", () => {
+      ReleasesPrefs.setSort(code);
+      renderNewReleases(main, 1, state.currentQuery, state.currentStorefront, state.currentWatchedOnly, code);
+    });
+    sortBar.appendChild(btn);
+  });
+  filtersDiv.appendChild(sortBar);
+
   // Fetch
   await loadWatchedIds();
   let data;
@@ -125,6 +138,7 @@ async function renderNewReleases(main, page = 1, query = "", storefront = "", wa
     if (watchedOnly) qp.set("watched", "true");
     if (query) qp.set("q", query);
     if (storefront) qp.set("storefront", storefront);
+    if (sort !== "release_date") qp.set("sort", sort);
     data = await API.get(`/api/releases?${qp}`);
   } catch {
     gridWrap.innerHTML = `<div class="empty-state"><div class="empty-icon">⚠️</div><div class="empty-title">Could not load releases</div><div class="empty-desc">Is the server running?</div></div>`;
@@ -146,14 +160,15 @@ async function renderNewReleases(main, page = 1, query = "", storefront = "", wa
   // Pagination
   const totalPages = Math.ceil(data.total / state.perPage);
   if (totalPages > 1) {
-    gridWrap.appendChild(buildPagination(page, totalPages, p => renderNewReleases(main, p, state.currentQuery, state.currentStorefront, state.currentWatchedOnly)));
+    gridWrap.appendChild(buildPagination(page, totalPages, p => renderNewReleases(main, p, state.currentQuery, state.currentStorefront, state.currentWatchedOnly, sort)));
   }
 }
 
 // ---------------------------------------------------------------------------
 // Page: All Albums
 // ---------------------------------------------------------------------------
-async function renderAllReleases(main, page = 1, query = "", storefront = "", watchedOnly = false, typeFilter = "") {
+async function renderAllReleases(main, page = 1, query = "", storefront = "", watchedOnly = false, typeFilter = "", sort = state.currentSort) {
+  state.currentSort = sort;
   main.innerHTML = "";
   const wrap = el("div", "page-enter");
   wrap.appendChild(buildHeader("📀 All Albums", "Every album in your local database"));
@@ -204,11 +219,23 @@ async function renderAllReleases(main, page = 1, query = "", storefront = "", wa
     btn.textContent = label;
     btn.addEventListener("click", () => {
       state.allReleasesTypeFilter = code;
-      renderAllReleases(main, 1, query, storefront, watchedOnly, code);
+      renderAllReleases(main, 1, query, storefront, watchedOnly, code, sort);
     });
     typeFilterBar.appendChild(btn);
   });
   filtersDiv.appendChild(typeFilterBar);
+
+  // Sort bar
+  const sortBar = el("div", "type-filter-bar");
+  [["release_date", "Release Date"], ["first_seen", "First Seen"]].forEach(([code, label]) => {
+    const btn = el("button", "type-filter-btn" + (sort === code ? " active" : ""), label);
+    btn.addEventListener("click", () => {
+      ReleasesPrefs.setSort(code);
+      renderAllReleases(main, 1, query, storefront, watchedOnly, typeFilter, code);
+    });
+    sortBar.appendChild(btn);
+  });
+  filtersDiv.appendChild(sortBar);
 
   const gridWrap = el("div");
   gridWrap.appendChild(skeletonGrid(12));
@@ -223,6 +250,7 @@ async function renderAllReleases(main, page = 1, query = "", storefront = "", wa
     if (query) qp.set("q", query);
     if (storefront) qp.set("storefront", storefront);
     if (typeFilter) qp.set("release_type", typeFilter);
+    if (sort !== "release_date") qp.set("sort", sort);
     data = await API.get(`/api/releases?${qp}`);
   } catch {
     gridWrap.innerHTML = `<div class="empty-state"><div class="empty-icon">⚠️</div><div class="empty-title">Could not load</div></div>`;
@@ -241,6 +269,6 @@ async function renderAllReleases(main, page = 1, query = "", storefront = "", wa
 
   const totalPages = Math.ceil(data.total / state.perPage);
   if (totalPages > 1) {
-    gridWrap.appendChild(buildPagination(page, totalPages, p => renderAllReleases(main, p, query, storefront, watchedOnly, typeFilter)));
+    gridWrap.appendChild(buildPagination(page, totalPages, p => renderAllReleases(main, p, query, storefront, watchedOnly, typeFilter, sort)));
   }
 }

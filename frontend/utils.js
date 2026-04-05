@@ -79,6 +79,16 @@ const WatchlistPrefs = {
   },
 };
 
+// localStorage helpers for releases sort preference
+const ReleasesPrefs = {
+  getSort() {
+    return localStorage.getItem("releases_sort") || "release_date";
+  },
+  setSort(sort) {
+    localStorage.setItem("releases_sort", sort);
+  },
+};
+
 function formatDate(d) {
   if (!d || d === "Unknown") return "—";
   if (/^\d{4}-00-00/.test(d)) return d.slice(0, 4);

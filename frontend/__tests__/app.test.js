@@ -106,6 +106,7 @@ beforeAll(() => {
     window.__test_renderAllReleases        = renderAllReleases;
     window.__test_renderWatchlist          = renderWatchlist;
     window.__test_WatchlistPrefs           = WatchlistPrefs;
+    window.__test_ReleasesPrefs            = ReleasesPrefs;
     window.__test_paginateList             = paginateList;
     window.__test_WATCHLIST_PAGE_SIZE      = WATCHLIST_PAGE_SIZE;
     window.__test_submitCliSchedulerJob    = submitCliSchedulerJob;
@@ -3273,5 +3274,120 @@ describe("A-Z index letter highlighting across pages", () => {
     // Page 0 contains A-artists (A0..A46) and S0
     expect(names).toContain("A0");
     expect(names).toContain("S0");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ReleasesPrefs — sort preference persistence
+// ---------------------------------------------------------------------------
+
+describe("ReleasesPrefs", () => {
+  beforeEach(() => appWindow.localStorage.clear());
+
+  test("getSort returns release_date by default", () => {
+    expect(appWindow.__test_ReleasesPrefs.getSort()).toBe("release_date");
+  });
+
+  test("setSort persists and getSort returns it", () => {
+    appWindow.__test_ReleasesPrefs.setSort("first_seen");
+    expect(appWindow.__test_ReleasesPrefs.getSort()).toBe("first_seen");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// renderNewReleases — sort UI
+// ---------------------------------------------------------------------------
+
+describe("renderNewReleases — sort buttons", () => {
+  let main;
+  beforeEach(() => {
+    appWindow.localStorage.clear();
+    appWindow.__test_state.configuredStorefronts = [];
+    appWindow.__test_state.discoveryStorefronts = [];
+    appWindow.__test_state.currentSort = "release_date";
+    main = appWindow.document.createElement("div");
+    appWindow.fetch = jest.fn(() =>
+      Promise.resolve({ ok: true, json: () => Promise.resolve({ items: [], total: 0, check_storefronts: [] }) })
+    );
+  });
+
+  test("renders Release Date and First Seen sort buttons", async () => {
+    await appWindow.__test_renderNewReleases(main);
+    await new Promise(r => setTimeout(r, 100));
+    const btns = Array.from(main.querySelectorAll(".type-filter-btn")).map(b => b.textContent);
+    expect(btns).toContain("Release Date");
+    expect(btns).toContain("First Seen");
+  });
+
+  test("Release Date button is active by default", async () => {
+    await appWindow.__test_renderNewReleases(main, 1, "", "", false, "release_date");
+    await new Promise(r => setTimeout(r, 100));
+    const active = Array.from(main.querySelectorAll(".type-filter-btn.active")).map(b => b.textContent);
+    expect(active).toContain("Release Date");
+    expect(active).not.toContain("First Seen");
+  });
+
+  test("First Seen button is active when sort is first_seen", async () => {
+    await appWindow.__test_renderNewReleases(main, 1, "", "", false, "first_seen");
+    await new Promise(r => setTimeout(r, 100));
+    const active = Array.from(main.querySelectorAll(".type-filter-btn.active")).map(b => b.textContent);
+    expect(active).toContain("First Seen");
+    expect(active).not.toContain("Release Date");
+  });
+
+  test("sort=first_seen passes sort param to API", async () => {
+    await appWindow.__test_renderNewReleases(main, 1, "", "", false, "first_seen");
+    await new Promise(r => setTimeout(r, 100));
+    const calls = appWindow.fetch.mock.calls.map(c => c[0]);
+    const releaseCall = calls.find(u => u.includes("/api/releases"));
+    expect(releaseCall).toContain("sort=first_seen");
+  });
+
+  test("sort=release_date omits sort param from API", async () => {
+    await appWindow.__test_renderNewReleases(main, 1, "", "", false, "release_date");
+    await new Promise(r => setTimeout(r, 100));
+    const calls = appWindow.fetch.mock.calls.map(c => c[0]);
+    const releaseCall = calls.find(u => u.includes("/api/releases"));
+    expect(releaseCall).not.toContain("sort=");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// renderAllReleases — sort UI
+// ---------------------------------------------------------------------------
+
+describe("renderAllReleases — sort buttons", () => {
+  let main;
+  beforeEach(() => {
+    appWindow.localStorage.clear();
+    appWindow.__test_state.configuredStorefronts = [];
+    appWindow.__test_state.currentSort = "release_date";
+    main = appWindow.document.createElement("div");
+    appWindow.fetch = jest.fn(() =>
+      Promise.resolve({ ok: true, json: () => Promise.resolve({ items: [], total: 0, check_storefronts: [] }) })
+    );
+  });
+
+  test("renders Release Date and First Seen sort buttons", async () => {
+    await appWindow.__test_renderAllReleases(main);
+    await new Promise(r => setTimeout(r, 100));
+    const btns = Array.from(main.querySelectorAll(".type-filter-btn")).map(b => b.textContent);
+    expect(btns).toContain("Release Date");
+    expect(btns).toContain("First Seen");
+  });
+
+  test("First Seen button is active when sort is first_seen", async () => {
+    await appWindow.__test_renderAllReleases(main, 1, "", "", false, "", "first_seen");
+    await new Promise(r => setTimeout(r, 100));
+    const active = Array.from(main.querySelectorAll(".type-filter-btn.active")).map(b => b.textContent);
+    expect(active).toContain("First Seen");
+  });
+
+  test("sort=first_seen passes sort param to API", async () => {
+    await appWindow.__test_renderAllReleases(main, 1, "", "", false, "", "first_seen");
+    await new Promise(r => setTimeout(r, 100));
+    const calls = appWindow.fetch.mock.calls.map(c => c[0]);
+    const releaseCall = calls.find(u => u.includes("/api/releases"));
+    expect(releaseCall).toContain("sort=first_seen");
   });
 });
