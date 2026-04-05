@@ -392,7 +392,7 @@ def api_releases():
     watched_only = request.args.get("watched") == "true"
     release_type = request.args.get("release_type", "").strip()
     sort = request.args.get("sort", "release_date").strip().lower()
-    if sort not in db.ALBUM_SORT_OPTIONS:
+    if sort not in {"release_date", "first_seen"}:
         return jsonify({"error": "invalid sort"}), 400
 
     if q:
