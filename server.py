@@ -373,6 +373,24 @@ def api_releases():
         in: query
         type: string
         description: Search query for title or artist
+      - name: storefront
+        in: query
+        type: string
+        description: Filter by storefront (e.g. "us", "jp")
+      - name: view
+        in: query
+        type: string
+        enum: ["new"]
+        description: Pass "new" to return only discovered releases (from room polling); omit for all releases
+      - name: watched
+        in: query
+        type: string
+        enum: ["true"]
+        description: Pass "true" to return only releases by watched artists
+      - name: release_type
+        in: query
+        type: string
+        description: Filter by release type (e.g. "Album", "EP", "Single")
     responses:
       200:
         description: A list of releases
@@ -767,6 +785,12 @@ def api_watchlist_get():
         in: query
         type: string
         description: Filter by collection status (new, complete, new_release, in_progress)
+      - name: sort
+        in: query
+        type: string
+        enum: ["name", "added", "recent_release"]
+        default: name
+        description: Sort order for results
     responses:
       200:
         description: List of watched artists
@@ -803,6 +827,9 @@ def api_watchlist_add():
               type: string
             url:
               type: string
+            preferred_source:
+              type: string
+              description: Two/three-letter storefront code for preferred metadata source (optional)
     responses:
       200:
         description: Success
