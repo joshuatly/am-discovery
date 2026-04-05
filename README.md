@@ -243,6 +243,8 @@ cd frontend && npm test
 uv run python main.py
 ```
 
+Python tests are split by module: `tests/test_api.py` (core routes), `tests/test_api_watchlist.py` (watchlist routes), `tests/test_server.py` (config helpers and polling scheduler).
+
 ### Frontend structure
 
 The frontend is vanilla JS with no build step. JS is split into focused modules loaded via `<script>` tags in `frontend/index.html`:

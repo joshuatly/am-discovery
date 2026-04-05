@@ -13,7 +13,10 @@ AM Discovery is an Apple Music new-release discovery tool. It monitors regional 
 ```
 client.py        — AppleMusicClient: scrapes music.apple.com + amp-api.music.apple.com
 db.py            — SQLite database layer (all SQL lives here, nowhere else)
-server.py        — Flask REST API + background polling scheduler
+config.py        — load_config() / save_config() + CONFIG_PATH (imported by server + API layers)
+server.py        — Flask app creation, background polling scheduler, init_scheduler(), main()
+api.py           — Flask Blueprint: releases, artists, search, config/status, frontend routes
+api_watchlist.py — Flask Blueprint: all watchlist routes (GET/POST/PATCH/DELETE/export/import)
 wsgi.py          — Gunicorn WSGI entry point (production); imports app and starts scheduler
 gunicorn.conf.py — Gunicorn config (1 worker required — scheduler runs as in-process thread)
 migrate.py       — Standalone migration runner for schema upgrades
@@ -22,6 +25,22 @@ frontend/        — Static SPA (index.html, style.css, plus JS modules below)
 ```
 
 The server starts a background thread that polls each configured storefront's `/new` browse page on a timer, auto-discovers the new-release room URL from that page, fetches metadata for new albums concurrently, and persists everything to SQLite.
+
+### Backend module boundaries
+
+- **`config.py`** — the only place that reads/writes `config.json`. Both `server.py` and the API blueprints import from here directly. No circular dependencies.
+- **`server.py`** — owns the Flask `app` object, both polling schedulers, `init_scheduler()`, and `main()`. Registers the two API blueprints.
+- **`api.py`** — a Flask Blueprint (`api_bp`). Contains all non-watchlist routes plus the `_serialize`, `_is_watched`, and `_validate_storefront` helpers. Uses a `_server()` lazy import for the three routes that need live scheduler state (`/api/refresh`, `/api/status`, `/api/config` PUT).
+- **`api_watchlist.py`** — a Flask Blueprint (`watchlist_bp`). Self-contained watchlist routes; imports `_validate_storefront` from `api.py`.
+
+**Where to add new backend code:**
+- New config key or default → `config.py`
+- New release/artist/search route → `api.py`
+- New watchlist route → `api_watchlist.py`
+- Scheduler behaviour or polling logic → `server.py`
+- All SQL → `db.py` (never scatter queries elsewhere)
+
+Each Python source file must stay under 800 lines.
 
 ### Frontend JS modules
 
@@ -104,6 +123,11 @@ cd frontend && npm test
 ```
 
 The frontend has Jest tests in `frontend/__tests__/app.test.js`. **All new frontend code must have corresponding Jest test cases.** All new Python code must have corresponding pytest cases in `tests/`.
+
+Python tests are split by module:
+- `tests/test_api.py` — routes in `api.py` (releases, artists, search, config, status, frontend)
+- `tests/test_api_watchlist.py` — routes in `api_watchlist.py`
+- `tests/test_server.py` — config helpers (`config.py`) and polling logic (`server.py`)
 
 **Lint and format (Python):**
 ```bash
