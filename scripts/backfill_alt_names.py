@@ -9,10 +9,10 @@ Usage:
 """
 
 import argparse
+import json
 import sys
 import urllib.error
 import urllib.request
-import json
 
 # ---------------------------------------------------------------------------
 # Parse args
