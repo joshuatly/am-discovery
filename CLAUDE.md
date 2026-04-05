@@ -170,7 +170,7 @@ The config is live-reloaded on every poll, so changes take effect on the next cy
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/api/releases` | Paginated list; supports `q`, `page`, `per_page`, `storefront`, `view=new` |
+| GET | `/api/releases` | Paginated list; supports `q`, `page`, `per_page`, `storefront`, `view=new` (discovered only), `watched=true`, `release_type` |
 | GET | `/api/releases/<id>` | Single release detail |
 | GET | `/api/releases/<id>/check_storefronts` | Availability across configured storefronts |
 | GET | `/api/lookup/<id>` | Fresh metadata fetch (bypasses cache) |
