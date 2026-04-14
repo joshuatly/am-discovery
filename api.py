@@ -202,6 +202,71 @@ def api_check_storefronts(store_adam_id):
     return jsonify(result)
 
 
+@api_bp.route("/api/releases/<store_adam_id>/musicbrainz")
+def api_musicbrainz_lookup(store_adam_id):
+    """Look up a release on MusicBrainz by its UPC barcode.
+    ---
+
+    parameters:
+      - name: store_adam_id
+        in: path
+        type: string
+        required: true
+    responses:
+      200:
+        description: MusicBrainz lookup result
+      404:
+        description: Album not found in local database
+
+    """
+    row = db.get_album(store_adam_id)
+    if not row:
+        return jsonify({"error": "Not found"}), 404
+    upc = row.get("upc")
+    if not upc:
+        return jsonify({"found": False, "upc": None})
+
+    mb_url = f"https://musicbrainz.org/ws/2/release/?query=barcode:{upc}&fmt=json&limit=5"
+    req = urllib.request.Request(
+        mb_url,
+        headers={
+            "User-Agent": "AMDiscovery/1.0 (https://github.com/am-discovery)",
+            "Accept": "application/json",
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+        releases = data.get("releases") or []
+        if releases:
+            result_releases = []
+            for r in releases[:5]:
+                mb_id = r.get("id")
+                result_releases.append(
+                    {
+                        "id": mb_id,
+                        "title": r.get("title"),
+                        "url": f"https://musicbrainz.org/release/{mb_id}",
+                    }
+                )
+            # Extract artist MBID from the top result's artist-credit
+            artist_mbid = None
+            artist_credits = releases[0].get("artist-credit") or []
+            if artist_credits:
+                artist_mbid = artist_credits[0].get("artist", {}).get("id")
+            return jsonify(
+                {
+                    "found": True,
+                    "upc": upc,
+                    "releases": result_releases,
+                    "artist_mbid": artist_mbid,
+                }
+            )
+        return jsonify({"found": False, "upc": upc})
+    except Exception as e:
+        return jsonify({"found": False, "upc": upc, "error": str(e)}), 502
+
+
 @api_bp.route("/api/lookup/<store_adam_id>")
 def api_lookup(store_adam_id):
     """Fetch fresh metadata for a release from a specific storefront.
@@ -302,6 +367,7 @@ def api_artist_fetch(artist_id):
             "artist_url": info.get("artist_url"),
             "artists_json": info.get("artists"),
             "audio_formats": info.get("audio_formats"),
+            "upc": info.get("upc"),
             "release_type": r.get("release_type"),
             "info_fetched": 1,
             "source": "artist_fetch",
@@ -353,10 +419,46 @@ def api_artist_releases(artist_id):
             "artist_origin": artist_info.get("origin"),
             "artist_bio": artist_info.get("artist_bio"),
             "artist_is_group": artist_info.get("is_group"),
+            "artist_musicbrainz_id": artist_info.get("musicbrainz_id"),
             "watched": watched,
             "releases": result,
         },
     )
+
+
+@api_bp.route("/api/artists/<artist_id>", methods=["PATCH"])
+def api_artist_patch(artist_id):
+    """Update an artist's MusicBrainz ID.
+    ---
+
+    parameters:
+      - name: artist_id
+        in: path
+        type: string
+        required: true
+      - name: body
+        in: body
+        required: true
+        schema:
+          type: object
+          properties:
+            musicbrainz_id:
+              type: string
+              description: MusicBrainz artist MBID, or null to clear
+    responses:
+      200:
+        description: Success
+
+    """
+    body = request.get_json(force=True)
+    if "musicbrainz_id" in body:
+        raw = body["musicbrainz_id"]
+        if raw is not None:
+            raw = str(raw).strip()
+            if not raw:
+                raw = None
+        db.update_artist_musicbrainz_id(artist_id, raw)
+    return jsonify({"ok": True})
 
 
 # ---------------------------------------------------------------------------

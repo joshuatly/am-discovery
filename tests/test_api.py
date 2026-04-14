@@ -10,6 +10,7 @@ import json
 import os
 import tempfile
 import unittest
+import unittest.mock
 from unittest.mock import patch
 
 # ---------------------------------------------------------------------------
@@ -1041,6 +1042,152 @@ class TestApiSearchArtistsLocal(ServerTestCase):
         resp = self.client.get("/api/search/artists/local?term=nobody")
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.get_json()["results"], [])
+
+
+# ---------------------------------------------------------------------------
+# GET /api/releases/<store_adam_id>/musicbrainz
+# ---------------------------------------------------------------------------
+
+
+class TestApiMusicBrainzLookup(ServerTestCase):
+    @patch("api.db")
+    def test_returns_404_when_album_missing(self, mock_db):
+        mock_db.get_album.return_value = None
+        resp = self.client.get("/api/releases/MISSING/musicbrainz")
+        self.assertEqual(resp.status_code, 404)
+
+    @patch("api.db")
+    def test_returns_no_upc_when_upc_is_null(self, mock_db):
+        mock_db.get_album.return_value = {"store_adam_id": "A1", "upc": None}
+        resp = self.client.get("/api/releases/A1/musicbrainz")
+        self.assertEqual(resp.status_code, 200)
+        data = resp.get_json()
+        self.assertFalse(data["found"])
+        self.assertIsNone(data["upc"])
+
+    @patch("api.urllib.request.urlopen")
+    @patch("api.db")
+    def test_returns_found_when_musicbrainz_has_release(self, mock_db, mock_urlopen):
+        mock_db.get_album.return_value = {"store_adam_id": "A1", "upc": "00602445790494"}
+        mb_response = json.dumps(
+            {
+                "releases": [
+                    {
+                        "id": "mb-id-123",
+                        "title": "Test Release",
+                        "artist-credit": [{"artist": {"id": "mb-artist-1", "name": "Jay Chou"}}],
+                    }
+                ]
+            }
+        ).encode()
+        mock_resp = unittest.mock.MagicMock()
+        mock_resp.read.return_value = mb_response
+        mock_resp.__enter__ = lambda s: s
+        mock_resp.__exit__ = lambda s, *a: None
+        mock_urlopen.return_value = mock_resp
+
+        resp = self.client.get("/api/releases/A1/musicbrainz")
+        self.assertEqual(resp.status_code, 200)
+        data = resp.get_json()
+        self.assertTrue(data["found"])
+        self.assertEqual(data["upc"], "00602445790494")
+        self.assertEqual(len(data["releases"]), 1)
+        self.assertEqual(data["releases"][0]["id"], "mb-id-123")
+        self.assertIn("musicbrainz.org/release/mb-id-123", data["releases"][0]["url"])
+        self.assertEqual(data["artist_mbid"], "mb-artist-1")
+
+    @patch("api.urllib.request.urlopen")
+    @patch("api.db")
+    def test_returns_not_found_when_musicbrainz_empty(self, mock_db, mock_urlopen):
+        mock_db.get_album.return_value = {"store_adam_id": "A1", "upc": "123456"}
+        mb_response = json.dumps({"releases": []}).encode()
+        mock_resp = unittest.mock.MagicMock()
+        mock_resp.read.return_value = mb_response
+        mock_resp.__enter__ = lambda s: s
+        mock_resp.__exit__ = lambda s, *a: None
+        mock_urlopen.return_value = mock_resp
+
+        resp = self.client.get("/api/releases/A1/musicbrainz")
+        self.assertEqual(resp.status_code, 200)
+        data = resp.get_json()
+        self.assertFalse(data["found"])
+        self.assertEqual(data["upc"], "123456")
+
+    @patch("api.urllib.request.urlopen")
+    @patch("api.db")
+    def test_returns_502_on_network_error(self, mock_db, mock_urlopen):
+        mock_db.get_album.return_value = {"store_adam_id": "A1", "upc": "123456"}
+        mock_urlopen.side_effect = Exception("Connection refused")
+
+        resp = self.client.get("/api/releases/A1/musicbrainz")
+        self.assertEqual(resp.status_code, 502)
+        data = resp.get_json()
+        self.assertFalse(data["found"])
+        self.assertIn("error", data)
+
+
+# ---------------------------------------------------------------------------
+# PATCH /api/artists/<artist_id>
+# ---------------------------------------------------------------------------
+
+
+class TestApiArtistPatch(ServerTestCase):
+    @patch("api.db")
+    def test_sets_musicbrainz_id(self, mock_db):
+        resp = self.client.patch(
+            "/api/artists/ART1",
+            data=json.dumps({"musicbrainz_id": "mb-id-123"}),
+            content_type="application/json",
+        )
+        self.assertEqual(resp.status_code, 200)
+        mock_db.update_artist_musicbrainz_id.assert_called_once_with("ART1", "mb-id-123")
+
+    @patch("api.db")
+    def test_clears_musicbrainz_id(self, mock_db):
+        resp = self.client.patch(
+            "/api/artists/ART1",
+            data=json.dumps({"musicbrainz_id": None}),
+            content_type="application/json",
+        )
+        self.assertEqual(resp.status_code, 200)
+        mock_db.update_artist_musicbrainz_id.assert_called_once_with("ART1", None)
+
+    @patch("api.db")
+    def test_empty_string_treated_as_null(self, mock_db):
+        resp = self.client.patch(
+            "/api/artists/ART1",
+            data=json.dumps({"musicbrainz_id": "  "}),
+            content_type="application/json",
+        )
+        self.assertEqual(resp.status_code, 200)
+        mock_db.update_artist_musicbrainz_id.assert_called_once_with("ART1", None)
+
+
+# ---------------------------------------------------------------------------
+# artist_musicbrainz_id in artist releases response
+# ---------------------------------------------------------------------------
+
+
+class TestApiArtistReleasesIncludesMbid(ServerTestCase):
+    @patch("api.db")
+    def test_includes_musicbrainz_id(self, mock_db):
+        mock_db.get_artist_albums.return_value = []
+        mock_db.get_watched_artist_ids.return_value = set()
+        mock_db.get_artist_info.return_value = {"name": "Jay Chou", "musicbrainz_id": "mb-123"}
+
+        resp = self.client.get("/api/artists/ART1/releases")
+        data = resp.get_json()
+        self.assertEqual(data["artist_musicbrainz_id"], "mb-123")
+
+    @patch("api.db")
+    def test_musicbrainz_id_none_when_not_set(self, mock_db):
+        mock_db.get_artist_albums.return_value = []
+        mock_db.get_watched_artist_ids.return_value = set()
+        mock_db.get_artist_info.return_value = {"name": "Jay Chou"}
+
+        resp = self.client.get("/api/artists/ART1/releases")
+        data = resp.get_json()
+        self.assertIsNone(data["artist_musicbrainz_id"])
 
 
 if __name__ == "__main__":

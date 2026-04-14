@@ -1296,6 +1296,15 @@ a.sf-chip:hover { opacity: 0.75; }
 .btn-cli-sf.cli-sf-error   { color: #f44336; border-color: #f44336; }
 .btn-cli-sf.cli-sf-unreachable { color: #ff9800; border-color: #ff9800; }
 
+/* MusicBrainz result */
+.mb-result { font-size: 11px; color: var(--text-dim); }
+.mb-result a, a.mb-release-link {
+  color: var(--accent);
+  text-decoration: none;
+  font-size: 11px;
+}
+.mb-result a:hover, a.mb-release-link:hover { text-decoration: underline; }
+
 /* =========================================================
    Tracklist
    ========================================================= */

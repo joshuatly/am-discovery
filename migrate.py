@@ -110,6 +110,11 @@ MIGRATIONS = {
         -- Version 12: add user-defined alternate name to watched_artists.
         ALTER TABLE watched_artists ADD COLUMN alt_name TEXT;
     """,
+    13: """
+        -- Version 13: add UPC (barcode) to albums and MusicBrainz artist ID to artists.
+        ALTER TABLE albums ADD COLUMN upc TEXT;
+        ALTER TABLE artists ADD COLUMN musicbrainz_id TEXT;
+    """,
 }
 
 
