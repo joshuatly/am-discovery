@@ -821,6 +821,80 @@ class TestArtist(DBTestCase):
         self.assertEqual(info["origin"], "Newcastle, England")
         self.assertEqual(info["is_group"], 1)
 
+    def test_upsert_artist_musicbrainz_id(self):
+        self.db.upsert_artist("ART1", name="Jay Chou", musicbrainz_id="abc-123")
+        info = self.db.get_artist_info("ART1")
+        self.assertEqual(info["musicbrainz_id"], "abc-123")
+
+    def test_upsert_artist_musicbrainz_id_coalesce(self):
+        """Upserting with None musicbrainz_id should not overwrite existing value."""
+        self.db.upsert_artist("ART1", musicbrainz_id="abc-123")
+        self.db.upsert_artist("ART1", musicbrainz_id=None)
+        info = self.db.get_artist_info("ART1")
+        self.assertEqual(info["musicbrainz_id"], "abc-123")
+
+    def test_update_artist_musicbrainz_id(self):
+        self.db.upsert_artist("ART1", name="Jay Chou")
+        self.db.update_artist_musicbrainz_id("ART1", "mb-id-456")
+        info = self.db.get_artist_info("ART1")
+        self.assertEqual(info["musicbrainz_id"], "mb-id-456")
+
+    def test_update_artist_musicbrainz_id_clear(self):
+        self.db.upsert_artist("ART1", musicbrainz_id="abc-123")
+        self.db.update_artist_musicbrainz_id("ART1", None)
+        info = self.db.get_artist_info("ART1")
+        self.assertIsNone(info["musicbrainz_id"])
+
+
+# ---------------------------------------------------------------------------
+# UPC in albums
+# ---------------------------------------------------------------------------
+
+
+class TestAlbumUpc(DBTestCase):
+    def test_upsert_album_stores_upc(self):
+        self.db.upsert_album(
+            {
+                "store_adam_id": "A1",
+                "title": "Test",
+                "storefronts": ["us"],
+                "upc": "00602445790494",
+            }
+        )
+        row = self.db.get_album("A1")
+        self.assertEqual(row["upc"], "00602445790494")
+
+    def test_upsert_album_upc_coalesce(self):
+        """Upserting with None upc should not overwrite existing value."""
+        self.db.upsert_album(
+            {
+                "store_adam_id": "A1",
+                "title": "Test",
+                "storefronts": ["us"],
+                "upc": "00602445790494",
+            }
+        )
+        self.db.upsert_album(
+            {
+                "store_adam_id": "A1",
+                "title": "Test",
+                "storefronts": ["us"],
+            }
+        )
+        row = self.db.get_album("A1")
+        self.assertEqual(row["upc"], "00602445790494")
+
+    def test_album_without_upc_returns_none(self):
+        self.db.upsert_album(
+            {
+                "store_adam_id": "A1",
+                "title": "Test",
+                "storefronts": ["us"],
+            }
+        )
+        row = self.db.get_album("A1")
+        self.assertIsNone(row["upc"])
+
 
 # ---------------------------------------------------------------------------
 # log_discovery_run / get_last_run

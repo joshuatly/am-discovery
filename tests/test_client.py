@@ -53,6 +53,7 @@ def _make_album_api_response(
     mastered_for_itunes=False,
     tracks=None,
     artists=None,
+    upc=None,
 ):
     attrs = {
         "name": name,
@@ -64,6 +65,8 @@ def _make_album_api_response(
         "isMasteredForItunes": mastered_for_itunes,
         "editorialNotes": {"standard": "Great album."},
     }
+    if upc is not None:
+        attrs["upc"] = upc
     if artwork_url:
         attrs["artwork"] = {"url": artwork_url}
 
@@ -434,6 +437,18 @@ class TestGetAlbumFullInfo(unittest.TestCase):
         mock_api.assert_called_once()
         path = mock_api.call_args[0][0]
         self.assertIn("111222333", path)
+
+    def test_extracts_upc(self):
+        api_data = _make_album_api_response(upc="00602445790494")
+        with patch.object(self.client, "_amp_api_get", return_value=api_data):
+            result = self.client.get_album_full_info("https://music.apple.com/us/album/test/111222333")
+        self.assertEqual(result["upc"], "00602445790494")
+
+    def test_upc_none_when_not_present(self):
+        api_data = _make_album_api_response()
+        with patch.object(self.client, "_amp_api_get", return_value=api_data):
+            result = self.client.get_album_full_info("https://music.apple.com/us/album/test/111222333")
+        self.assertIsNone(result["upc"])
 
 
 # ---------------------------------------------------------------------------

@@ -95,6 +95,17 @@ async function renderArtist(main, artistId) {
     actionsRow.appendChild(extLink);
   }
 
+  // MusicBrainz link — direct if MBID stored, search fallback
+  const mbLink = el("a", "artist-ext-link", "MusicBrainz ↗");
+  if (data.artist_musicbrainz_id) {
+    mbLink.href = `https://musicbrainz.org/artist/${data.artist_musicbrainz_id}`;
+  } else if (data.artist_name) {
+    mbLink.href = `https://musicbrainz.org/search?query=${encodeURIComponent(data.artist_name)}&type=artist`;
+  }
+  mbLink.target = "_blank";
+  mbLink.rel = "noopener";
+  actionsRow.appendChild(mbLink);
+
   const isWatched = state.watchedIds.has(artistId);
   const watchBtn = el("button", `btn-watch${isWatched ? " watching" : ""}`, isWatched ? "⭐ Watching" : "☆ Watch");
 
@@ -253,6 +264,71 @@ async function renderArtist(main, artistId) {
   links.appendChild(settingsRow);
   altNameWrap.style.display = isWatched ? "flex" : "none";
   links.appendChild(altNameWrap);
+
+  // MBID row (always visible — useful for any artist)
+  const mbidWrap = el("div", "artist-src-wrap");
+  const mbidLabel = el("span", "artist-src-label", "MBID:");
+  mbidWrap.appendChild(mbidLabel);
+
+  const mbidDisplay = el("span", "artist-alt-name-display");
+  let _currentMbid = data.artist_musicbrainz_id || null;
+
+  function buildMbidDisplay(currentMbid) {
+    _currentMbid = currentMbid || null;
+    mbidDisplay.innerHTML = "";
+    if (_currentMbid) {
+      const link = el("a", "artist-alt-name-value", _currentMbid);
+      link.href = `https://musicbrainz.org/artist/${_currentMbid}`;
+      link.target = "_blank";
+      link.rel = "noopener";
+      link.style.fontSize = "11px";
+      mbidDisplay.appendChild(link);
+      // Update the MusicBrainz link in actionsRow to use direct URL
+      mbLink.href = `https://musicbrainz.org/artist/${_currentMbid}`;
+    } else {
+      const valueEl = el("span", "artist-alt-name-value", "—");
+      mbidDisplay.appendChild(valueEl);
+      // Reset MB link to search
+      if (data.artist_name) {
+        mbLink.href = `https://musicbrainz.org/search?query=${encodeURIComponent(data.artist_name)}&type=artist`;
+      }
+    }
+    const editBtn = el("button", "btn-alt-name-edit", "Edit");
+    editBtn.addEventListener("click", () => {
+      mbidDisplay.innerHTML = "";
+      const input = document.createElement("input");
+      input.type = "text";
+      input.maxLength = 200;
+      input.className = "alt-name-input";
+      input.placeholder = "MusicBrainz artist ID";
+      input.value = _currentMbid || "";
+      const saveBtn = el("button", "btn-alt-name-save", "Save");
+      const cancelBtn = el("button", "btn-alt-name-cancel", "Cancel");
+      saveBtn.addEventListener("click", async () => {
+        const newVal = input.value.trim() || null;
+        try {
+          await API.patch(`/api/artists/${artistId}`, { musicbrainz_id: newVal });
+          buildMbidDisplay(newVal);
+        } catch {
+          alert("Failed to save MBID");
+          buildMbidDisplay(_currentMbid);
+        }
+      });
+      cancelBtn.addEventListener("click", () => buildMbidDisplay(_currentMbid));
+      input.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") saveBtn.click();
+      });
+      mbidDisplay.appendChild(input);
+      mbidDisplay.appendChild(saveBtn);
+      mbidDisplay.appendChild(cancelBtn);
+      input.focus();
+    });
+    mbidDisplay.appendChild(editBtn);
+  }
+
+  buildMbidDisplay(_currentMbid);
+  mbidWrap.appendChild(mbidDisplay);
+  links.appendChild(mbidWrap);
 
   watchBtn.addEventListener("click", async () => {
     const ps = state.metadataStorefront || state.homeStorefront || null;

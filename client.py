@@ -178,6 +178,7 @@ class AppleMusicClient:
             "artist_url": None,
             "tracks": [],
             "audio_formats": None,
+            "upc": None,
         }
         m = re.search(r"music\.apple\.com/([a-z]{2})/album/(?:[^/]+/)?(\d+)", url)
         if not m:
@@ -206,6 +207,7 @@ class AppleMusicClient:
         result["genre"] = genre_names[0] if genre_names else None
 
         result["description"] = (attrs.get("editorialNotes") or {}).get("standard")
+        result["upc"] = attrs.get("upc")
 
         formats = list(attrs.get("audioTraits") or [])
         if attrs.get("isMasteredForItunes"):

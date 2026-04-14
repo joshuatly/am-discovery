@@ -420,3 +420,88 @@ describe("renderArtist type filter bar", () => {
     expect(btns.length).toBe(3);
   });
 });
+
+// ---------------------------------------------------------------------------
+// MusicBrainz link on artist page
+// ---------------------------------------------------------------------------
+
+describe("renderArtist MusicBrainz link", () => {
+  let main;
+
+  beforeEach(() => {
+    main = ctx.appWindow.document.createElement("div");
+    ctx.appWindow.document.getElementById("main-content").appendChild(main);
+  });
+
+  afterEach(() => {
+    main.remove();
+    ctx.appWindow.fetch.mockClear();
+  });
+
+  test("renders MusicBrainz search link when no MBID set", async () => {
+    makeArtistFetchMock({
+      artist_id: "ART1",
+      artist_name: "Jay Chou",
+      artist_url: "https://music.apple.com/us/artist/1",
+      artist_artwork_url: null,
+      artist_genre: "Pop",
+      artist_born_or_formed: null,
+      artist_origin: null,
+      artist_bio: null,
+      artist_musicbrainz_id: null,
+      watched: false,
+      releases: [],
+    });
+
+    await ctx.appWindow.__test_renderArtist(main, "ART1");
+    const links = main.querySelectorAll(".artist-ext-link");
+    const mbLink = Array.from(links).find(l => l.textContent.includes("MusicBrainz"));
+    expect(mbLink).not.toBeNull();
+    expect(mbLink.href).toContain("musicbrainz.org/search");
+    expect(mbLink.href).toContain("Jay%20Chou");
+    expect(mbLink.target).toBe("_blank");
+  });
+
+  test("renders direct MusicBrainz link when MBID is set", async () => {
+    makeArtistFetchMock({
+      artist_id: "ART1",
+      artist_name: "Jay Chou",
+      artist_url: "https://music.apple.com/us/artist/1",
+      artist_artwork_url: null,
+      artist_genre: "Pop",
+      artist_born_or_formed: null,
+      artist_origin: null,
+      artist_bio: null,
+      artist_musicbrainz_id: "mb-artist-123",
+      watched: false,
+      releases: [],
+    });
+
+    await ctx.appWindow.__test_renderArtist(main, "ART1");
+    const links = main.querySelectorAll(".artist-ext-link");
+    const mbLink = Array.from(links).find(l => l.textContent.includes("MusicBrainz"));
+    expect(mbLink).not.toBeNull();
+    expect(mbLink.href).toContain("musicbrainz.org/artist/mb-artist-123");
+  });
+
+  test("renders MBID edit row", async () => {
+    makeArtistFetchMock({
+      artist_id: "ART1",
+      artist_name: "Jay Chou",
+      artist_url: "https://music.apple.com/us/artist/1",
+      artist_artwork_url: null,
+      artist_genre: "Pop",
+      artist_born_or_formed: null,
+      artist_origin: null,
+      artist_bio: null,
+      artist_musicbrainz_id: null,
+      watched: false,
+      releases: [],
+    });
+
+    await ctx.appWindow.__test_renderArtist(main, "ART1");
+    const labels = main.querySelectorAll(".artist-src-label");
+    const mbidLabel = Array.from(labels).find(l => l.textContent === "MBID:");
+    expect(mbidLabel).not.toBeNull();
+  });
+});

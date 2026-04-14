@@ -105,6 +105,7 @@ def _do_poll():
                 "artist_url": info.get("artist_url"),
                 "artists_json": info.get("artists"),
                 "audio_formats": info.get("audio_formats"),
+                "upc": info.get("upc"),
                 "info_fetched": 1,
                 "source": "discovered",
             }
@@ -253,6 +254,7 @@ def _do_watchlist_poll():
                         "artist_url": info.get("artist_url"),
                         "artists_json": info.get("artists"),
                         "audio_formats": info.get("audio_formats"),
+                        "upc": info.get("upc"),
                         "release_type": r.get("release_type"),
                         "info_fetched": 1,
                         "source": "artist_fetch",

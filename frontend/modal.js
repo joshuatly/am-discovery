@@ -87,6 +87,14 @@ async function openModal(storeAdamId) {
     artBtn.addEventListener("click", () => { closeModal(); location.hash = `#/artist/${album.artist_id}`; });
     headerActions.appendChild(artBtn);
 
+    if (album.artist) {
+      const mbBtn = el("a", "btn-header-action", "MusicBrainz ↗");
+      mbBtn.href = `https://musicbrainz.org/search?query=${encodeURIComponent(album.artist)}&type=artist`;
+      mbBtn.target = "_blank";
+      mbBtn.rel = "noopener";
+      headerActions.appendChild(mbBtn);
+    }
+
     const isWatched = state.watchedIds.has(album.artist_id);
     const watchBtn = el("button", `btn-header-action${isWatched ? " watching" : ""}`, isWatched ? "⭐ Watching" : "☆ Watch");
     watchBtn.addEventListener("click", async () => {
@@ -184,6 +192,27 @@ async function openModal(storeAdamId) {
   sfResultContainer.style.lineHeight = "1.5";
 
   let cliBtns = null;
+  let harmonyBtns = null;
+  let harmonyUpc = album.upc || null;
+
+  const makeHarmonyBtn = (storefront) => {
+    const btn = el("a", "btn-cli-sf", storefront.toUpperCase());
+    const amUrl = `https://music.apple.com/${storefront}/album/${album.store_adam_id}`;
+    const params = new URLSearchParams({ url: amUrl });
+    params.set("gtin", harmonyUpc || "");
+    const regions = (state.configuredStorefronts || []).map(s => s.toUpperCase()).join(",");
+    params.set("region", regions);
+    params.set("musicbrainz", "");
+    params.set("deezer", "");
+    params.set("itunes", "");
+    params.set("spotify", "");
+    params.set("tidal", "");
+    btn.href = `https://harmony.pulsewidth.org.uk/release?${params.toString()}`;
+    btn.target = "_blank";
+    btn.rel = "noopener";
+    return btn;
+  };
+
   const makeCliBtn = (storefront) => {
     const btn = el("button", "btn-cli-sf", storefront.toUpperCase());
     btn.addEventListener("click", async () => {
@@ -241,6 +270,10 @@ async function openModal(storeAdamId) {
           cliBtns.innerHTML = "";
           res.available.forEach(sf => cliBtns.appendChild(makeCliBtn(sf)));
         }
+        if (harmonyBtns) {
+          harmonyBtns.innerHTML = "";
+          res.available.forEach(sf => harmonyBtns.appendChild(makeHarmonyBtn(sf)));
+        }
       }
 
       if (res.unavailable.length > 0) {
@@ -273,6 +306,75 @@ async function openModal(storeAdamId) {
     cliSection.appendChild(cliBtns);
     actions.appendChild(cliSection);
   }
+
+  // --- MusicBrainz check row ---
+  const mbSection = el("div", "cli-scheduler-section");
+  const mbLabel = el("span", "cli-scheduler-label", "MusicBrainz");
+  const mbResult = el("span", "mb-result");
+  const mbCheckBtn = el("button", "btn-cli-sf", "Check");
+  mbCheckBtn.addEventListener("click", async () => {
+    mbCheckBtn.textContent = "…";
+    mbCheckBtn.disabled = true;
+    try {
+      const res = await API.get(`/api/releases/${album.store_adam_id}/musicbrainz`);
+      if (res.found && res.releases && res.releases.length) {
+        mbResult.innerHTML = "";
+        const methodNote = res.method === "title_artist" ? el("span", "mb-method-note", "~") : null;
+        if (methodNote) {
+          methodNote.title = "Matched by title + artist (no barcode) — verify before using";
+          mbResult.appendChild(methodNote);
+        }
+        res.releases.forEach((r, i) => {
+          if (i > 0) mbResult.appendChild(document.createTextNode(" · "));
+          const link = el("a", "mb-release-link", r.title || "Release");
+          link.href = r.url;
+          link.target = "_blank";
+          link.rel = "noopener";
+          mbResult.appendChild(link);
+        });
+        mbCheckBtn.textContent = "✓";
+        mbCheckBtn.className = "btn-cli-sf cli-sf-success";
+      } else if (res.upc || res.error === undefined) {
+        mbResult.textContent = "Not found";
+        mbCheckBtn.textContent = "✗";
+        mbCheckBtn.className = "btn-cli-sf cli-sf-error";
+      } else {
+        mbResult.textContent = "Not found";
+        mbCheckBtn.textContent = "✗";
+        mbCheckBtn.className = "btn-cli-sf cli-sf-error";
+      }
+      // Update Harmony buttons with UPC from response
+      if (res.upc && !harmonyUpc) {
+        harmonyUpc = res.upc;
+        if (harmonyBtns) {
+          const currentSfs = Array.from(harmonyBtns.children).map(b => b.textContent.toLowerCase());
+          harmonyBtns.innerHTML = "";
+          currentSfs.forEach(sf => harmonyBtns.appendChild(makeHarmonyBtn(sf)));
+        }
+      }
+    } catch {
+      mbCheckBtn.textContent = "!";
+      mbCheckBtn.className = "btn-cli-sf cli-sf-unreachable";
+      mbCheckBtn.disabled = false;
+    }
+  });
+  mbSection.appendChild(mbLabel);
+  mbSection.appendChild(mbCheckBtn);
+  mbSection.appendChild(mbResult);
+  actions.appendChild(mbSection);
+
+  // --- Harmony seed row ---
+  const harmonyInitialSfs = [];
+  if (state.metadataStorefront) harmonyInitialSfs.push(state.metadataStorefront);
+  if (state.homeStorefront && state.homeStorefront !== state.metadataStorefront) harmonyInitialSfs.push(state.homeStorefront);
+  if (!harmonyInitialSfs.length && state.homeStorefront) harmonyInitialSfs.push(state.homeStorefront);
+  const harmonySection = el("div", "cli-scheduler-section");
+  const harmonyLabel = el("span", "cli-scheduler-label", "Harmony");
+  harmonyBtns = el("div", "cli-scheduler-btns");
+  harmonyInitialSfs.forEach(sf => harmonyBtns.appendChild(makeHarmonyBtn(sf)));
+  harmonySection.appendChild(harmonyLabel);
+  harmonySection.appendChild(harmonyBtns);
+  actions.appendChild(harmonySection);
 
   details.appendChild(actions);
 

@@ -27,7 +27,7 @@ def get_conn():
         conn.close()
 
 
-SCHEMA_VERSION = 12
+SCHEMA_VERSION = 13
 
 # Valid collection_status values and allowed transitions
 COLLECTION_STATUSES = {"new", "complete", "new_release", "in_progress"}
@@ -71,7 +71,8 @@ def init_db():
                     release_type   TEXT,
                     first_seen     INTEGER,
                     last_seen      INTEGER,
-                    source         TEXT
+                    source         TEXT,
+                    upc            TEXT
                 );
 
                 CREATE TABLE IF NOT EXISTS watched_artists (
@@ -95,7 +96,8 @@ def init_db():
                     origin         TEXT,
                     artist_bio     TEXT,
                     is_group       INTEGER,
-                    updated_at     INTEGER
+                    updated_at     INTEGER,
+                    musicbrainz_id TEXT
                 );
 
                 CREATE TABLE IF NOT EXISTS discovery_runs (
@@ -167,6 +169,7 @@ def upsert_album(data: dict):
                 audio_formats=coalesce(?, audio_formats),
                 release_type=coalesce(?, release_type),
                 source=CASE WHEN ? = 'discovered' THEN 'discovered' ELSE source END,
+                upc=coalesce(?, upc),
                 last_seen=?
             WHERE store_adam_id=?""",
             (
@@ -186,6 +189,7 @@ def upsert_album(data: dict):
                 audio_formats,
                 data.get("release_type"),
                 data.get("source"),
+                data.get("upc"),
                 now,
                 data["store_adam_id"],
             ),
@@ -321,14 +325,16 @@ def upsert_artist(
     origin: str = None,
     artist_bio: str = None,
     is_group: bool = None,
+    musicbrainz_id: str = None,
 ):
     now = int(time.time())
     is_group_int = int(is_group) if is_group is not None else None
     with get_conn() as conn:
         conn.execute(
             """INSERT INTO artists
-               (artist_id, name, artwork_url, genre, born_or_formed, origin, artist_bio, is_group, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+               (artist_id, name, artwork_url, genre, born_or_formed, origin,
+                artist_bio, is_group, updated_at, musicbrainz_id)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                ON CONFLICT(artist_id) DO UPDATE SET
                    name           = coalesce(excluded.name, name),
                    artwork_url    = coalesce(excluded.artwork_url, artwork_url),
@@ -337,8 +343,20 @@ def upsert_artist(
                    origin         = coalesce(excluded.origin, origin),
                    artist_bio     = coalesce(excluded.artist_bio, artist_bio),
                    is_group       = coalesce(excluded.is_group, is_group),
+                   musicbrainz_id = coalesce(excluded.musicbrainz_id, musicbrainz_id),
                    updated_at     = excluded.updated_at""",
-            (artist_id, name, artwork_url, genre, born_or_formed, origin, artist_bio, is_group_int, now),
+            (
+                artist_id,
+                name,
+                artwork_url,
+                genre,
+                born_or_formed,
+                origin,
+                artist_bio,
+                is_group_int,
+                now,
+                musicbrainz_id,
+            ),
         )
 
 
@@ -351,11 +369,16 @@ def get_artist_artwork(artist_id: str):
 def get_artist_info(artist_id: str):
     with get_conn() as conn:
         row = conn.execute(
-            "SELECT name, artwork_url, genre, born_or_formed, origin, artist_bio, is_group"
+            "SELECT name, artwork_url, genre, born_or_formed, origin, artist_bio, is_group, musicbrainz_id"
             " FROM artists WHERE artist_id = ?",
             (artist_id,),
         ).fetchone()
         return dict(row) if row else {}
+
+
+def update_artist_musicbrainz_id(artist_id: str, musicbrainz_id: str | None):
+    with get_conn() as conn:
+        conn.execute("UPDATE artists SET musicbrainz_id = ? WHERE artist_id = ?", (musicbrainz_id, artist_id))
 
 
 def get_watched_artist_ids() -> set:
