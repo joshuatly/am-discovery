@@ -10,6 +10,7 @@ import concurrent.futures
 import json
 import re
 import urllib.error
+import urllib.parse
 import urllib.request
 from datetime import UTC, datetime
 
@@ -202,9 +203,37 @@ def api_check_storefronts(store_adam_id):
     return jsonify(result)
 
 
+_MB_HEADERS = {
+    "User-Agent": "AMDiscovery/1.0 (https://github.com/am-discovery)",
+    "Accept": "application/json",
+}
+
+
+def _mb_query(query: str) -> list:
+    """Run a MusicBrainz release search and return the releases list."""
+    url = f"https://musicbrainz.org/ws/2/release/?query={urllib.parse.quote(query)}&fmt=json&limit=5"
+    req = urllib.request.Request(url, headers=_MB_HEADERS)
+    with urllib.request.urlopen(req, timeout=10) as resp:
+        data = json.loads(resp.read().decode("utf-8"))
+    return data.get("releases") or []
+
+
+def _mb_format_releases(releases: list) -> tuple[list, str | None]:
+    """Return (serialised releases list, artist_mbid from top result)."""
+    result = []
+    for r in releases[:5]:
+        mb_id = r.get("id")
+        result.append({"id": mb_id, "title": r.get("title"), "url": f"https://musicbrainz.org/release/{mb_id}"})
+    artist_mbid = None
+    credits = releases[0].get("artist-credit") or []
+    if credits:
+        artist_mbid = credits[0].get("artist", {}).get("id")
+    return result, artist_mbid
+
+
 @api_bp.route("/api/releases/<store_adam_id>/musicbrainz")
 def api_musicbrainz_lookup(store_adam_id):
-    """Look up a release on MusicBrainz by its UPC barcode.
+    """Look up a release on MusicBrainz (barcode first, then title+artist fallback).
     ---
 
     parameters:
@@ -222,46 +251,46 @@ def api_musicbrainz_lookup(store_adam_id):
     row = db.get_album(store_adam_id)
     if not row:
         return jsonify({"error": "Not found"}), 404
-    upc = row.get("upc")
-    if not upc:
-        return jsonify({"found": False, "upc": None})
 
-    mb_url = f"https://musicbrainz.org/ws/2/release/?query=barcode:{upc}&fmt=json&limit=5"
-    req = urllib.request.Request(
-        mb_url,
-        headers={
-            "User-Agent": "AMDiscovery/1.0 (https://github.com/am-discovery)",
-            "Accept": "application/json",
-        },
-    )
+    upc = row.get("upc")
+    title = row.get("title") or ""
+    artist = row.get("artist") or ""
+
     try:
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-        releases = data.get("releases") or []
-        if releases:
-            result_releases = []
-            for r in releases[:5]:
-                mb_id = r.get("id")
-                result_releases.append(
+        # 1. Barcode lookup (most precise)
+        if upc:
+            releases = _mb_query(f"barcode:{upc}")
+            if releases:
+                result_releases, artist_mbid = _mb_format_releases(releases)
+                return jsonify(
                     {
-                        "id": mb_id,
-                        "title": r.get("title"),
-                        "url": f"https://musicbrainz.org/release/{mb_id}",
+                        "found": True,
+                        "method": "barcode",
+                        "upc": upc,
+                        "releases": result_releases,
+                        "artist_mbid": artist_mbid,
                     }
                 )
-            # Extract artist MBID from the top result's artist-credit
-            artist_mbid = None
-            artist_credits = releases[0].get("artist-credit") or []
-            if artist_credits:
-                artist_mbid = artist_credits[0].get("artist", {}).get("id")
-            return jsonify(
-                {
-                    "found": True,
-                    "upc": upc,
-                    "releases": result_releases,
-                    "artist_mbid": artist_mbid,
-                }
-            )
+
+        # 2. Title + artist search (fuzzy fallback)
+        if title and artist:
+            # Lucene: escape special chars and quote phrases
+            def _q(s):
+                return '"' + s.replace('"', '\\"') + '"'
+
+            releases = _mb_query(f"release:{_q(title)} AND artist:{_q(artist)}")
+            if releases:
+                result_releases, artist_mbid = _mb_format_releases(releases)
+                return jsonify(
+                    {
+                        "found": True,
+                        "method": "title_artist",
+                        "upc": upc,
+                        "releases": result_releases,
+                        "artist_mbid": artist_mbid,
+                    }
+                )
+
         return jsonify({"found": False, "upc": upc})
     except Exception as e:
         return jsonify({"found": False, "upc": upc, "error": str(e)}), 502

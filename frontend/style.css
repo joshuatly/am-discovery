@@ -1307,6 +1307,12 @@ a.sf-chip:hover { opacity: 0.75; }
   font-size: 11px;
 }
 .mb-result a:hover, a.mb-release-link:hover { text-decoration: underline; }
+.mb-method-note {
+  font-size: 11px;
+  color: var(--text-dim);
+  margin-right: 4px;
+  cursor: help;
+}
 
 /* =========================================================
    Tracklist

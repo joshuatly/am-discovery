@@ -314,6 +314,11 @@ async function openModal(storeAdamId) {
       const res = await API.get(`/api/releases/${album.store_adam_id}/musicbrainz`);
       if (res.found && res.releases && res.releases.length) {
         mbResult.innerHTML = "";
+        const methodNote = res.method === "title_artist" ? el("span", "mb-method-note", "~") : null;
+        if (methodNote) {
+          methodNote.title = "Matched by title + artist (no barcode) — verify before using";
+          mbResult.appendChild(methodNote);
+        }
         res.releases.forEach((r, i) => {
           if (i > 0) mbResult.appendChild(document.createTextNode(" · "));
           const link = el("a", "mb-release-link", r.title || "Release");
@@ -324,13 +329,13 @@ async function openModal(storeAdamId) {
         });
         mbCheckBtn.textContent = "✓";
         mbCheckBtn.className = "btn-cli-sf cli-sf-success";
-      } else if (res.upc) {
+      } else if (res.upc || res.error === undefined) {
         mbResult.textContent = "Not found";
         mbCheckBtn.textContent = "✗";
         mbCheckBtn.className = "btn-cli-sf cli-sf-error";
       } else {
-        mbResult.textContent = "No UPC";
-        mbCheckBtn.textContent = "—";
+        mbResult.textContent = "Not found";
+        mbCheckBtn.textContent = "✗";
         mbCheckBtn.className = "btn-cli-sf cli-sf-error";
       }
       // Update Harmony buttons with UPC from response
