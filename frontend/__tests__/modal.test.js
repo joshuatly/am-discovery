@@ -134,5 +134,17 @@ describe("openModal MusicBrainz and Harmony sections", () => {
     expect(btns[0].href).toContain("harmony.pulsewidth.org.uk");
     expect(btns[0].href).toContain("music.apple.com");
     expect(btns[0].target).toBe("_blank");
+
+    // Must include all required Harmony params
+    const url = new URL(btns[0].href);
+    expect(url.searchParams.has("gtin")).toBe(true);
+    expect(url.searchParams.has("region")).toBe(true);
+    expect(url.searchParams.has("musicbrainz")).toBe(true);
+    expect(url.searchParams.has("deezer")).toBe(true);
+    expect(url.searchParams.has("itunes")).toBe(true);
+    expect(url.searchParams.has("spotify")).toBe(true);
+    expect(url.searchParams.has("tidal")).toBe(true);
+    // region should be uppercased configured storefronts
+    expect(url.searchParams.get("region")).toBe("US,JP,HK");
   });
 });

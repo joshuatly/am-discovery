@@ -199,9 +199,14 @@ async function openModal(storeAdamId) {
     const btn = el("a", "btn-cli-sf", storefront.toUpperCase());
     const amUrl = `https://music.apple.com/${storefront}/album/${album.store_adam_id}`;
     const params = new URLSearchParams({ url: amUrl });
-    if (harmonyUpc) params.set("gtin", harmonyUpc);
+    params.set("gtin", harmonyUpc || "");
     const regions = (state.configuredStorefronts || []).map(s => s.toUpperCase()).join(",");
-    if (regions) params.set("region", regions);
+    params.set("region", regions);
+    params.set("musicbrainz", "");
+    params.set("deezer", "");
+    params.set("itunes", "");
+    params.set("spotify", "");
+    params.set("tidal", "");
     btn.href = `https://harmony.pulsewidth.org.uk/release?${params.toString()}`;
     btn.target = "_blank";
     btn.rel = "noopener";
