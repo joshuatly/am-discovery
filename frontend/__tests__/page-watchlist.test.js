@@ -417,6 +417,23 @@ describe("renderWatchlist sort filter bar", () => {
     const buttons = main.querySelectorAll(".sort-filter-btn");
     expect(buttons[2].classList.contains("active")).toBe(true);
   });
+
+  test("sort=recent_album is passed to API when sort is recent_album", async () => {
+    await ctx.appWindow.__test_renderWatchlist(main, "", "", "recent_album");
+    await new Promise(r => setTimeout(r, 100));
+
+    const calls = ctx.appWindow.fetch.mock.calls;
+    const watchlistCall = calls.find(([url]) => url.includes("/api/watchlist") && url.includes("sort=recent_album"));
+    expect(watchlistCall).toBeDefined();
+  });
+
+  test("Recent Album sort button is active when sortFilter is recent_album", async () => {
+    await ctx.appWindow.__test_renderWatchlist(main, "", "", "recent_album");
+    await new Promise(r => setTimeout(r, 100));
+
+    const buttons = main.querySelectorAll(".sort-filter-btn");
+    expect(buttons[3].classList.contains("active")).toBe(true);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -431,6 +448,7 @@ describe("makeWatchedCard date display based on sort", () => {
     collection_status: "new",
     added_at: 1700000000,
     latest_release_date: "2024-09-15",
+    latest_album_date: "2024-08-10",
   };
 
   function mockFetchWith(artistData) {
@@ -486,6 +504,25 @@ describe("makeWatchedCard date display based on sort", () => {
   test("sort=recent_release shows 'No releases' when latest_release_date is null", async () => {
     mockFetchWith({ ...artist, latest_release_date: null });
     await ctx.appWindow.__test_renderWatchlist(main, "", "", "recent_release");
+    await new Promise(r => setTimeout(r, 100));
+
+    const dateEl = main.querySelector(".watchlist-date");
+    expect(dateEl.textContent).toMatch(/No releases/);
+  });
+
+  test("sort=recent_album shows Latest album date on card", async () => {
+    mockFetchWith(artist);
+    await ctx.appWindow.__test_renderWatchlist(main, "", "", "recent_album");
+    await new Promise(r => setTimeout(r, 100));
+
+    const dateEl = main.querySelector(".watchlist-date");
+    expect(dateEl.textContent).toMatch(/Latest/);
+    expect(dateEl.textContent).toMatch(/2024/);
+  });
+
+  test("sort=recent_album shows 'No releases' when latest_album_date is null", async () => {
+    mockFetchWith({ ...artist, latest_album_date: null });
+    await ctx.appWindow.__test_renderWatchlist(main, "", "", "recent_album");
     await new Promise(r => setTimeout(r, 100));
 
     const dateEl = main.querySelector(".watchlist-date");
@@ -549,6 +586,19 @@ describe("renderWatchlist sort button saves preference to localStorage", () => {
     await new Promise(r => setTimeout(r, 50));
 
     expect(ctx.appWindow.__test_WatchlistPrefs.getSortFilter()).toBe("recent_release");
+  });
+
+  test("clicking Recent Album sort button saves 'recent_album' to localStorage", async () => {
+    await ctx.appWindow.__test_renderWatchlist(main);
+    await new Promise(r => setTimeout(r, 50));
+
+    const buttons = main.querySelectorAll(".sort-filter-btn");
+    const recentAlbumBtn = Array.from(buttons).find(b => b.textContent === "Recent Album");
+    expect(recentAlbumBtn).not.toBeNull();
+    recentAlbumBtn.click();
+    await new Promise(r => setTimeout(r, 50));
+
+    expect(ctx.appWindow.__test_WatchlistPrefs.getSortFilter()).toBe("recent_album");
   });
 
   test("renderWatchlist uses stored sort preference when no explicit sortFilter is passed", async () => {

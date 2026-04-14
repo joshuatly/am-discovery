@@ -255,7 +255,7 @@ def get_artist_albums(artist_id: str):
         return [dict(r) for r in rows]
 
 
-WATCHLIST_SORT_OPTIONS = {"name", "added", "recent_release"}
+WATCHLIST_SORT_OPTIONS = {"name", "added", "recent_release", "recent_album"}
 
 
 def get_watchlist_ids() -> list[str]:
@@ -271,6 +271,7 @@ def get_watchlist(preferred_source: str = "", collection_status: str = "", sort:
         "name": "LOWER(COALESCE(NULLIF(TRIM(w.alt_name), ''), w.name))",
         "added": "w.added_at DESC",
         "recent_release": "latest_release_date DESC NULLS LAST, LOWER(COALESCE(NULLIF(TRIM(w.alt_name), ''), w.name))",
+        "recent_album": "latest_album_date DESC NULLS LAST, LOWER(COALESCE(NULLIF(TRIM(w.alt_name), ''), w.name))",
     }[sort]
     with get_conn() as conn:
         conditions = []
@@ -283,7 +284,9 @@ def get_watchlist(preferred_source: str = "", collection_status: str = "", sort:
             params.append(collection_status)
         where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
         rows = conn.execute(
-            f"""SELECT w.*, ar.artwork_url, ar.genre, ar.artist_bio, MAX(alb.release_date) AS latest_release_date
+            f"""SELECT w.*, ar.artwork_url, ar.genre, ar.artist_bio,
+                      MAX(alb.release_date) AS latest_release_date,
+                      MAX(CASE WHEN alb.title NOT LIKE '% - Single' THEN alb.release_date END) AS latest_album_date
                FROM watched_artists w
                LEFT JOIN artists ar ON w.artist_id = ar.artist_id
                LEFT JOIN albums alb ON w.artist_id = alb.artist_id
