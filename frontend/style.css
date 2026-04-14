@@ -1098,6 +1098,8 @@ a.sf-chip:hover { opacity: 0.75; }
   margin-top: 6px;
 }
 .btn-header-action {
+  display: inline-flex;
+  align-items: center;
   padding: 5px 12px;
   border-radius: 20px;
   border: 1px solid var(--border);
@@ -1109,6 +1111,7 @@ a.sf-chip:hover { opacity: 0.75; }
   cursor: pointer;
   transition: all var(--transition);
   white-space: nowrap;
+  text-decoration: none;
 }
 .btn-header-action:hover { border-color: rgba(255,255,255,0.25); color: var(--text-primary); }
 .btn-header-action.watching {
