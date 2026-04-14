@@ -145,6 +145,14 @@ class TestApiWatchlist(ServerTestCase):
         mock_db.get_watchlist.assert_called_once_with(preferred_source="", collection_status="", sort="recent_release")
 
     @patch("api_watchlist.db")
+    def test_get_watchlist_sort_recent_album(self, mock_db):
+        mock_db.get_watchlist.return_value = []
+        mock_db.COLLECTION_STATUSES = set()
+        resp = self.client.get("/api/watchlist?sort=recent_album")
+        self.assertEqual(resp.status_code, 200)
+        mock_db.get_watchlist.assert_called_once_with(preferred_source="", collection_status="", sort="recent_album")
+
+    @patch("api_watchlist.db")
     def test_get_watchlist_invalid_sort_returns_400(self, mock_db):
         mock_db.COLLECTION_STATUSES = set()
         resp = self.client.get("/api/watchlist?sort=bogus")

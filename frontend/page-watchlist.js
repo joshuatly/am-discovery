@@ -94,7 +94,7 @@ async function renderWatchlist(main, preferredSourceFilter = "", collectionStatu
 
   // Sort filter bar
   const sortFilterBar = el("div", "cs-filter-bar sort-filter-bar");
-  const sortOptions = [["name", "Name"], ["added", "Added"], ["recent_release", "Recent Release"]];
+  const sortOptions = [["name", "Name"], ["added", "Added"], ["recent_release", "Recent Release"], ["recent_album", "Recent Album"]];
   sortOptions.forEach(([code, label]) => {
     const btn = el("button", "cs-filter-btn sort-filter-btn" + (sortFilter === code ? " active" : ""));
     btn.textContent = label;
@@ -163,6 +163,10 @@ async function renderWatchlist(main, preferredSourceFilter = "", collectionStatu
     } else if (sortFilter === "recent_release") {
       dateText = artist.latest_release_date
         ? `Latest: ${formatDate(artist.latest_release_date.slice(0, 10))}`
+        : "No releases";
+    } else if (sortFilter === "recent_album") {
+      dateText = artist.latest_album_date
+        ? `Latest: ${formatDate(artist.latest_album_date.slice(0, 10))}`
         : "No releases";
     }
     const date = el("div", "watchlist-date", dateText);
