@@ -204,7 +204,7 @@ def api_check_storefronts(store_adam_id):
 
 
 _MB_HEADERS = {
-    "User-Agent": "AMDiscovery/1.0 (https://github.com/am-discovery)",
+    "User-Agent": "AMDiscovery/1.0 (https://github.com/joshuatly/am-discovery)",
     "Accept": "application/json",
 }
 
