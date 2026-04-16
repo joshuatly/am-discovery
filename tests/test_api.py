@@ -9,9 +9,13 @@ import contextlib
 import json
 import os
 import tempfile
+import threading as _real_threading
 import unittest
 import unittest.mock
 from unittest.mock import patch
+
+# Capture the real Thread class at import time — before any test patch can replace it.
+_RealThread = _real_threading.Thread
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -696,21 +700,42 @@ class TestApiArtistReleases(ServerTestCase):
 # ---------------------------------------------------------------------------
 
 
+def _sync_thread_patch(*args, **kwargs):
+    """threading.Thread stand-in that runs target() synchronously.
+
+    Only intercepts calls that explicitly pass daemon=True (the route handler's
+    outer thread).  All other calls — e.g. ThreadPoolExecutor's internal worker
+    threads — are forwarded to the real threading.Thread so they work normally.
+    """
+    if kwargs.get("daemon") is True:
+        target = kwargs.get("target") or (args[0] if args else None)
+
+        class _FakeThread:
+            def start(self):
+                target()
+
+        return _FakeThread()
+    return _RealThread(*args, **kwargs)
+
+
 class TestApiArtistFetch(ServerTestCase):
     @patch("api.db")
     @patch("api.AppleMusicClient")
-    def test_fetch_artist_no_releases(self, MockClient, mock_db):
+    @patch("api.threading.Thread", side_effect=_sync_thread_patch)
+    def test_fetch_artist_no_releases(self, _MockThread, MockClient, mock_db):
         mock_client = MockClient.return_value
         mock_client.get_artist_all_releases.return_value = ([], {})
 
         resp = self.client.post("/api/artists/ART1/fetch")
-        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.status_code, 202)
         data = resp.get_json()
-        self.assertEqual(data["fetched"], 0)
+        self.assertTrue(data["ok"])
+        self.assertTrue(data["async"])
 
     @patch("api.db")
     @patch("api.AppleMusicClient")
-    def test_fetch_artist_stores_releases(self, MockClient, mock_db):
+    @patch("api.threading.Thread", side_effect=_sync_thread_patch)
+    def test_fetch_artist_stores_releases(self, _MockThread, MockClient, mock_db):
         mock_client = MockClient.return_value
         mock_client.get_artist_all_releases.return_value = (
             [
@@ -740,14 +765,16 @@ class TestApiArtistFetch(ServerTestCase):
         mock_db.upsert_album.return_value = None
 
         resp = self.client.post("/api/artists/ART1/fetch")
-        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.status_code, 202)
         data = resp.get_json()
         self.assertTrue(data["ok"])
-        self.assertEqual(data["fetched"], 1)
+        self.assertTrue(data["async"])
+        mock_db.upsert_album.assert_called_once()
 
     @patch("api.db")
     @patch("api.AppleMusicClient")
-    def test_fetch_artist_uses_query_storefront(self, MockClient, mock_db):
+    @patch("api.threading.Thread", side_effect=_sync_thread_patch)
+    def test_fetch_artist_uses_query_storefront(self, _MockThread, MockClient, mock_db):
         mock_client = MockClient.return_value
         mock_client.get_artist_all_releases.return_value = ([], {})
 
@@ -757,7 +784,8 @@ class TestApiArtistFetch(ServerTestCase):
 
     @patch("api.db")
     @patch("api.AppleMusicClient")
-    def test_fetch_artist_default_storefront_from_config(self, MockClient, mock_db):
+    @patch("api.threading.Thread", side_effect=_sync_thread_patch)
+    def test_fetch_artist_default_storefront_from_config(self, _MockThread, MockClient, mock_db):
         mock_client = MockClient.return_value
         mock_client.get_artist_all_releases.return_value = ([], {})
 
@@ -775,7 +803,8 @@ class TestApiArtistFetch(ServerTestCase):
 
     @patch("api.db")
     @patch("api.AppleMusicClient")
-    def test_fetch_artist_checks_new_releases_for_complete_artist(self, MockClient, mock_db):
+    @patch("api.threading.Thread", side_effect=_sync_thread_patch)
+    def test_fetch_artist_checks_new_releases_for_complete_artist(self, _MockThread, MockClient, mock_db):
         mock_client = MockClient.return_value
         mock_client.get_artist_all_releases.return_value = (
             [
@@ -806,17 +835,18 @@ class TestApiArtistFetch(ServerTestCase):
         mock_db.check_and_update_new_releases.return_value = True
 
         resp = self.client.post("/api/artists/ART1/fetch")
-        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.status_code, 202)
         mock_db.check_and_update_new_releases.assert_called_once_with("ART1")
 
     @patch("api.db")
     @patch("api.AppleMusicClient")
-    def test_fetch_artist_no_releases_skips_new_release_check(self, MockClient, mock_db):
+    @patch("api.threading.Thread", side_effect=_sync_thread_patch)
+    def test_fetch_artist_no_releases_skips_new_release_check(self, _MockThread, MockClient, mock_db):
         mock_client = MockClient.return_value
         mock_client.get_artist_all_releases.return_value = ([], {})
 
         resp = self.client.post("/api/artists/ART1/fetch")
-        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.status_code, 202)
         mock_db.check_and_update_new_releases.assert_not_called()
 
 

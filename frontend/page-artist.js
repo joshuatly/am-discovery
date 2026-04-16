@@ -118,9 +118,9 @@ async function renderArtist(main, artistId) {
     try {
       const sf = state.metadataStorefront;
       const qp = sf ? `?storefront=${sf}` : "";
-      const res = await API.post(`/api/artists/${artistId}/fetch${qp}`, {});
-      fetchBtn.textContent = `✓ ${res.fetched} fetched`;
-      setTimeout(() => renderArtist(main, artistId), 800);
+      await API.post(`/api/artists/${artistId}/fetch${qp}`, {});
+      fetchBtn.textContent = "✓ Fetching in background";
+      setTimeout(() => renderArtist(main, artistId), 5000);
     } catch {
       fetchBtn.textContent = "Failed";
       fetchBtn.disabled = false;
