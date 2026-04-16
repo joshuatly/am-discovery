@@ -8,7 +8,9 @@ Watchlist routes live in api_watchlist.py.
 
 import concurrent.futures
 import json
+import logging
 import re
+import threading
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -329,9 +331,16 @@ def api_lookup(store_adam_id):
 # ---------------------------------------------------------------------------
 
 
+_logger = logging.getLogger(__name__)
+
+
 @api_bp.route("/api/artists/<artist_id>/fetch", methods=["POST"])
 def api_artist_fetch(artist_id):
     """Fetch all releases for an artist from a specific storefront and store them.
+
+    The fetch runs in a background thread so it never blocks the Gunicorn worker.
+    Returns 202 immediately; the caller should re-query the artist's releases
+    after a short delay to pick up the results.
     ---
 
     parameters:
@@ -344,8 +353,10 @@ def api_artist_fetch(artist_id):
         type: string
         description: Storefront to fetch from (defaults to first configured storefront)
     responses:
-      200:
-        description: Fetch result with count
+      202:
+        description: Fetch queued; runs in background
+      400:
+        description: Invalid storefront
 
     """
     raw_sf = request.args.get("storefront", "").strip().lower()
@@ -357,63 +368,69 @@ def api_artist_fetch(artist_id):
         cfg = load_config()
         storefront = (cfg.get("check_storefronts") or ["us"])[0]
 
-    client = AppleMusicClient()
-    artist_url = f"https://music.apple.com/{storefront}/artist/{artist_id}"
-    releases, artist_info = client.get_artist_all_releases(artist_url, storefront)
+    def _run():
+        try:
+            client = AppleMusicClient()
+            artist_url = f"https://music.apple.com/{storefront}/artist/{artist_id}"
+            releases, artist_info = client.get_artist_all_releases(artist_url, storefront)
 
-    # Cache artist metadata regardless of whether any releases were found
-    if artist_info:
-        db.upsert_artist(
-            artist_id,
-            name=artist_info.get("name"),
-            artwork_url=artist_info.get("artwork_url"),
-            genre=artist_info.get("genre"),
-            born_or_formed=artist_info.get("born_or_formed"),
-            origin=artist_info.get("origin"),
-            artist_bio=artist_info.get("artist_bio"),
-            is_group=artist_info.get("is_group"),
-        )
+            # Cache artist metadata regardless of whether any releases were found
+            if artist_info:
+                db.upsert_artist(
+                    artist_id,
+                    name=artist_info.get("name"),
+                    artwork_url=artist_info.get("artwork_url"),
+                    genre=artist_info.get("genre"),
+                    born_or_formed=artist_info.get("born_or_formed"),
+                    origin=artist_info.get("origin"),
+                    artist_bio=artist_info.get("artist_bio"),
+                    is_group=artist_info.get("is_group"),
+                )
 
-    if not releases:
-        return jsonify({"ok": True, "fetched": 0, "message": "No releases found on artist page"})
+            if not releases:
+                return
 
-    def fetch_one(r):
-        aid = r["storeAdamID"]
-        existing = db.get_album(aid)
-        album_url = f"https://music.apple.com/{storefront}/album/{aid}"
-        info = client.get_album_full_info(album_url)
+            def fetch_one(r):
+                aid = r["storeAdamID"]
+                existing = db.get_album(aid)
+                album_url = f"https://music.apple.com/{storefront}/album/{aid}"
+                info = client.get_album_full_info(album_url)
 
-        album_data = {
-            "store_adam_id": aid,
-            "url": r.get("url") or album_url,
-            "storefronts": r.get("storefronts", [storefront]),
-            "release_date": info.get("release_date"),
-            "artwork_url": info.get("artwork_url"),
-            "track_count": info.get("track_count"),
-            "genre": info.get("genre"),
-            "description": info.get("description"),
-            "artist_id": info.get("artist_id") or artist_id,
-            "artist_url": info.get("artist_url"),
-            "artists_json": info.get("artists"),
-            "audio_formats": info.get("audio_formats"),
-            "upc": info.get("upc"),
-            "release_type": r.get("release_type"),
-            "info_fetched": 1,
-            "source": "artist_fetch",
-        }
-        if not existing:
-            # New to DB — store localised title/artist from this storefront
-            album_data["title"] = r.get("title") or info.get("title") or "Unknown"
-            album_data["artist"] = r.get("artist") or info.get("artist")
+                album_data = {
+                    "store_adam_id": aid,
+                    "url": r.get("url") or album_url,
+                    "storefronts": r.get("storefronts", [storefront]),
+                    "release_date": info.get("release_date"),
+                    "artwork_url": info.get("artwork_url"),
+                    "track_count": info.get("track_count"),
+                    "genre": info.get("genre"),
+                    "description": info.get("description"),
+                    "artist_id": info.get("artist_id") or artist_id,
+                    "artist_url": info.get("artist_url"),
+                    "artists_json": info.get("artists"),
+                    "audio_formats": info.get("audio_formats"),
+                    "upc": info.get("upc"),
+                    "release_type": r.get("release_type"),
+                    "info_fetched": 1,
+                    "source": "artist_fetch",
+                }
+                if not existing:
+                    # New to DB — store localised title/artist from this storefront
+                    album_data["title"] = r.get("title") or info.get("title") or "Unknown"
+                    album_data["artist"] = r.get("artist") or info.get("artist")
 
-        db.upsert_album(album_data)
+                db.upsert_album(album_data)
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as ex:
-        list(ex.map(fetch_one, releases))
+            with concurrent.futures.ThreadPoolExecutor(max_workers=8) as ex:
+                list(ex.map(fetch_one, releases))
 
-    db.check_and_update_new_releases(artist_id)
+            db.check_and_update_new_releases(artist_id)
+            _logger.info("[ArtistFetch] Done: artist %s, %d releases", artist_id, len(releases))
+        except Exception:
+            _logger.exception("[ArtistFetch] Error fetching artist %s", artist_id)
 
-    return jsonify({"ok": True, "fetched": len(releases)})
+    threading.Thread(target=_run, daemon=True).start()
+    return jsonify({"ok": True, "async": True}), 202
 
 
 @api_bp.route("/api/artists/<artist_id>/releases")
