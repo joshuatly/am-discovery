@@ -1220,5 +1220,75 @@ class TestApiArtistReleasesIncludesMbid(ServerTestCase):
         self.assertIsNone(data["artist_musicbrainz_id"])
 
 
+# ---------------------------------------------------------------------------
+# GET /api/dbstatus
+# ---------------------------------------------------------------------------
+
+
+class TestApiDbStatus(ServerTestCase):
+    @patch("api.db")
+    def test_returns_expected_fields(self, mock_db):
+        mock_db.get_db_stats.return_value = {
+            "db_path": "/tmp/test.db",
+            "db_size_bytes": 4096,
+            "wal_size_bytes": 0,
+            "shm_size_bytes": 0,
+            "total_size_bytes": 4096,
+            "page_size_bytes": 4096,
+            "page_count": 1,
+            "tables": [{"name": "albums", "row_count": 10, "size_bytes": 4096, "page_count": 1}],
+        }
+        resp = self.client.get("/api/dbstatus")
+        self.assertEqual(resp.status_code, 200)
+        data = resp.get_json()
+        self.assertIn("db_path", data)
+        self.assertIn("db_size_bytes", data)
+        self.assertIn("wal_size_bytes", data)
+        self.assertIn("shm_size_bytes", data)
+        self.assertIn("total_size_bytes", data)
+        self.assertIn("page_size_bytes", data)
+        self.assertIn("page_count", data)
+        self.assertIn("tables", data)
+
+    @patch("api.db")
+    def test_tables_have_required_keys(self, mock_db):
+        mock_db.get_db_stats.return_value = {
+            "db_path": "/tmp/test.db",
+            "db_size_bytes": 8192,
+            "wal_size_bytes": 1024,
+            "shm_size_bytes": 32768,
+            "total_size_bytes": 42984,
+            "page_size_bytes": 4096,
+            "page_count": 2,
+            "tables": [
+                {"name": "albums", "row_count": 5, "size_bytes": 4096, "page_count": 1},
+                {"name": "artists", "row_count": 2, "size_bytes": 4096, "page_count": 1},
+            ],
+        }
+        resp = self.client.get("/api/dbstatus")
+        data = resp.get_json()
+        for table in data["tables"]:
+            self.assertIn("name", table)
+            self.assertIn("row_count", table)
+            self.assertIn("size_bytes", table)
+            self.assertIn("page_count", table)
+
+    @patch("api.db")
+    def test_total_size_includes_wal(self, mock_db):
+        mock_db.get_db_stats.return_value = {
+            "db_path": "/tmp/test.db",
+            "db_size_bytes": 4096,
+            "wal_size_bytes": 2048,
+            "shm_size_bytes": 32768,
+            "total_size_bytes": 38912,
+            "page_size_bytes": 4096,
+            "page_count": 1,
+            "tables": [],
+        }
+        resp = self.client.get("/api/dbstatus")
+        data = resp.get_json()
+        self.assertEqual(data["total_size_bytes"], 38912)
+
+
 if __name__ == "__main__":
     unittest.main()

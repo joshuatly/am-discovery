@@ -791,6 +791,22 @@ def api_status():
 
 
 # ---------------------------------------------------------------------------
+# GET /api/dbstatus
+# ---------------------------------------------------------------------------
+
+
+@api_bp.route("/api/dbstatus")
+def api_dbstatus():
+    """Return SQLite database size and per-table statistics.
+    ---
+    responses:
+      200:
+        description: Database statistics
+    """
+    return jsonify(db.get_db_stats())
+
+
+# ---------------------------------------------------------------------------
 # Frontend SPA catch-all
 # ---------------------------------------------------------------------------
 
