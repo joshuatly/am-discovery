@@ -1290,5 +1290,43 @@ class TestApiDbStatus(ServerTestCase):
         self.assertEqual(data["total_size_bytes"], 38912)
 
 
+class TestApiDiscoveryStatus(ServerTestCase):
+    @patch("api.db")
+    def test_returns_runs_and_count(self, mock_db):
+        mock_db.get_discovery_runs.return_value = [
+            {"id": 2, "ran_at": 1700086400, "storefront": "jp", "room_id": "999", "new_count": 3, "total_count": 20},
+            {"id": 1, "ran_at": 1700000000, "storefront": "us", "room_id": "888", "new_count": 5, "total_count": 17},
+        ]
+        resp = self.client.get("/api/discovery_status")
+        self.assertEqual(resp.status_code, 200)
+        data = resp.get_json()
+        self.assertIn("runs", data)
+        self.assertIn("count", data)
+        self.assertEqual(data["count"], 2)
+        self.assertEqual(data["runs"][0]["storefront"], "jp")
+        self.assertEqual(data["runs"][0]["room_id"], "999")
+
+    @patch("api.db")
+    def test_empty_runs(self, mock_db):
+        mock_db.get_discovery_runs.return_value = []
+        resp = self.client.get("/api/discovery_status")
+        self.assertEqual(resp.status_code, 200)
+        data = resp.get_json()
+        self.assertEqual(data["runs"], [])
+        self.assertEqual(data["count"], 0)
+
+    @patch("api.db")
+    def test_limit_param_forwarded(self, mock_db):
+        mock_db.get_discovery_runs.return_value = []
+        self.client.get("/api/discovery_status?limit=50")
+        mock_db.get_discovery_runs.assert_called_once_with(limit=50)
+
+    @patch("api.db")
+    def test_invalid_limit_defaults_to_200(self, mock_db):
+        mock_db.get_discovery_runs.return_value = []
+        self.client.get("/api/discovery_status?limit=abc")
+        mock_db.get_discovery_runs.assert_called_once_with(limit=200)
+
+
 if __name__ == "__main__":
     unittest.main()

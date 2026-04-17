@@ -907,32 +907,52 @@ class TestDiscoveryRuns(DBTestCase):
 
     def test_log_and_get_last_run(self):
         before = int(time.time())
-        self.db.log_discovery_run(5, 100)
+        self.db.log_discovery_run("us", "123456", 5, 100)
         run = self.db.get_last_run()
         self.assertIsNotNone(run)
+        self.assertEqual(run["storefront"], "us")
+        self.assertEqual(run["room_id"], "123456")
         self.assertEqual(run["new_count"], 5)
         self.assertEqual(run["total_count"], 100)
         self.assertGreaterEqual(run["ran_at"], before)
 
     def test_get_last_run_returns_most_recent(self):
-        self.db.log_discovery_run(1, 10)
+        self.db.log_discovery_run("us", "111", 1, 10)
         time.sleep(0.05)
-        self.db.log_discovery_run(99, 200)
+        self.db.log_discovery_run("jp", "222", 99, 200)
         run = self.db.get_last_run()
         self.assertEqual(run["new_count"], 99)
         self.assertEqual(run["total_count"], 200)
 
     def test_log_multiple_runs(self):
         for i in range(5):
-            self.db.log_discovery_run(i, i * 10)
+            self.db.log_discovery_run("hk", str(i), i, i * 10)
         run = self.db.get_last_run()
         self.assertEqual(run["new_count"], 4)
 
     def test_log_zero_counts(self):
-        self.db.log_discovery_run(0, 0)
+        self.db.log_discovery_run("tw", "", 0, 0)
         run = self.db.get_last_run()
         self.assertEqual(run["new_count"], 0)
         self.assertEqual(run["total_count"], 0)
+
+    def test_get_discovery_runs_empty(self):
+        self.assertEqual(self.db.get_discovery_runs(), [])
+
+    def test_get_discovery_runs_returns_all(self):
+        self.db.log_discovery_run("us", "100", 2, 10)
+        self.db.log_discovery_run("jp", "200", 3, 10)
+        runs = self.db.get_discovery_runs()
+        self.assertEqual(len(runs), 2)
+        # most recent first
+        self.assertEqual(runs[0]["storefront"], "jp")
+        self.assertEqual(runs[1]["storefront"], "us")
+
+    def test_get_discovery_runs_respects_limit(self):
+        for i in range(5):
+            self.db.log_discovery_run("us", str(i), i, i * 10)
+        runs = self.db.get_discovery_runs(limit=3)
+        self.assertEqual(len(runs), 3)
 
 
 # ---------------------------------------------------------------------------

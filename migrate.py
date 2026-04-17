@@ -115,6 +115,11 @@ MIGRATIONS = {
         ALTER TABLE albums ADD COLUMN upc TEXT;
         ALTER TABLE artists ADD COLUMN musicbrainz_id TEXT;
     """,
+    14: """
+        -- Version 14: add storefront and room_id to discovery_runs for per-storefront tracking.
+        ALTER TABLE discovery_runs ADD COLUMN storefront TEXT;
+        ALTER TABLE discovery_runs ADD COLUMN room_id TEXT;
+    """,
 }
 
 

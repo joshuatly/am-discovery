@@ -55,12 +55,14 @@ def _do_poll():
         # 1. Discover new releases from each storefront's /new page
         all_releases: dict[str, dict] = {}
         room_errors = []
+        room_urls: dict[str, str] = {}
         for sf in storefronts:
             room_url = client.discover_room_url(sf)
             if not room_url:
                 room_errors.append(sf)
                 rels = []
             else:
+                room_urls[sf] = room_url
                 rels = client.get_room_new_releases(room_url, sf)
             logger.info("[Poll] [%s] %d releases", sf.upper(), len(rels))
             for r in rels:
@@ -144,7 +146,13 @@ def _do_poll():
             )
 
         total = db.list_albums()[1]
-        db.log_discovery_run(len(new_ids), total)
+        new_ids_set = set(new_ids)
+        for sf in storefronts:
+            sf_aids = [aid for aid in all_releases if sf in all_releases[aid].get("storefronts", [])]
+            sf_new = sum(1 for aid in sf_aids if aid in new_ids_set)
+            room_url = room_urls.get(sf, "")
+            room_id = room_url.rstrip("/").split("/")[-1] if room_url else ""
+            db.log_discovery_run(sf, room_id, sf_new, total)
         logger.info("[Poll] Done. DB total: %d", total)
 
         # 5. Check if any discovered albums trigger a new_release status for watched artists

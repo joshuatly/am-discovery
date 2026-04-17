@@ -27,7 +27,7 @@ def get_conn():
         conn.close()
 
 
-SCHEMA_VERSION = 13
+SCHEMA_VERSION = 14
 
 # Valid collection_status values and allowed transitions
 COLLECTION_STATUSES = {"new", "complete", "new_release", "in_progress"}
@@ -103,6 +103,8 @@ def init_db():
                 CREATE TABLE IF NOT EXISTS discovery_runs (
                     id          INTEGER PRIMARY KEY AUTOINCREMENT,
                     ran_at      INTEGER,
+                    storefront  TEXT,
+                    room_id     TEXT,
                     new_count   INTEGER DEFAULT 0,
                     total_count INTEGER DEFAULT 0
                 );
@@ -541,12 +543,12 @@ def import_watchlist(artists: list):
             )
 
 
-def log_discovery_run(new_count: int, total_count: int):
+def log_discovery_run(storefront: str, room_id: str, new_count: int, total_count: int):
     now = int(time.time())
     with get_conn() as conn:
         conn.execute(
-            "INSERT INTO discovery_runs (ran_at, new_count, total_count) VALUES (?,?,?)",
-            (now, new_count, total_count),
+            "INSERT INTO discovery_runs (ran_at, storefront, room_id, new_count, total_count) VALUES (?,?,?,?,?)",
+            (now, storefront, room_id, new_count, total_count),
         )
 
 
@@ -554,6 +556,12 @@ def get_last_run():
     with get_conn() as conn:
         row = conn.execute("SELECT * FROM discovery_runs ORDER BY id DESC LIMIT 1").fetchone()
         return dict(row) if row else None
+
+
+def get_discovery_runs(limit: int = 200) -> list[dict]:
+    with get_conn() as conn:
+        rows = conn.execute("SELECT * FROM discovery_runs ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
+        return [dict(r) for r in rows]
 
 
 def search_albums(
