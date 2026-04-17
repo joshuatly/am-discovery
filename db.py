@@ -692,3 +692,50 @@ def search_artists_local(query: str, limit: int = 25) -> list[dict]:
 
     combined.sort(key=_rank)
     return combined[:limit]
+
+
+def get_db_stats() -> dict:
+    """Return database file sizes and per-table row/page statistics."""
+    db_size = os.path.getsize(DB_PATH) if os.path.exists(DB_PATH) else 0
+    wal_size = os.path.getsize(DB_PATH + "-wal") if os.path.exists(DB_PATH + "-wal") else 0
+    shm_size = os.path.getsize(DB_PATH + "-shm") if os.path.exists(DB_PATH + "-shm") else 0
+
+    with get_conn() as conn:
+        page_size = conn.execute("PRAGMA page_size").fetchone()[0]
+        page_count = conn.execute("PRAGMA page_count").fetchone()[0]
+
+        table_names = [
+            r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name").fetchall()
+        ]
+
+        # dbstat gives per-page storage breakdown per table/index
+        dbstat_rows = conn.execute(
+            "SELECT name, SUM(pgsize) as size_bytes, COUNT(*) as page_count FROM dbstat GROUP BY name"
+        ).fetchall()
+        dbstat_map = {r["name"]: {"size_bytes": r["size_bytes"], "page_count": r["page_count"]} for r in dbstat_rows}
+
+        table_stats = []
+        for name in table_names:
+            row_count = conn.execute(f"SELECT COUNT(*) FROM [{name}]").fetchone()[0]  # noqa: S608
+            stat = dbstat_map.get(name, {})
+            table_stats.append(
+                {
+                    "name": name,
+                    "row_count": row_count,
+                    "size_bytes": stat.get("size_bytes", 0),
+                    "page_count": stat.get("page_count", 0),
+                }
+            )
+
+        table_stats.sort(key=lambda x: x["size_bytes"], reverse=True)
+
+    return {
+        "db_path": DB_PATH,
+        "db_size_bytes": db_size,
+        "wal_size_bytes": wal_size,
+        "shm_size_bytes": shm_size,
+        "total_size_bytes": db_size + wal_size + shm_size,
+        "page_size_bytes": page_size,
+        "page_count": page_count,
+        "tables": table_stats,
+    }
