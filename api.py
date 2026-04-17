@@ -807,6 +807,33 @@ def api_dbstatus():
 
 
 # ---------------------------------------------------------------------------
+# GET /api/discovery_status
+# ---------------------------------------------------------------------------
+
+
+@api_bp.route("/api/discovery_status")
+def api_discovery_status():
+    """Return recent discovery run records, one row per storefront per run.
+    ---
+    parameters:
+      - name: limit
+        in: query
+        type: integer
+        default: 200
+        description: Maximum number of rows to return (most recent first)
+    responses:
+      200:
+        description: List of discovery run records
+    """
+    try:
+        limit = int(request.args.get("limit", 200))
+    except (TypeError, ValueError):
+        limit = 200
+    runs = db.get_discovery_runs(limit=limit)
+    return jsonify({"runs": runs, "count": len(runs)})
+
+
+# ---------------------------------------------------------------------------
 # Frontend SPA catch-all
 # ---------------------------------------------------------------------------
 
