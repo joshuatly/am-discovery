@@ -1,24 +1,25 @@
-"""Per-storefront constants used by discovery.
+"""Per-storefront discovery constants.
 
-`STOREFRONTS` maps a two-letter storefront code to the locale sent as the
-amp-api `l=` query param and the localized title of the "New Releases" room
-in that storefront (matched against `attributes.name` in the editorial
-groupings response). Extend this map when new markets are added.
+`DISCOVERY_NAMES` maps a storefront code to the localized title of its
+"New Releases" room (matched against `attributes.name` in the editorial
+groupings response). Locales live in `storefront_locales.py`.
 """
 
-STOREFRONTS: dict[str, dict[str, str]] = {
-    "hk": {"locale": "zh-Hant-HK", "discovery_name": "新發行"},
-    "mo": {"locale": "zh-Hant-HK", "discovery_name": "新發行"},
-    "tw": {"locale": "zh-Hant-TW", "discovery_name": "新發行"},
-    "jp": {"locale": "ja-JP", "discovery_name": "ニューリリース"},
-    "sg": {"locale": "en-SG", "discovery_name": "New Releases"},
-    "my": {"locale": "en-MY", "discovery_name": "New Releases"},
-    "us": {"locale": "en-US", "discovery_name": "New Releases"},
-}
+from storefront_locales import STOREFRONT_LOCALES
 
 DEFAULT_LOCALE = "en-US"
 
-# Fallback titles matched when a storefront is not in STOREFRONTS.
+DISCOVERY_NAMES: dict[str, str] = {
+    "hk": "新發行",
+    "mo": "新發行",
+    "tw": "新發行",
+    "jp": "ニューリリース",
+    "sg": "New Releases",
+    "my": "New Releases",
+    "us": "New Releases",
+}
+
+# Fallback titles matched when a storefront has no entry in DISCOVERY_NAMES.
 DEFAULT_DISCOVERY_NAMES: list[str] = [
     "new release",
     "new releases",
@@ -30,11 +31,11 @@ DEFAULT_DISCOVERY_NAMES: list[str] = [
 
 
 def locale_for(storefront: str) -> str:
-    return STOREFRONTS.get(storefront, {}).get("locale", DEFAULT_LOCALE)
+    return STOREFRONT_LOCALES.get(storefront, DEFAULT_LOCALE)
 
 
 def discovery_names_for(storefront: str) -> list[str]:
-    entry = STOREFRONTS.get(storefront)
-    if entry and entry.get("discovery_name"):
-        return [entry["discovery_name"]]
+    name = DISCOVERY_NAMES.get(storefront)
+    if name:
+        return [name]
     return list(DEFAULT_DISCOVERY_NAMES)
