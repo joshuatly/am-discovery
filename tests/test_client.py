@@ -898,5 +898,226 @@ class TestSearchArtists(unittest.TestCase):
         self.assertEqual(results, [])
 
 
+# ---------------------------------------------------------------------------
+# discover_new_release_room_id / get_room_albums / discover_new_releases
+# ---------------------------------------------------------------------------
+
+
+def _make_groupings_response(room_id, room_name, extra_rooms=None):
+    """Build a minimal groupings response with the given named room."""
+    items = {room_id: {"id": room_id, "attributes": {"name": room_name}}}
+    for rid, rname in extra_rooms or []:
+        items[rid] = {"id": rid, "attributes": {"name": rname}}
+    return {"resources": {"editorial-items": items}}
+
+
+def _make_room_albums_response(count, start=1, storefront="us"):
+    """Build a rooms/{id} response keyed by adam id under resources.albums."""
+    albums = {}
+    for i in range(start, start + count):
+        adam_id = str(1_000_000 + i)
+        albums[adam_id] = {
+            "id": adam_id,
+            "attributes": {
+                "name": f"Album {i}",
+                "artistName": f"Artist {i}",
+                "url": f"https://music.apple.com/{storefront}/album/a/{adam_id}",
+            },
+        }
+    return {"resources": {"albums": albums}}
+
+
+class TestDiscoverNewReleaseRoomId(unittest.TestCase):
+    def setUp(self):
+        self.client = _make_client()
+
+    def test_matches_localized_title(self):
+        resp = _make_groupings_response("6762414661", "新發行")
+        with patch.object(self.client, "_amp_api_get", return_value=resp) as mock_get:
+            room_id = self.client.discover_new_release_room_id("hk")
+        self.assertEqual(room_id, "6762414661")
+        path, params = mock_get.call_args[0][0], mock_get.call_args[0][1]
+        self.assertEqual(path, "/v1/editorial/hk/groupings")
+        self.assertEqual(params["l"], "zh-Hant-HK")
+
+    def test_matches_us_title_case_insensitive(self):
+        resp = _make_groupings_response("12345", "NEW RELEASES")
+        with patch.object(self.client, "_amp_api_get", return_value=resp):
+            room_id = self.client.discover_new_release_room_id("us")
+        self.assertEqual(room_id, "12345")
+
+    def test_unknown_storefront_uses_default_names(self):
+        resp = _make_groupings_response("99", "New Releases")
+        with patch.object(self.client, "_amp_api_get", return_value=resp) as mock_get:
+            room_id = self.client.discover_new_release_room_id("zz")
+        self.assertEqual(room_id, "99")
+        self.assertEqual(mock_get.call_args[0][1]["l"], "en-US")
+
+    def test_returns_none_when_no_match(self):
+        resp = _make_groupings_response("1", "Top Charts")
+        with patch.object(self.client, "_amp_api_get", return_value=resp):
+            room_id = self.client.discover_new_release_room_id("hk")
+        self.assertIsNone(room_id)
+
+    def test_returns_none_on_empty_response(self):
+        with patch.object(self.client, "_amp_api_get", return_value={}):
+            room_id = self.client.discover_new_release_room_id("hk")
+        self.assertIsNone(room_id)
+
+    def test_prefers_contentId_over_resource_key(self):
+        resp = {
+            "resources": {
+                "editorial-items": {
+                    "dict-key": {
+                        "id": "dict-key",
+                        "attributes": {"name": "新發行", "contentId": "6762414661"},
+                    },
+                },
+            },
+        }
+        with patch.object(self.client, "_amp_api_get", return_value=resp):
+            room_id = self.client.discover_new_release_room_id("hk")
+        self.assertEqual(room_id, "6762414661")
+
+
+class TestGetRoomAlbums(unittest.TestCase):
+    def setUp(self):
+        self.client = _make_client()
+
+    def test_returns_first_page_under_100(self):
+        resp = _make_room_albums_response(42)
+        with patch.object(self.client, "_amp_api_get", return_value=resp) as mock_get:
+            albums = self.client.get_room_albums("us", "123")
+        self.assertEqual(len(albums), 42)
+        self.assertEqual(mock_get.call_count, 1)
+        self.assertEqual(albums[0]["storefronts"], ["us"])
+        self.assertTrue(albums[0]["storeAdamID"])
+
+    def test_paginates_to_200(self):
+        responses = [
+            _make_room_albums_response(100, start=1),
+            _make_room_albums_response(100, start=101),
+        ]
+        with patch.object(self.client, "_amp_api_get", side_effect=responses) as mock_get:
+            albums = self.client.get_room_albums("hk", "6762414661")
+        self.assertEqual(len(albums), 200)
+        self.assertEqual(mock_get.call_count, 2)
+        first_call = mock_get.call_args_list[0]
+        second_call = mock_get.call_args_list[1]
+        self.assertEqual(first_call[0][0], "/v1/editorial/hk/rooms/6762414661")
+        self.assertEqual(second_call[0][0], "/v1/editorial/hk/rooms/6762414661/contents")
+        self.assertEqual(second_call[0][1]["offset"], 101)
+        self.assertEqual(second_call[0][1]["l"], "zh-Hant-HK")
+
+    def test_caps_at_max_albums(self):
+        responses = [
+            _make_room_albums_response(100, start=1),
+            _make_room_albums_response(100, start=101),
+        ]
+        with patch.object(self.client, "_amp_api_get", side_effect=responses):
+            albums = self.client.get_room_albums("us", "123", max_albums=150)
+        self.assertEqual(len(albums), 150)
+
+    def test_skips_albums_missing_required_fields(self):
+        resp = {
+            "resources": {
+                "albums": {
+                    "a1": {"id": "a1", "attributes": {"name": "Has Title", "url": "https://url/a1"}},
+                    "a2": {"id": "a2", "attributes": {"name": "No URL"}},
+                    "a3": {"id": "a3", "attributes": {"url": "https://url/a3"}},
+                },
+            },
+        }
+        with patch.object(self.client, "_amp_api_get", return_value=resp):
+            albums = self.client.get_room_albums("us", "123")
+        self.assertEqual(len(albums), 1)
+        self.assertEqual(albums[0]["storeAdamID"], "a1")
+
+
+class TestDiscoverNewReleases(unittest.TestCase):
+    def setUp(self):
+        self.client = _make_client()
+
+    def test_uses_api_when_available(self):
+        with (
+            patch.object(self.client, "discover_new_release_room_id", return_value="6762414661"),
+            patch.object(self.client, "get_room_albums", return_value=[{"storeAdamID": "1"}]) as mock_room,
+            patch.object(self.client, "discover_room_url") as mock_html_discover,
+        ):
+            releases, room_id = self.client.discover_new_releases("hk")
+        self.assertEqual(room_id, "6762414661")
+        self.assertEqual(len(releases), 1)
+        mock_room.assert_called_once_with("hk", "6762414661")
+        mock_html_discover.assert_not_called()
+
+    def test_falls_back_to_html_when_api_returns_no_room(self):
+        with (
+            patch.object(self.client, "discover_new_release_room_id", return_value=None),
+            patch.object(
+                self.client,
+                "discover_room_url",
+                return_value="https://music.apple.com/us/room/999",
+            ),
+            patch.object(
+                self.client,
+                "get_room_new_releases",
+                return_value=[{"storeAdamID": "A", "title": "X", "url": "u", "storefronts": ["us"]}],
+            ) as mock_html_get,
+        ):
+            releases, room_id = self.client.discover_new_releases("us")
+        self.assertEqual(room_id, "999")
+        self.assertEqual(len(releases), 1)
+        mock_html_get.assert_called_once()
+
+    def test_falls_back_when_api_room_has_no_albums(self):
+        with (
+            patch.object(self.client, "discover_new_release_room_id", return_value="777"),
+            patch.object(self.client, "get_room_albums", return_value=[]),
+            patch.object(
+                self.client,
+                "discover_room_url",
+                return_value="https://music.apple.com/us/room/888",
+            ),
+            patch.object(self.client, "get_room_new_releases", return_value=[]),
+        ):
+            releases, room_id = self.client.discover_new_releases("us")
+        self.assertEqual(releases, [])
+        self.assertEqual(room_id, "888")
+
+    def test_returns_none_room_id_when_all_paths_fail(self):
+        with (
+            patch.object(self.client, "discover_new_release_room_id", return_value=None),
+            patch.object(self.client, "discover_room_url", return_value=None),
+        ):
+            releases, room_id = self.client.discover_new_releases("us")
+        self.assertEqual(releases, [])
+        self.assertIsNone(room_id)
+
+    def test_api_exception_falls_back_to_html(self):
+        with (
+            patch.object(
+                self.client,
+                "discover_new_release_room_id",
+                side_effect=RuntimeError("boom"),
+            ),
+            patch.object(
+                self.client,
+                "discover_room_url",
+                return_value="https://music.apple.com/us/room/111",
+            ),
+            patch.object(self.client, "get_room_new_releases", return_value=[]),
+        ):
+            releases, room_id = self.client.discover_new_releases("us")
+        self.assertEqual(room_id, "111")
+        self.assertEqual(releases, [])
+
+    def test_rate_limit_propagates(self):
+        with (
+            patch.object(self.client, "discover_new_release_room_id", side_effect=RateLimitError("429")),
+            self.assertRaises(RateLimitError),
+        ):
+            self.client.discover_new_releases("us")
+
+
 if __name__ == "__main__":
     unittest.main()
