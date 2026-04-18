@@ -910,31 +910,55 @@ class TestDiscoveryRuns(DBTestCase):
         self.db.log_discovery_run("us", "123456", 5, 100)
         run = self.db.get_last_run()
         self.assertIsNotNone(run)
-        self.assertEqual(run["storefront"], "us")
-        self.assertEqual(run["room_id"], "123456")
         self.assertEqual(run["new_count"], 5)
         self.assertEqual(run["total_count"], 100)
         self.assertGreaterEqual(run["ran_at"], before)
+        self.assertEqual(len(run["storefronts"]), 1)
+        self.assertEqual(run["storefronts"][0]["storefront"], "us")
+        self.assertEqual(run["storefronts"][0]["room_id"], "123456")
 
-    def test_get_last_run_returns_most_recent(self):
-        self.db.log_discovery_run("us", "111", 1, 10)
-        time.sleep(0.05)
-        self.db.log_discovery_run("jp", "222", 99, 200)
+    def test_get_last_run_aggregates_same_ran_at(self):
+        ran_at = int(time.time())
+        self.db.log_discovery_run("us", "111", 1, 10, ran_at=ran_at)
+        self.db.log_discovery_run("jp", "222", 99, 10, ran_at=ran_at)
         run = self.db.get_last_run()
-        self.assertEqual(run["new_count"], 99)
-        self.assertEqual(run["total_count"], 200)
+        self.assertEqual(run["ran_at"], ran_at)
+        self.assertEqual(run["new_count"], 100)
+        self.assertEqual(run["total_count"], 10)
+        sfs = {s["storefront"]: s for s in run["storefronts"]}
+        self.assertEqual(sfs["us"]["new_count"], 1)
+        self.assertEqual(sfs["jp"]["new_count"], 99)
+        self.assertEqual(sfs["jp"]["room_id"], "222")
+
+    def test_get_last_run_returns_only_most_recent_batch(self):
+        old = int(time.time()) - 10
+        self.db.log_discovery_run("us", "old-us", 7, 10, ran_at=old)
+        self.db.log_discovery_run("jp", "old-jp", 8, 10, ran_at=old)
+        new = int(time.time())
+        self.db.log_discovery_run("hk", "new-hk", 1, 20, ran_at=new)
+        run = self.db.get_last_run()
+        self.assertEqual(run["ran_at"], new)
+        self.assertEqual(len(run["storefronts"]), 1)
+        self.assertEqual(run["storefronts"][0]["storefront"], "hk")
+        self.assertEqual(run["new_count"], 1)
 
     def test_log_multiple_runs(self):
         for i in range(5):
             self.db.log_discovery_run("hk", str(i), i, i * 10)
         run = self.db.get_last_run()
-        self.assertEqual(run["new_count"], 4)
+        # 5 inserts in a single second collapse into one logical run.
+        self.assertEqual(run["new_count"], sum(range(5)))
 
     def test_log_zero_counts(self):
         self.db.log_discovery_run("tw", "", 0, 0)
         run = self.db.get_last_run()
         self.assertEqual(run["new_count"], 0)
         self.assertEqual(run["total_count"], 0)
+
+    def test_log_discovery_run_records_room_last_modified(self):
+        self.db.log_discovery_run("us", "111", 1, 10, room_last_modified="2026-04-18T00:00:00Z")
+        run = self.db.get_last_run()
+        self.assertEqual(run["storefronts"][0]["room_last_modified"], "2026-04-18T00:00:00Z")
 
     def test_get_discovery_runs_empty(self):
         self.assertEqual(self.db.get_discovery_runs(), [])

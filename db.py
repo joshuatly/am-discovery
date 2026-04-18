@@ -550,21 +550,51 @@ def log_discovery_run(
     new_count: int,
     total_count: int,
     room_last_modified: str | None = None,
+    ran_at: int | None = None,
 ):
-    now = int(time.time())
+    when = int(time.time()) if ran_at is None else int(ran_at)
     with get_conn() as conn:
         conn.execute(
             "INSERT INTO discovery_runs "
             "(ran_at, storefront, room_id, room_last_modified, new_count, total_count) "
             "VALUES (?,?,?,?,?,?)",
-            (now, storefront, room_id, room_last_modified, new_count, total_count),
+            (when, storefront, room_id, room_last_modified, new_count, total_count),
         )
 
 
 def get_last_run():
+    """Return an aggregated view of the most recent poll.
+
+    A single poll now writes one row per storefront (all sharing the same
+    ran_at), so we collapse them back into one logical run with a
+    per-storefront breakdown.
+    """
     with get_conn() as conn:
-        row = conn.execute("SELECT * FROM discovery_runs ORDER BY id DESC LIMIT 1").fetchone()
-        return dict(row) if row else None
+        latest = conn.execute("SELECT MAX(ran_at) AS ts FROM discovery_runs").fetchone()
+        if not latest or latest["ts"] is None:
+            return None
+        ran_at = latest["ts"]
+        rows = conn.execute(
+            "SELECT * FROM discovery_runs WHERE ran_at = ? ORDER BY id ASC",
+            (ran_at,),
+        ).fetchall()
+    if not rows:
+        return None
+    per_storefront = [
+        {
+            "storefront": r["storefront"],
+            "room_id": r["room_id"],
+            "room_last_modified": r["room_last_modified"],
+            "new_count": r["new_count"],
+        }
+        for r in rows
+    ]
+    return {
+        "ran_at": ran_at,
+        "new_count": sum(r["new_count"] or 0 for r in rows),
+        "total_count": max((r["total_count"] or 0) for r in rows),
+        "storefronts": per_storefront,
+    }
 
 
 def get_discovery_runs(limit: int = 200) -> list[dict]:

@@ -147,11 +147,12 @@ def _do_poll():
 
         total = db.list_albums()[1]
         new_ids_set = set(new_ids)
+        ran_at = int(time.time())
         for sf in storefronts:
             sf_aids = [aid for aid in all_releases if sf in all_releases[aid].get("storefronts", [])]
             sf_new = sum(1 for aid in sf_aids if aid in new_ids_set)
             room_id = room_ids.get(sf, "")
-            db.log_discovery_run(sf, room_id, sf_new, total, room_last_modified.get(sf))
+            db.log_discovery_run(sf, room_id, sf_new, total, room_last_modified.get(sf), ran_at=ran_at)
         logger.info("[Poll] Done. DB total: %d", total)
 
         # 5. Check if any discovered albums trigger a new_release status for watched artists

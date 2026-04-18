@@ -566,10 +566,12 @@ class TestApiStatus(ServerTestCase):
     @patch("api.db")
     def test_returns_status_fields(self, mock_db):
         mock_db.get_last_run.return_value = {
-            "id": 1,
             "ran_at": 1700000000,
             "new_count": 5,
             "total_count": 100,
+            "storefronts": [
+                {"storefront": "us", "room_id": "123456", "room_last_modified": None, "new_count": 5},
+            ],
         }
         mock_db.list_albums.return_value = ([], 100)
 
@@ -581,6 +583,8 @@ class TestApiStatus(ServerTestCase):
         self.assertIn("is_running", data)
         self.assertIn("newrelease_poll_interval_days", data)
         self.assertIn("total_albums", data)
+        self.assertEqual(data["last_run"]["new_count"], 5)
+        self.assertEqual(len(data["last_run"]["storefronts"]), 1)
 
     @patch("api.db")
     def test_status_no_last_run(self, mock_db):
