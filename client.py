@@ -20,7 +20,7 @@ class RateLimitError(Exception):
 
 
 _MUSIC_BASE = "https://music.apple.com"
-_AMP_API_BASE = "https://amp-api.music.apple.com"
+_AMP_API_BASE = "https://amp-api-edge.music.apple.com"
 _BROWSE_PATH = "/us/browse"
 
 _UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36"
