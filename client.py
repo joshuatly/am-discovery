@@ -10,6 +10,8 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
+from storefronts import discovery_names_for, locale_for
+
 _BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 
@@ -316,16 +318,162 @@ class AppleMusicClient:
         logger.error("[%s] No new release section found on /new page", storefront.upper())
         return None
 
-    def discover_new_releases(self, storefront):
-        """Discover new releases from the /{storefront}/new browse page.
+    def discover_new_release_room_id(self, storefront):
+        """Find the New Releases room ID via the amp-api editorial groupings endpoint.
 
-        Discovers the room URL from the /new page, then fetches releases from that room.
-        Returns an empty list if no room URL is found.
+        Primary match: a resource under `resources["editorial-elements"]`
+        whose `attributes.name` matches a known localized discovery title.
+        Fallback: a resource with `attributes.emphasize == true` and
+        `"albums"` in `attributes.resourceTypes` (Apple marks the featured
+        new-release row this way regardless of locale).
+
+        Returns a (room_id, last_modified) tuple. Both are None if no
+        matching room was found; last_modified may be None even on a hit
+        if the API response omits it.
         """
+        locale = locale_for(storefront)
+        names = [n.lower() for n in discovery_names_for(storefront)]
+        params = {
+            "name": "music",
+            "platform": "web",
+            "tabs": "nonsubscriber",
+            "l": locale,
+            "format[resources]": "map",
+        }
+        data = self._amp_api_get(f"/v1/editorial/{storefront}/groupings", params)
+        if not data:
+            return None, None
+
+        resources = data.get("resources") or {}
+        elements = resources.get("editorial-elements") or {}
+
+        for res_id, res in elements.items():
+            attrs = (res or {}).get("attributes") or {}
+            name = attrs.get("name") or ""
+            if name and name.lower() in names:
+                room_id = str(attrs.get("contentId") or res_id)
+                last_modified = attrs.get("lastModifiedDate")
+                logger.info(
+                    "[%s] Discovered new release room via API (name match): %s (last_modified=%s)",
+                    storefront.upper(),
+                    room_id,
+                    last_modified,
+                )
+                return room_id, last_modified
+
+        for res_id, res in elements.items():
+            attrs = (res or {}).get("attributes") or {}
+            resource_types = attrs.get("resourceTypes") or []
+            if attrs.get("emphasize") is True and "albums" in resource_types:
+                room_id = str(attrs.get("contentId") or res_id)
+                last_modified = attrs.get("lastModifiedDate")
+                logger.info(
+                    "[%s] Discovered new release room via API (emphasize fallback): %s (last_modified=%s)",
+                    storefront.upper(),
+                    room_id,
+                    last_modified,
+                )
+                return room_id, last_modified
+
+        logger.warning(
+            "[%s] No matching room in groupings response (looked for %s)",
+            storefront.upper(),
+            names,
+        )
+        return None, None
+
+    def _parse_room_albums(self, data, storefront):
+        """Extract album records from an editorial room API response."""
+        releases = []
+        resources = data.get("resources") or {}
+        albums = resources.get("albums") or {}
+        for adam_id, res in albums.items():
+            attrs = (res or {}).get("attributes") or {}
+            title = attrs.get("name")
+            url = attrs.get("url")
+            if not title or not url:
+                continue
+            releases.append(
+                {
+                    "storeAdamID": str(adam_id),
+                    "title": title,
+                    "artist": attrs.get("artistName"),
+                    "url": url,
+                    "storefronts": [storefront],
+                },
+            )
+        return releases
+
+    def get_room_albums(self, storefront, room_id, max_albums=200):
+        """Fetch albums from an editorial room, paginating via /contents?offset=.
+
+        Returns a list of release dicts in the same shape as get_room_new_releases.
+        """
+        locale = locale_for(storefront)
+        first_params = {
+            "art[url]": "c,f",
+            "extend": "offers,seoDescription,seoTitle",
+            "extend[albums]": "artistUrl",
+            "fields[albums]": (
+                "artistName,artistUrl,artwork,contentRating,editorialArtwork,"
+                "editorialNotes,name,playParams,releaseDate,url,trackCount"
+            ),
+            "format[resources]": "map",
+            "include[albums]": "artists",
+            "l": locale,
+            "platform": "web",
+        }
+        data = self._amp_api_get(f"/v1/editorial/{storefront}/rooms/{room_id}", first_params)
+        releases = self._parse_room_albums(data, storefront)
+
+        if len(releases) >= max_albums or len(releases) < 100:
+            return releases[:max_albums]
+
+        next_params = {
+            "l": locale,
+            "platform": "web",
+            "format[resources]": "map",
+            "offset": len(releases) + 1,
+        }
+        data2 = self._amp_api_get(
+            f"/v1/editorial/{storefront}/rooms/{room_id}/contents",
+            next_params,
+        )
+        releases.extend(self._parse_room_albums(data2, storefront))
+        return releases[:max_albums]
+
+    def discover_new_releases(self, storefront):
+        """Discover new releases for a storefront.
+
+        Tries the amp-api editorial groupings + rooms endpoints first (up to
+        200 albums); falls back to the HTML scraper if that path returns
+        nothing. Returns a (releases, room_id, room_last_modified) tuple;
+        room_id and room_last_modified are None if discovery failed entirely
+        (and room_last_modified is always None for the HTML fallback path).
+        """
+        try:
+            room_id, last_modified = self.discover_new_release_room_id(storefront)
+        except RateLimitError:
+            raise
+        except Exception as e:
+            logger.warning("[%s] API room discovery failed: %s", storefront.upper(), e)
+            room_id, last_modified = None, None
+
+        if room_id:
+            releases = self.get_room_albums(storefront, room_id)
+            if releases:
+                return releases, room_id, last_modified
+            logger.warning(
+                "[%s] API returned room %s but no albums; falling back to HTML",
+                storefront.upper(),
+                room_id,
+            )
+
         room_url = self.discover_room_url(storefront)
         if not room_url:
-            return []
-        return self.get_room_new_releases(room_url, storefront)
+            return [], None, None
+        fallback_id = room_url.rstrip("/").split("/")[-1]
+        return self.get_room_new_releases(room_url, storefront), fallback_id, None
 
     def get_room_new_releases(self, url, storefront):
         html = self._web_get(url)

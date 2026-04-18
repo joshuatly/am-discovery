@@ -52,18 +52,18 @@ def _do_poll():
         storefronts = cfg.get("check_storefronts", [])
         client = AppleMusicClient()
 
-        # 1. Discover new releases from each storefront's /new page
+        # 1. Discover new releases from each storefront
         all_releases: dict[str, dict] = {}
         room_errors = []
-        room_urls: dict[str, str] = {}
+        room_ids: dict[str, str] = {}
+        room_last_modified: dict[str, str | None] = {}
         for sf in storefronts:
-            room_url = client.discover_room_url(sf)
-            if not room_url:
+            rels, room_id, last_modified = client.discover_new_releases(sf)
+            if not room_id:
                 room_errors.append(sf)
-                rels = []
             else:
-                room_urls[sf] = room_url
-                rels = client.get_room_new_releases(room_url, sf)
+                room_ids[sf] = room_id
+                room_last_modified[sf] = last_modified
             logger.info("[Poll] [%s] %d releases", sf.upper(), len(rels))
             for r in rels:
                 aid = r["storeAdamID"]
@@ -147,12 +147,12 @@ def _do_poll():
 
         total = db.list_albums()[1]
         new_ids_set = set(new_ids)
+        ran_at = int(time.time())
         for sf in storefronts:
             sf_aids = [aid for aid in all_releases if sf in all_releases[aid].get("storefronts", [])]
             sf_new = sum(1 for aid in sf_aids if aid in new_ids_set)
-            room_url = room_urls.get(sf, "")
-            room_id = room_url.rstrip("/").split("/")[-1] if room_url else ""
-            db.log_discovery_run(sf, room_id, sf_new, total)
+            room_id = room_ids.get(sf, "")
+            db.log_discovery_run(sf, room_id, sf_new, total, room_last_modified.get(sf), ran_at=ran_at)
         logger.info("[Poll] Done. DB total: %d", total)
 
         # 5. Check if any discovered albums trigger a new_release status for watched artists
