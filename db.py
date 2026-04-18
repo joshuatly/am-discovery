@@ -27,7 +27,7 @@ def get_conn():
         conn.close()
 
 
-SCHEMA_VERSION = 14
+SCHEMA_VERSION = 15
 
 # Valid collection_status values and allowed transitions
 COLLECTION_STATUSES = {"new", "complete", "new_release", "in_progress"}
@@ -101,12 +101,13 @@ def init_db():
                 );
 
                 CREATE TABLE IF NOT EXISTS discovery_runs (
-                    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-                    ran_at      INTEGER,
-                    storefront  TEXT,
-                    room_id     TEXT,
-                    new_count   INTEGER DEFAULT 0,
-                    total_count INTEGER DEFAULT 0
+                    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+                    ran_at              INTEGER,
+                    storefront          TEXT,
+                    room_id             TEXT,
+                    room_last_modified  TEXT,
+                    new_count           INTEGER DEFAULT 0,
+                    total_count         INTEGER DEFAULT 0
                 );
 
                 PRAGMA user_version = {SCHEMA_VERSION};
@@ -543,12 +544,20 @@ def import_watchlist(artists: list):
             )
 
 
-def log_discovery_run(storefront: str, room_id: str, new_count: int, total_count: int):
+def log_discovery_run(
+    storefront: str,
+    room_id: str,
+    new_count: int,
+    total_count: int,
+    room_last_modified: str | None = None,
+):
     now = int(time.time())
     with get_conn() as conn:
         conn.execute(
-            "INSERT INTO discovery_runs (ran_at, storefront, room_id, new_count, total_count) VALUES (?,?,?,?,?)",
-            (now, storefront, room_id, new_count, total_count),
+            "INSERT INTO discovery_runs "
+            "(ran_at, storefront, room_id, room_last_modified, new_count, total_count) "
+            "VALUES (?,?,?,?,?,?)",
+            (now, storefront, room_id, room_last_modified, new_count, total_count),
         )
 
 

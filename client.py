@@ -326,6 +326,10 @@ class AppleMusicClient:
         Fallback: a resource with `attributes.emphasize == true` and
         `"albums"` in `attributes.resourceTypes` (Apple marks the featured
         new-release row this way regardless of locale).
+
+        Returns a (room_id, last_modified) tuple. Both are None if no
+        matching room was found; last_modified may be None even on a hit
+        if the API response omits it.
         """
         locale = locale_for(storefront)
         names = [n.lower() for n in discovery_names_for(storefront)]
@@ -338,7 +342,7 @@ class AppleMusicClient:
         }
         data = self._amp_api_get(f"/v1/editorial/{storefront}/groupings", params)
         if not data:
-            return None
+            return None, None
 
         resources = data.get("resources") or {}
         elements = resources.get("editorial-elements") or {}
@@ -347,32 +351,36 @@ class AppleMusicClient:
             attrs = (res or {}).get("attributes") or {}
             name = attrs.get("name") or ""
             if name and name.lower() in names:
-                room_id = attrs.get("contentId") or res_id
+                room_id = str(attrs.get("contentId") or res_id)
+                last_modified = attrs.get("lastModifiedDate")
                 logger.info(
-                    "[%s] Discovered new release room via API (name match): %s",
+                    "[%s] Discovered new release room via API (name match): %s (last_modified=%s)",
                     storefront.upper(),
                     room_id,
+                    last_modified,
                 )
-                return str(room_id)
+                return room_id, last_modified
 
         for res_id, res in elements.items():
             attrs = (res or {}).get("attributes") or {}
             resource_types = attrs.get("resourceTypes") or []
             if attrs.get("emphasize") is True and "albums" in resource_types:
-                room_id = attrs.get("contentId") or res_id
+                room_id = str(attrs.get("contentId") or res_id)
+                last_modified = attrs.get("lastModifiedDate")
                 logger.info(
-                    "[%s] Discovered new release room via API (emphasize fallback): %s",
+                    "[%s] Discovered new release room via API (emphasize fallback): %s (last_modified=%s)",
                     storefront.upper(),
                     room_id,
+                    last_modified,
                 )
-                return str(room_id)
+                return room_id, last_modified
 
         logger.warning(
             "[%s] No matching room in groupings response (looked for %s)",
             storefront.upper(),
             names,
         )
-        return None
+        return None, None
 
     def _parse_room_albums(self, data, storefront):
         """Extract album records from an editorial room API response."""
@@ -439,21 +447,22 @@ class AppleMusicClient:
 
         Tries the amp-api editorial groupings + rooms endpoints first (up to
         200 albums); falls back to the HTML scraper if that path returns
-        nothing. Returns a (releases, room_id) tuple; room_id is None if
-        discovery failed entirely.
+        nothing. Returns a (releases, room_id, room_last_modified) tuple;
+        room_id and room_last_modified are None if discovery failed entirely
+        (and room_last_modified is always None for the HTML fallback path).
         """
         try:
-            room_id = self.discover_new_release_room_id(storefront)
+            room_id, last_modified = self.discover_new_release_room_id(storefront)
         except RateLimitError:
             raise
         except Exception as e:
             logger.warning("[%s] API room discovery failed: %s", storefront.upper(), e)
-            room_id = None
+            room_id, last_modified = None, None
 
         if room_id:
             releases = self.get_room_albums(storefront, room_id)
             if releases:
-                return releases, room_id
+                return releases, room_id, last_modified
             logger.warning(
                 "[%s] API returned room %s but no albums; falling back to HTML",
                 storefront.upper(),
@@ -462,9 +471,9 @@ class AppleMusicClient:
 
         room_url = self.discover_room_url(storefront)
         if not room_url:
-            return [], None
+            return [], None, None
         fallback_id = room_url.rstrip("/").split("/")[-1]
-        return self.get_room_new_releases(room_url, storefront), fallback_id
+        return self.get_room_new_releases(room_url, storefront), fallback_id, None
 
     def get_room_new_releases(self, url, storefront):
         html = self._web_get(url)

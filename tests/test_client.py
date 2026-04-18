@@ -903,17 +903,20 @@ class TestSearchArtists(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 
-def _make_groupings_response(room_id, room_name, extra_elements=None):
+def _make_groupings_response(room_id, room_name, extra_elements=None, last_modified=None):
     """Build a minimal groupings response with the given named room.
 
     `extra_elements` is an iterable of (id, attributes_dict) pairs added
     alongside the primary room under `resources.editorial-elements`.
     """
+    primary_attrs = {"name": room_name, "resourceTypes": ["albums"]}
+    if last_modified is not None:
+        primary_attrs["lastModifiedDate"] = last_modified
     elements = {
         room_id: {
             "id": room_id,
             "type": "editorial-elements",
-            "attributes": {"name": room_name, "resourceTypes": ["albums"]},
+            "attributes": primary_attrs,
         },
     }
     for rid, attrs in extra_elements or []:
@@ -942,10 +945,11 @@ class TestDiscoverNewReleaseRoomId(unittest.TestCase):
         self.client = _make_client()
 
     def test_matches_localized_title(self):
-        resp = _make_groupings_response("6762414661", "新發行")
+        resp = _make_groupings_response("6762414661", "新發行", last_modified="2026-04-18T07:42:15Z")
         with patch.object(self.client, "_amp_api_get", return_value=resp) as mock_get:
-            room_id = self.client.discover_new_release_room_id("hk")
+            room_id, last_modified = self.client.discover_new_release_room_id("hk")
         self.assertEqual(room_id, "6762414661")
+        self.assertEqual(last_modified, "2026-04-18T07:42:15Z")
         path, params = mock_get.call_args[0][0], mock_get.call_args[0][1]
         self.assertEqual(path, "/v1/editorial/hk/groupings")
         self.assertEqual(params["l"], "zh-Hant-HK")
@@ -953,26 +957,29 @@ class TestDiscoverNewReleaseRoomId(unittest.TestCase):
     def test_matches_us_title_case_insensitive(self):
         resp = _make_groupings_response("12345", "NEW RELEASES")
         with patch.object(self.client, "_amp_api_get", return_value=resp):
-            room_id = self.client.discover_new_release_room_id("us")
+            room_id, last_modified = self.client.discover_new_release_room_id("us")
         self.assertEqual(room_id, "12345")
+        self.assertIsNone(last_modified)
 
     def test_unknown_storefront_uses_default_names(self):
         resp = _make_groupings_response("99", "New Releases")
         with patch.object(self.client, "_amp_api_get", return_value=resp) as mock_get:
-            room_id = self.client.discover_new_release_room_id("zz")
+            room_id, _ = self.client.discover_new_release_room_id("zz")
         self.assertEqual(room_id, "99")
         self.assertEqual(mock_get.call_args[0][1]["l"], "en-US")
 
     def test_returns_none_when_no_match(self):
         resp = _make_groupings_response("1", "Top Charts")
         with patch.object(self.client, "_amp_api_get", return_value=resp):
-            room_id = self.client.discover_new_release_room_id("hk")
+            room_id, last_modified = self.client.discover_new_release_room_id("hk")
         self.assertIsNone(room_id)
+        self.assertIsNone(last_modified)
 
     def test_returns_none_on_empty_response(self):
         with patch.object(self.client, "_amp_api_get", return_value={}):
-            room_id = self.client.discover_new_release_room_id("hk")
+            room_id, last_modified = self.client.discover_new_release_room_id("hk")
         self.assertIsNone(room_id)
+        self.assertIsNone(last_modified)
 
     def test_prefers_contentId_over_resource_key(self):
         resp = {
@@ -986,7 +993,7 @@ class TestDiscoverNewReleaseRoomId(unittest.TestCase):
             },
         }
         with patch.object(self.client, "_amp_api_get", return_value=resp):
-            room_id = self.client.discover_new_release_room_id("hk")
+            room_id, _ = self.client.discover_new_release_room_id("hk")
         self.assertEqual(room_id, "6762414661")
 
     def test_emphasize_fallback_when_name_mismatched(self):
@@ -1004,14 +1011,16 @@ class TestDiscoverNewReleaseRoomId(unittest.TestCase):
                             "name": "Some Surprise Localization",
                             "emphasize": True,
                             "resourceTypes": ["albums"],
+                            "lastModifiedDate": "2026-04-18T07:42:15Z",
                         },
                     },
                 },
             },
         }
         with patch.object(self.client, "_amp_api_get", return_value=resp):
-            room_id = self.client.discover_new_release_room_id("hk")
+            room_id, last_modified = self.client.discover_new_release_room_id("hk")
         self.assertEqual(room_id, "6762414661")
+        self.assertEqual(last_modified, "2026-04-18T07:42:15Z")
 
     def test_emphasize_fallback_requires_albums_resource_type(self):
         """emphasize=true on a non-albums row must not match."""
@@ -1030,7 +1039,7 @@ class TestDiscoverNewReleaseRoomId(unittest.TestCase):
             },
         }
         with patch.object(self.client, "_amp_api_get", return_value=resp):
-            room_id = self.client.discover_new_release_room_id("hk")
+            room_id, _ = self.client.discover_new_release_room_id("hk")
         self.assertIsNone(room_id)
 
     def test_name_match_preferred_over_emphasize(self):
@@ -1054,7 +1063,7 @@ class TestDiscoverNewReleaseRoomId(unittest.TestCase):
             },
         }
         with patch.object(self.client, "_amp_api_get", return_value=resp):
-            room_id = self.client.discover_new_release_room_id("hk")
+            room_id, _ = self.client.discover_new_release_room_id("hk")
         self.assertEqual(room_id, "2")
 
 
@@ -1118,19 +1127,24 @@ class TestDiscoverNewReleases(unittest.TestCase):
 
     def test_uses_api_when_available(self):
         with (
-            patch.object(self.client, "discover_new_release_room_id", return_value="6762414661"),
+            patch.object(
+                self.client,
+                "discover_new_release_room_id",
+                return_value=("6762414661", "2026-04-18T00:00:00Z"),
+            ),
             patch.object(self.client, "get_room_albums", return_value=[{"storeAdamID": "1"}]) as mock_room,
             patch.object(self.client, "discover_room_url") as mock_html_discover,
         ):
-            releases, room_id = self.client.discover_new_releases("hk")
+            releases, room_id, last_modified = self.client.discover_new_releases("hk")
         self.assertEqual(room_id, "6762414661")
+        self.assertEqual(last_modified, "2026-04-18T00:00:00Z")
         self.assertEqual(len(releases), 1)
         mock_room.assert_called_once_with("hk", "6762414661")
         mock_html_discover.assert_not_called()
 
     def test_falls_back_to_html_when_api_returns_no_room(self):
         with (
-            patch.object(self.client, "discover_new_release_room_id", return_value=None),
+            patch.object(self.client, "discover_new_release_room_id", return_value=(None, None)),
             patch.object(
                 self.client,
                 "discover_room_url",
@@ -1142,14 +1156,19 @@ class TestDiscoverNewReleases(unittest.TestCase):
                 return_value=[{"storeAdamID": "A", "title": "X", "url": "u", "storefronts": ["us"]}],
             ) as mock_html_get,
         ):
-            releases, room_id = self.client.discover_new_releases("us")
+            releases, room_id, last_modified = self.client.discover_new_releases("us")
         self.assertEqual(room_id, "999")
+        self.assertIsNone(last_modified)
         self.assertEqual(len(releases), 1)
         mock_html_get.assert_called_once()
 
     def test_falls_back_when_api_room_has_no_albums(self):
         with (
-            patch.object(self.client, "discover_new_release_room_id", return_value="777"),
+            patch.object(
+                self.client,
+                "discover_new_release_room_id",
+                return_value=("777", "2026-04-18T00:00:00Z"),
+            ),
             patch.object(self.client, "get_room_albums", return_value=[]),
             patch.object(
                 self.client,
@@ -1158,18 +1177,20 @@ class TestDiscoverNewReleases(unittest.TestCase):
             ),
             patch.object(self.client, "get_room_new_releases", return_value=[]),
         ):
-            releases, room_id = self.client.discover_new_releases("us")
+            releases, room_id, last_modified = self.client.discover_new_releases("us")
         self.assertEqual(releases, [])
         self.assertEqual(room_id, "888")
+        self.assertIsNone(last_modified)
 
     def test_returns_none_room_id_when_all_paths_fail(self):
         with (
-            patch.object(self.client, "discover_new_release_room_id", return_value=None),
+            patch.object(self.client, "discover_new_release_room_id", return_value=(None, None)),
             patch.object(self.client, "discover_room_url", return_value=None),
         ):
-            releases, room_id = self.client.discover_new_releases("us")
+            releases, room_id, last_modified = self.client.discover_new_releases("us")
         self.assertEqual(releases, [])
         self.assertIsNone(room_id)
+        self.assertIsNone(last_modified)
 
     def test_api_exception_falls_back_to_html(self):
         with (
@@ -1185,9 +1206,10 @@ class TestDiscoverNewReleases(unittest.TestCase):
             ),
             patch.object(self.client, "get_room_new_releases", return_value=[]),
         ):
-            releases, room_id = self.client.discover_new_releases("us")
+            releases, room_id, last_modified = self.client.discover_new_releases("us")
         self.assertEqual(room_id, "111")
         self.assertEqual(releases, [])
+        self.assertIsNone(last_modified)
 
     def test_rate_limit_propagates(self):
         with (

@@ -94,6 +94,7 @@ class TestDiscoveryPollCollectionStatus(ServerTestCase):
                 },
             ],
             "123",
+            "2026-04-18T00:00:00Z",
         )
         # First call (step 2): album not in DB yet → new_ids
         # Second call (step 5): album now in DB with artist_id after upsert
@@ -128,6 +129,7 @@ class TestDiscoveryPollCollectionStatus(ServerTestCase):
                 },
             ],
             "123",
+            None,
         )
         mock_db.get_album.return_value = None
         mock_client.get_album_full_info.return_value = {"artist_id": "ART99", "release_date": "2025-01-01"}

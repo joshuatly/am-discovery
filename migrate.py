@@ -120,6 +120,10 @@ MIGRATIONS = {
         ALTER TABLE discovery_runs ADD COLUMN storefront TEXT;
         ALTER TABLE discovery_runs ADD COLUMN room_id TEXT;
     """,
+    15: """
+        -- Version 15: record the editorial room's lastModifiedDate from the amp-api response.
+        ALTER TABLE discovery_runs ADD COLUMN room_last_modified TEXT;
+    """,
 }
 
 
