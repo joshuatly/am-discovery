@@ -903,12 +903,22 @@ class TestSearchArtists(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 
-def _make_groupings_response(room_id, room_name, extra_rooms=None):
-    """Build a minimal groupings response with the given named room."""
-    items = {room_id: {"id": room_id, "attributes": {"name": room_name}}}
-    for rid, rname in extra_rooms or []:
-        items[rid] = {"id": rid, "attributes": {"name": rname}}
-    return {"resources": {"editorial-items": items}}
+def _make_groupings_response(room_id, room_name, extra_elements=None):
+    """Build a minimal groupings response with the given named room.
+
+    `extra_elements` is an iterable of (id, attributes_dict) pairs added
+    alongside the primary room under `resources.editorial-elements`.
+    """
+    elements = {
+        room_id: {
+            "id": room_id,
+            "type": "editorial-elements",
+            "attributes": {"name": room_name, "resourceTypes": ["albums"]},
+        },
+    }
+    for rid, attrs in extra_elements or []:
+        elements[rid] = {"id": rid, "type": "editorial-elements", "attributes": attrs}
+    return {"resources": {"editorial-elements": elements}}
 
 
 def _make_room_albums_response(count, start=1, storefront="us"):
@@ -967,7 +977,7 @@ class TestDiscoverNewReleaseRoomId(unittest.TestCase):
     def test_prefers_contentId_over_resource_key(self):
         resp = {
             "resources": {
-                "editorial-items": {
+                "editorial-elements": {
                     "dict-key": {
                         "id": "dict-key",
                         "attributes": {"name": "新發行", "contentId": "6762414661"},
@@ -978,6 +988,74 @@ class TestDiscoverNewReleaseRoomId(unittest.TestCase):
         with patch.object(self.client, "_amp_api_get", return_value=resp):
             room_id = self.client.discover_new_release_room_id("hk")
         self.assertEqual(room_id, "6762414661")
+
+    def test_emphasize_fallback_when_name_mismatched(self):
+        """Unknown/new-localized title: emphasize=true + albums picks the room."""
+        resp = {
+            "resources": {
+                "editorial-elements": {
+                    "other": {
+                        "id": "other",
+                        "attributes": {"name": "Top Charts", "resourceTypes": ["playlists"]},
+                    },
+                    "6762414661": {
+                        "id": "6762414661",
+                        "attributes": {
+                            "name": "Some Surprise Localization",
+                            "emphasize": True,
+                            "resourceTypes": ["albums"],
+                        },
+                    },
+                },
+            },
+        }
+        with patch.object(self.client, "_amp_api_get", return_value=resp):
+            room_id = self.client.discover_new_release_room_id("hk")
+        self.assertEqual(room_id, "6762414661")
+
+    def test_emphasize_fallback_requires_albums_resource_type(self):
+        """emphasize=true on a non-albums row must not match."""
+        resp = {
+            "resources": {
+                "editorial-elements": {
+                    "1": {
+                        "id": "1",
+                        "attributes": {
+                            "name": "Featured Playlists",
+                            "emphasize": True,
+                            "resourceTypes": ["playlists"],
+                        },
+                    },
+                },
+            },
+        }
+        with patch.object(self.client, "_amp_api_get", return_value=resp):
+            room_id = self.client.discover_new_release_room_id("hk")
+        self.assertIsNone(room_id)
+
+    def test_name_match_preferred_over_emphasize(self):
+        """When both a named room and an emphasized albums row exist, name wins."""
+        resp = {
+            "resources": {
+                "editorial-elements": {
+                    "1": {
+                        "id": "1",
+                        "attributes": {
+                            "name": "Other Albums Row",
+                            "emphasize": True,
+                            "resourceTypes": ["albums"],
+                        },
+                    },
+                    "2": {
+                        "id": "2",
+                        "attributes": {"name": "新發行", "resourceTypes": ["albums"]},
+                    },
+                },
+            },
+        }
+        with patch.object(self.client, "_amp_api_get", return_value=resp):
+            room_id = self.client.discover_new_release_room_id("hk")
+        self.assertEqual(room_id, "2")
 
 
 class TestGetRoomAlbums(unittest.TestCase):

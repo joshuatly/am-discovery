@@ -321,7 +321,11 @@ class AppleMusicClient:
     def discover_new_release_room_id(self, storefront):
         """Find the New Releases room ID via the amp-api editorial groupings endpoint.
 
-        Returns the room id as a string, or None if no matching room is found.
+        Primary match: a resource under `resources["editorial-elements"]`
+        whose `attributes.name` matches a known localized discovery title.
+        Fallback: a resource with `attributes.emphasize == true` and
+        `"albums"` in `attributes.resourceTypes` (Apple marks the featured
+        new-release row this way regardless of locale).
         """
         locale = locale_for(storefront)
         names = [n.lower() for n in discovery_names_for(storefront)]
@@ -337,24 +341,31 @@ class AppleMusicClient:
             return None
 
         resources = data.get("resources") or {}
-        # Walk every resource map and return the first resource whose name
-        # matches. Rooms live under "editorial-items" in practice, but other
-        # editorial surfaces key them differently, so we don't filter by
-        # resource type.
-        for section in resources.values():
-            if not isinstance(section, dict):
-                continue
-            for res_id, res in section.items():
-                attrs = (res or {}).get("attributes") or {}
-                name = attrs.get("name") or attrs.get("title") or ""
-                if name and name.lower() in names:
-                    room_id = attrs.get("contentId") or attrs.get("roomId") or res_id
-                    logger.info(
-                        "[%s] Discovered new release room via API: %s",
-                        storefront.upper(),
-                        room_id,
-                    )
-                    return str(room_id)
+        elements = resources.get("editorial-elements") or {}
+
+        for res_id, res in elements.items():
+            attrs = (res or {}).get("attributes") or {}
+            name = attrs.get("name") or ""
+            if name and name.lower() in names:
+                room_id = attrs.get("contentId") or res_id
+                logger.info(
+                    "[%s] Discovered new release room via API (name match): %s",
+                    storefront.upper(),
+                    room_id,
+                )
+                return str(room_id)
+
+        for res_id, res in elements.items():
+            attrs = (res or {}).get("attributes") or {}
+            resource_types = attrs.get("resourceTypes") or []
+            if attrs.get("emphasize") is True and "albums" in resource_types:
+                room_id = attrs.get("contentId") or res_id
+                logger.info(
+                    "[%s] Discovered new release room via API (emphasize fallback): %s",
+                    storefront.upper(),
+                    room_id,
+                )
+                return str(room_id)
 
         logger.warning(
             "[%s] No matching room in groupings response (looked for %s)",
