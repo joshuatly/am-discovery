@@ -58,7 +58,7 @@ async function renderWatchlist(main, preferredSourceFilter = "", collectionStatu
   // Filter by preferred source
   if (state.configuredStorefronts === null) {
     try {
-      const cfg = await API.get("/api/config");
+      const cfg = await API.get("/api/system/config");
       state.configuredStorefronts = cfg.check_storefronts || [];
     } catch {
       state.configuredStorefronts = [];
@@ -356,7 +356,7 @@ async function renderWatchlist(main, preferredSourceFilter = "", collectionStatu
     _searchAbort = abort;
     try {
       // Always search local DB first
-      const localR = await fetch(`/api/search/artists/local?term=${encodeURIComponent(q)}&limit=25`, { signal: abort.signal });
+      const localR = await fetch(`/api/artists/search/local?term=${encodeURIComponent(q)}&limit=25`, { signal: abort.signal });
       if (localR.ok) {
         const localData = await localR.json();
         _localSuggestions = (localData.results || [])
@@ -367,7 +367,7 @@ async function renderWatchlist(main, preferredSourceFilter = "", collectionStatu
       // Only search Apple Music when the checkbox is checked
       if (amSearchCheck.checked) {
         const sf = state.metadataStorefront || state.homeStorefront || "us";
-        const r = await fetch(`/api/search/artists?term=${encodeURIComponent(q)}&limit=10&storefront=${sf}`, { signal: abort.signal });
+        const r = await fetch(`/api/artists/search?term=${encodeURIComponent(q)}&limit=10&storefront=${sf}`, { signal: abort.signal });
         if (r.status === 429) {
           _rateLimitedUntil = Date.now() + 10000;
           _lastSuggestions = [];

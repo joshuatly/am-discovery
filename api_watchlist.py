@@ -10,7 +10,7 @@ from datetime import datetime
 from flask import Blueprint, Response, jsonify, request
 
 import db
-from api import _validate_storefront
+from api_utility import _validate_storefront
 
 watchlist_bp = Blueprint("watchlist", __name__)
 

@@ -9,7 +9,7 @@
 // ---------------------------------------------------------------------------
 async function refreshStatus() {
   try {
-    const s = await API.get("/api/status");
+    const s = await API.get("/api/system/status");
     const dot = $("status-dot");
     const val = $("status-last-run");
     const roomErrors = s.room_errors || [];
@@ -47,12 +47,12 @@ async function triggerRefresh() {
   dot.className = "status-dot spin";
   $("status-last-run").textContent = "Scanning…";
   try {
-    await API.post("/api/refresh", {});
+    await API.post("/api/system/refresh", {});
   } catch {}
   // Poll until done
   const poll = setInterval(async () => {
     try {
-      const s = await API.get("/api/status");
+      const s = await API.get("/api/system/status");
       if (!s.is_running) {
         clearInterval(poll);
         btn.disabled = false;
@@ -159,7 +159,7 @@ function renderMetaSourceWidget() {
 async function initMetaSourceWidget() {
   if (state.configuredStorefronts === null) {
     try {
-      const cfg = await API.get("/api/config");
+      const cfg = await API.get("/api/system/config");
       state.configuredStorefronts = cfg.check_storefronts || [];
       state.homeStorefront = cfg.home_storefront || "my";
       state.cliSchedulerEnabled = !!(cfg.cli_scheduler_url);

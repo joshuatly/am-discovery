@@ -22,7 +22,7 @@ describe("renderNewReleases — cross-page navigation regression", () => {
     state.discoveryStorefronts = null;
 
     ctx.appWindow.fetch.mockImplementation((url) => {
-      if (url.includes("/api/config")) {
+      if (url.includes("/api/system/config")) {
         return Promise.resolve({ ok: true, json: () => Promise.resolve({ check_storefronts: ["jp", "tw"] }) });
       }
       if (url.includes("/api/watchlist")) {
@@ -48,7 +48,7 @@ describe("renderNewReleases — cross-page navigation regression", () => {
     state.discoveryStorefronts = null;
 
     ctx.appWindow.fetch.mockImplementation((url) => {
-      if (url.includes("/api/config")) {
+      if (url.includes("/api/system/config")) {
         return Promise.resolve({ ok: true, json: () => Promise.resolve({ check_storefronts: ["hk"] }) });
       }
       if (url.includes("/api/watchlist")) {

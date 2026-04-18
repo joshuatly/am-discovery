@@ -55,11 +55,11 @@ describe("state initial values", () => {
 // ---------------------------------------------------------------------------
 
 describe("submitCliSchedulerJob", () => {
-  test("POSTs to /api/cli_scheduler/submit with correct body", async () => {
+  test("POSTs to /api/system/cli-scheduler/submit with correct body", async () => {
     ctx.appWindow.fetch.mockResolvedValueOnce({ status: 201 });
     await ctx.appWindow.submitCliSchedulerJob("tw", "1234567890");
     const [url, opts] = ctx.appWindow.fetch.mock.calls[0];
-    expect(url).toBe("/api/cli_scheduler/submit");
+    expect(url).toBe("/api/system/cli-scheduler/submit");
     expect(opts.method).toBe("POST");
     expect(opts.headers["Content-Type"]).toBe("application/json");
     expect(JSON.parse(opts.body)).toEqual({ storefront: "tw", album_id: "1234567890" });

@@ -13,7 +13,7 @@ describe("makeWatchedCard collection status badge", () => {
     main = ctx.appWindow.document.getElementById("main-content");
     main.innerHTML = "";
     ctx.appWindow.fetch.mockImplementation((url) => {
-      if (url === "/api/config") {
+      if (url === "/api/system/config") {
         return Promise.resolve({
           ok: true,
           json: () => Promise.resolve({ check_storefronts: ["us"], home_storefront: "us" }),
@@ -69,7 +69,7 @@ describe("renderWatchlist collection status filter bar", () => {
     main = ctx.appWindow.document.getElementById("main-content");
     main.innerHTML = "";
     ctx.appWindow.fetch.mockImplementation((url) => {
-      if (url === "/api/config") {
+      if (url === "/api/system/config") {
         return Promise.resolve({
           ok: true,
           json: () => Promise.resolve({ check_storefronts: ["us"], home_storefront: "us" }),
@@ -133,7 +133,7 @@ describe("watchlist search suggestion card sets artistHint with extended fields"
     main.innerHTML = "";
     ctx.appWindow.__test_state.artistHint = null;
     ctx.appWindow.fetch.mockImplementation((url) => {
-      if (url === "/api/config") {
+      if (url === "/api/system/config") {
         return Promise.resolve({
           ok: true,
           json: () => Promise.resolve({ check_storefronts: ["us"], home_storefront: "us" }),
@@ -142,7 +142,7 @@ describe("watchlist search suggestion card sets artistHint with extended fields"
       if (url.startsWith("/api/watchlist")) {
         return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
       }
-      if (url.includes("/api/search/artists/local")) {
+      if (url.includes("/api/artists/search/local")) {
         return Promise.resolve({
           ok: true,
           json: () => Promise.resolve({
@@ -163,7 +163,7 @@ describe("watchlist search suggestion card sets artistHint with extended fields"
           }),
         });
       }
-      if (url.includes("/api/search/artists")) {
+      if (url.includes("/api/artists/search")) {
         return Promise.resolve({ ok: true, json: () => Promise.resolve({ results: [] }) });
       }
       return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
@@ -220,7 +220,7 @@ describe("page-controls layout — Watchlist", () => {
     const state = ctx.appWindow.__test_state;
     state.configuredStorefronts = ["jp", "tw"];
     ctx.appWindow.fetch.mockImplementation((url) => {
-      if (url.includes("/api/config")) return Promise.resolve({ ok: true, json: () => Promise.resolve({ check_storefronts: ["jp", "tw"] }) });
+      if (url.includes("/api/system/config")) return Promise.resolve({ ok: true, json: () => Promise.resolve({ check_storefronts: ["jp", "tw"] }) });
       if (url.includes("/api/watchlist")) return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
       return Promise.resolve({ ok: true, json: () => Promise.resolve({ items: [], total: 0 }) });
     });
@@ -269,7 +269,7 @@ describe("renderWatchlist local search bio matching", () => {
     main.innerHTML = "";
     ctx.appWindow.__test_state.configuredStorefronts = ["us"];
     ctx.appWindow.fetch.mockImplementation((url) => {
-      if (url === "/api/config") {
+      if (url === "/api/system/config") {
         return Promise.resolve({
           ok: true,
           json: () => Promise.resolve({ check_storefronts: ["us"], home_storefront: "us" }),
@@ -349,7 +349,7 @@ describe("renderWatchlist sort filter bar", () => {
 
   function mockFetch() {
     ctx.appWindow.fetch.mockImplementation((url) => {
-      if (url === "/api/config") {
+      if (url === "/api/system/config") {
         return Promise.resolve({
           ok: true,
           json: () => Promise.resolve({ check_storefronts: ["us"], home_storefront: "us" }),
@@ -453,7 +453,7 @@ describe("makeWatchedCard date display based on sort", () => {
 
   function mockFetchWith(artistData) {
     ctx.appWindow.fetch.mockImplementation((url) => {
-      if (url === "/api/config") {
+      if (url === "/api/system/config") {
         return Promise.resolve({
           ok: true,
           json: () => Promise.resolve({ check_storefronts: ["us"], home_storefront: "us" }),
@@ -543,7 +543,7 @@ describe("renderWatchlist sort button saves preference to localStorage", () => {
     ctx.appWindow.localStorage.clear();
     ctx.appWindow.__test_state.configuredStorefronts = ["us"];
     ctx.appWindow.fetch.mockImplementation((url) => {
-      if (url === "/api/config") {
+      if (url === "/api/system/config") {
         return Promise.resolve({
           ok: true,
           json: () => Promise.resolve({ check_storefronts: ["us"], home_storefront: "us" }),
@@ -630,7 +630,7 @@ describe("watchlist search handles 429 rate-limit response", () => {
     main = ctx.appWindow.document.getElementById("main-content");
     main.innerHTML = "";
     ctx.appWindow.fetch.mockImplementation((url) => {
-      if (url === "/api/config") {
+      if (url === "/api/system/config") {
         return Promise.resolve({
           ok: true,
           json: () => Promise.resolve({ check_storefronts: ["us"], home_storefront: "us" }),
@@ -639,10 +639,10 @@ describe("watchlist search handles 429 rate-limit response", () => {
       if (url.startsWith("/api/watchlist")) {
         return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
       }
-      if (url.includes("/api/search/artists/local")) {
+      if (url.includes("/api/artists/search/local")) {
         return Promise.resolve({ ok: true, json: () => Promise.resolve({ results: [] }) });
       }
-      if (url.includes("/api/search/artists")) {
+      if (url.includes("/api/artists/search")) {
         return Promise.resolve({ ok: false, status: 429, json: () => Promise.resolve({ error: "rate_limited" }) });
       }
       return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
@@ -759,7 +759,7 @@ describe("makeWatchedCard alt_name display", () => {
 
   function mockFetch(artists) {
     ctx.appWindow.fetch.mockImplementation((url) => {
-      if (url === "/api/config") {
+      if (url === "/api/system/config") {
         return Promise.resolve({
           ok: true,
           json: () => Promise.resolve({ check_storefronts: ["us"], home_storefront: "us" }),
@@ -862,7 +862,7 @@ describe("A-Z index letter highlighting across pages", () => {
 
   function mockFetch(data) {
     ctx.appWindow.fetch.mockImplementation((url) => {
-      if (url === "/api/config") {
+      if (url === "/api/system/config") {
         return Promise.resolve({ ok: true, json: () => Promise.resolve({ check_storefronts: ["us"], home_storefront: "us" }) });
       }
       if (url.startsWith("/api/watchlist")) {
