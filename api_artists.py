@@ -11,7 +11,7 @@ import threading
 from flask import Blueprint, jsonify, request
 
 import db
-from api import _serialize, _validate_storefront
+from api_utility import _serialize, _validate_storefront
 from client import AppleMusicClient, RateLimitError
 from config import load_config
 

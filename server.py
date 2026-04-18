@@ -13,7 +13,7 @@ from flasgger import Swagger
 from flask import Flask
 
 import db
-from api import api_bp
+from api_utility import api_bp
 from api_artists import artists_bp
 from api_releases import releases_bp
 from api_system import system_bp

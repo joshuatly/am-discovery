@@ -86,9 +86,9 @@ class ServerTestCase(unittest.TestCase):
 
 class TestSerialize(unittest.TestCase):
     def setUp(self):
-        import api
+        import api_utility
 
-        self.serialize = api._serialize
+        self.serialize = api_utility._serialize
 
     def test_deserializes_storefronts_string(self):
         row = {"storefronts": '["us","jp"]', "audio_formats": None}
@@ -118,9 +118,9 @@ class TestSerialize(unittest.TestCase):
 
 class TestIsWatched(unittest.TestCase):
     def setUp(self):
-        import api
+        import api_utility
 
-        self.is_watched = api._is_watched
+        self.is_watched = api_utility._is_watched
 
     def test_primary_artist_watched(self):
         row = {"artist_id": "ART1", "artists_json": None}
