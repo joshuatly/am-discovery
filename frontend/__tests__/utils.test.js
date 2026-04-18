@@ -394,7 +394,7 @@ describe("API helper", () => {
       ok: true,
       json: () => Promise.resolve({ ok: true }),
     });
-    await ctx.appWindow.__test_API.put("/api/config", { newrelease_poll_interval_days: 1 });
+    await ctx.appWindow.__test_API.put("/api/system/config", { newrelease_poll_interval_days: 1 });
     const [, opts] = ctx.appWindow.fetch.mock.calls[0];
     expect(opts.method).toBe("PUT");
   });
@@ -415,7 +415,7 @@ describe("API helper", () => {
       ok: true,
       json: () => Promise.resolve({ ok: true }),
     });
-    const result = await ctx.appWindow.__test_API.post("/api/refresh", {});
+    const result = await ctx.appWindow.__test_API.post("/api/system/refresh", {});
     expect(result.ok).toBe(true);
   });
 });

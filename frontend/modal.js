@@ -24,10 +24,10 @@ async function openModal(storeAdamId) {
 
     const dbPromise = API.get(`/api/releases/${storeAdamId}`);
     const lookupPromise = state.metadataStorefront
-      ? API.get(`/api/lookup/${storeAdamId}?storefront=${state.metadataStorefront}`)
+      ? API.get(`/api/releases/${storeAdamId}/lookup?storefront=${state.metadataStorefront}`)
       : null;
     const myLookupPromise = shouldCompareMY
-      ? API.get(`/api/lookup/${storeAdamId}?storefront=${home}`)
+      ? API.get(`/api/releases/${storeAdamId}/lookup?storefront=${home}`)
       : null;
 
     album = await dbPromise;

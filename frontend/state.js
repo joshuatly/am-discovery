@@ -41,7 +41,7 @@ async function loadWatchedIds() {
 }
 
 async function submitCliSchedulerJob(storefront, albumId) {
-  const r = await fetch("/api/cli_scheduler/submit", {
+  const r = await fetch("/api/system/cli-scheduler/submit", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ storefront, album_id: albumId }),

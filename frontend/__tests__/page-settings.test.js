@@ -108,7 +108,7 @@ describe("renderSettings", () => {
     await new Promise(r => setTimeout(r, 50));
 
     const putCall = ctx.appWindow.fetch.mock.calls.find(
-      ([url, opts]) => url === "/api/config" && opts && opts.method === "PUT"
+      ([url, opts]) => url === "/api/system/config" && opts && opts.method === "PUT"
     );
     expect(putCall).toBeDefined();
     const body = JSON.parse(putCall[1].body);
@@ -134,7 +134,7 @@ describe("renderSettings", () => {
     await new Promise(r => setTimeout(r, 50));
 
     const putCall = ctx.appWindow.fetch.mock.calls.find(
-      ([url, opts]) => url === "/api/config" && opts && opts.method === "PUT"
+      ([url, opts]) => url === "/api/system/config" && opts && opts.method === "PUT"
     );
     const body = JSON.parse(putCall[1].body);
     expect(body.cors_proxy).toBe("");

@@ -15,7 +15,7 @@ async function renderSettings(main) {
 
   let cfg;
   try {
-    cfg = await API.get("/api/config");
+    cfg = await API.get("/api/system/config");
   } catch {
     wrap.innerHTML += `<div class="empty-state"><div class="empty-icon">⚠️</div><div class="empty-title">Could not load config</div></div>`;
     return;
@@ -234,7 +234,7 @@ async function renderSettings(main) {
         cli_scheduler_preset: cliPresetInput.value.trim(),
       };
 
-      await API.put("/api/config", newCfg);
+      await API.put("/api/system/config", newCfg);
 
       // Update in-memory state so widget/modal reflect new values immediately
       state.configuredStorefronts = parsedSfs;

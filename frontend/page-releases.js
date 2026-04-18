@@ -62,7 +62,7 @@ async function renderNewReleases(main, page = 1, query = "", storefront = "", wa
   // Load config once
   if (state.configuredStorefronts === null || state.discoveryStorefronts === null) {
     try {
-      const cfg = await API.get("/api/config");
+      const cfg = await API.get("/api/system/config");
       state.configuredStorefronts = cfg.check_storefronts || [];
       state.discoveryStorefronts = cfg.check_storefronts || [];
     } catch {
@@ -190,7 +190,7 @@ async function renderAllReleases(main, page = 1, query = "", storefront = "", wa
 
   if (state.configuredStorefronts === null) {
     try {
-      const cfg = await API.get("/api/config");
+      const cfg = await API.get("/api/system/config");
       state.configuredStorefronts = cfg.check_storefronts || [];
     } catch {
       state.configuredStorefronts = [];

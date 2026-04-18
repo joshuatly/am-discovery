@@ -14,6 +14,9 @@ from flask import Flask
 
 import db
 from api import api_bp
+from api_artists import artists_bp
+from api_releases import releases_bp
+from api_system import system_bp
 from api_watchlist import watchlist_bp
 from client import AppleMusicClient
 from config import CONFIG_PATH, load_config, save_config  # noqa: F401
@@ -31,6 +34,9 @@ app = Flask(__name__, static_folder=FRONTEND_DIR, static_url_path="")
 swagger = Swagger(app)
 
 app.register_blueprint(api_bp)
+app.register_blueprint(releases_bp)
+app.register_blueprint(artists_bp)
+app.register_blueprint(system_bp)
 app.register_blueprint(watchlist_bp)
 
 # ---------------------------------------------------------------------------

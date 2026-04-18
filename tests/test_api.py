@@ -158,7 +158,7 @@ class TestIsWatched(unittest.TestCase):
 
 
 class TestApiReleases(ServerTestCase):
-    @patch("api.db")
+    @patch("api_releases.db")
     def test_returns_paginated_results(self, mock_db):
         mock_db.list_albums.return_value = ([_make_album()], 1)
         mock_db.search_albums.return_value = ([_make_album()], 1)
@@ -172,7 +172,7 @@ class TestApiReleases(ServerTestCase):
         self.assertIn("page", data)
         self.assertIn("per_page", data)
 
-    @patch("api.db")
+    @patch("api_releases.db")
     def test_default_pagination(self, mock_db):
         mock_db.list_albums.return_value = ([], 0)
         mock_db.get_watched_artist_ids.return_value = set()
@@ -182,7 +182,7 @@ class TestApiReleases(ServerTestCase):
         self.assertEqual(data["page"], 1)
         self.assertEqual(data["per_page"], 50)
 
-    @patch("api.db")
+    @patch("api_releases.db")
     def test_custom_pagination(self, mock_db):
         mock_db.list_albums.return_value = ([], 0)
         mock_db.get_watched_artist_ids.return_value = set()
@@ -192,7 +192,7 @@ class TestApiReleases(ServerTestCase):
         self.assertEqual(data["page"], 3)
         self.assertEqual(data["per_page"], 10)
 
-    @patch("api.db")
+    @patch("api_releases.db")
     def test_search_query_uses_search_albums(self, mock_db):
         mock_db.search_albums.return_value = ([_make_album()], 1)
         mock_db.get_watched_artist_ids.return_value = set()
@@ -201,7 +201,7 @@ class TestApiReleases(ServerTestCase):
         self.assertEqual(resp.status_code, 200)
         mock_db.search_albums.assert_called_once()
 
-    @patch("api.db")
+    @patch("api_releases.db")
     def test_storefront_filter_passed_to_db(self, mock_db):
         mock_db.list_albums.return_value = ([], 0)
         mock_db.get_watched_artist_ids.return_value = set()
@@ -219,7 +219,7 @@ class TestApiReleases(ServerTestCase):
         storefront_arg = kwargs.get("storefront", args[2] if len(args) > 2 else "")
         self.assertEqual(storefront_arg, "jp")
 
-    @patch("api.db")
+    @patch("api_releases.db")
     def test_discovered_only_view_new(self, mock_db):
         mock_db.list_albums.return_value = ([], 0)
         mock_db.get_watched_artist_ids.return_value = set()
@@ -229,7 +229,7 @@ class TestApiReleases(ServerTestCase):
         discovered_only = kwargs.get("discovered_only", args[3] if len(args) > 3 else False)
         self.assertTrue(discovered_only)
 
-    @patch("api.db")
+    @patch("api_releases.db")
     def test_watched_flag_set_correctly(self, mock_db):
         album = _make_album(artist_id="ART1")
         mock_db.list_albums.return_value = ([album], 1)
@@ -239,7 +239,7 @@ class TestApiReleases(ServerTestCase):
         data = resp.get_json()
         self.assertTrue(data["items"][0]["watched"])
 
-    @patch("api.db")
+    @patch("api_releases.db")
     def test_watched_flag_false_for_unwatched(self, mock_db):
         album = _make_album(artist_id="ART1")
         mock_db.list_albums.return_value = ([album], 1)
@@ -249,7 +249,7 @@ class TestApiReleases(ServerTestCase):
         data = resp.get_json()
         self.assertFalse(data["items"][0]["watched"])
 
-    @patch("api.db")
+    @patch("api_releases.db")
     def test_empty_results(self, mock_db):
         mock_db.list_albums.return_value = ([], 0)
         mock_db.get_watched_artist_ids.return_value = set()
@@ -259,30 +259,30 @@ class TestApiReleases(ServerTestCase):
         self.assertEqual(data["items"], [])
         self.assertEqual(data["total"], 0)
 
-    @patch("api.db")
+    @patch("api_releases.db")
     def test_invalid_page_returns_400(self, mock_db):
         resp = self.client.get("/api/releases?page=abc")
         self.assertEqual(resp.status_code, 400)
         self.assertIn("error", resp.get_json())
 
-    @patch("api.db")
+    @patch("api_releases.db")
     def test_invalid_per_page_returns_400(self, mock_db):
         resp = self.client.get("/api/releases?per_page=xyz")
         self.assertEqual(resp.status_code, 400)
         self.assertIn("error", resp.get_json())
 
-    @patch("api.db")
+    @patch("api_releases.db")
     def test_invalid_storefront_returns_400(self, mock_db):
         resp = self.client.get("/api/releases?storefront=not_valid!")
         self.assertEqual(resp.status_code, 400)
         self.assertIn("error", resp.get_json())
 
-    @patch("api.db")
+    @patch("api_releases.db")
     def test_numeric_storefront_returns_400(self, mock_db):
         resp = self.client.get("/api/releases?storefront=123")
         self.assertEqual(resp.status_code, 400)
 
-    @patch("api.db")
+    @patch("api_releases.db")
     def test_too_long_storefront_returns_400(self, mock_db):
         resp = self.client.get("/api/releases?storefront=usaa")
         self.assertEqual(resp.status_code, 400)
@@ -294,7 +294,7 @@ class TestApiReleases(ServerTestCase):
 
 
 class TestApiReleaseDetail(ServerTestCase):
-    @patch("api.db")
+    @patch("api_releases.db")
     def test_returns_404_for_missing(self, mock_db):
         mock_db.get_album.return_value = None
         mock_db.get_watched_artist_ids.return_value = set()
@@ -302,7 +302,7 @@ class TestApiReleaseDetail(ServerTestCase):
         resp = self.client.get("/api/releases/MISSING")
         self.assertEqual(resp.status_code, 404)
 
-    @patch("api.db")
+    @patch("api_releases.db")
     def test_returns_album_data(self, mock_db):
         mock_db.get_album.return_value = _make_album("A1")
         mock_db.get_watched_artist_ids.return_value = set()
@@ -312,7 +312,7 @@ class TestApiReleaseDetail(ServerTestCase):
         data = resp.get_json()
         self.assertEqual(data["store_adam_id"], "A1")
 
-    @patch("api.db")
+    @patch("api_releases.db")
     def test_watched_flag_set(self, mock_db):
         mock_db.get_album.return_value = _make_album("A1", artist_id="ART1")
         mock_db.get_watched_artist_ids.return_value = {"ART1"}
@@ -321,7 +321,7 @@ class TestApiReleaseDetail(ServerTestCase):
         data = resp.get_json()
         self.assertTrue(data["watched"])
 
-    @patch("api.db")
+    @patch("api_releases.db")
     def test_storefronts_deserialized(self, mock_db):
         mock_db.get_album.return_value = _make_album("A1", storefronts='["us","jp"]')
         mock_db.get_watched_artist_ids.return_value = set()
@@ -337,7 +337,7 @@ class TestApiReleaseDetail(ServerTestCase):
 
 
 class TestApiCheckStorefronts(ServerTestCase):
-    @patch("api.AppleMusicClient")
+    @patch("api_releases.AppleMusicClient")
     def test_returns_availability_result(self, MockClient):
         mock_client = MockClient.return_value
         mock_client.check_storefront_availability.return_value = {"us": True, "jp": False}
@@ -348,7 +348,7 @@ class TestApiCheckStorefronts(ServerTestCase):
         self.assertIn("us", data)
         self.assertIn("jp", data)
 
-    @patch("api.AppleMusicClient")
+    @patch("api_releases.AppleMusicClient")
     def test_uses_config_storefronts(self, MockClient):
         mock_client = MockClient.return_value
         mock_client.check_storefront_availability.return_value = {}
@@ -367,7 +367,7 @@ class TestApiCheckStorefronts(ServerTestCase):
 
 
 class TestApiLookup(ServerTestCase):
-    @patch("api.AppleMusicClient")
+    @patch("api_releases.AppleMusicClient")
     def test_returns_album_info(self, MockClient):
         mock_client = MockClient.return_value
         mock_client.get_album_full_info.return_value = {
@@ -375,47 +375,47 @@ class TestApiLookup(ServerTestCase):
             "release_date": "2024-01-01",
         }
 
-        resp = self.client.get("/api/lookup/A1")
+        resp = self.client.get("/api/releases/A1/lookup")
         self.assertEqual(resp.status_code, 200)
         data = resp.get_json()
         self.assertEqual(data["title"], "My Album")
 
-    @patch("api.AppleMusicClient")
+    @patch("api_releases.AppleMusicClient")
     def test_default_storefront_us(self, MockClient):
         mock_client = MockClient.return_value
         mock_client.get_album_full_info.return_value = {}
 
-        self.client.get("/api/lookup/A1")
+        self.client.get("/api/releases/A1/lookup")
         call_url = mock_client.get_album_full_info.call_args[0][0]
         self.assertIn("/us/album/", call_url)
 
-    @patch("api.AppleMusicClient")
+    @patch("api_releases.AppleMusicClient")
     def test_custom_storefront(self, MockClient):
         mock_client = MockClient.return_value
         mock_client.get_album_full_info.return_value = {}
 
-        self.client.get("/api/lookup/A1?storefront=jp")
+        self.client.get("/api/releases/A1/lookup?storefront=jp")
         call_url = mock_client.get_album_full_info.call_args[0][0]
         self.assertIn("/jp/album/", call_url)
 
-    @patch("api.AppleMusicClient")
+    @patch("api_releases.AppleMusicClient")
     def test_storefront_normalized_lowercase(self, MockClient):
         mock_client = MockClient.return_value
         mock_client.get_album_full_info.return_value = {}
 
-        self.client.get("/api/lookup/A1?storefront=JP")
+        self.client.get("/api/releases/A1/lookup?storefront=JP")
         call_url = mock_client.get_album_full_info.call_args[0][0]
         self.assertIn("/jp/album/", call_url)
 
-    @patch("api.AppleMusicClient")
+    @patch("api_releases.AppleMusicClient")
     def test_invalid_storefront_returns_400(self, MockClient):
-        resp = self.client.get("/api/lookup/A1?storefront=not_valid!")
+        resp = self.client.get("/api/releases/A1/lookup?storefront=not_valid!")
         self.assertEqual(resp.status_code, 400)
         self.assertIn("error", resp.get_json())
 
-    @patch("api.AppleMusicClient")
+    @patch("api_releases.AppleMusicClient")
     def test_traversal_storefront_rejected(self, MockClient):
-        resp = self.client.get("/api/lookup/A1?storefront=../etc")
+        resp = self.client.get("/api/releases/A1/lookup?storefront=../etc")
         self.assertEqual(resp.status_code, 400)
 
 
@@ -425,69 +425,69 @@ class TestApiLookup(ServerTestCase):
 
 
 class TestApiSearchArtists(ServerTestCase):
-    @patch("api.AppleMusicClient")
+    @patch("api_artists.AppleMusicClient")
     def test_requires_term(self, MockClient):
-        resp = self.client.get("/api/search/artists")
+        resp = self.client.get("/api/artists/search")
         self.assertEqual(resp.status_code, 400)
         data = resp.get_json()
         self.assertIn("error", data)
 
-    @patch("api.AppleMusicClient")
+    @patch("api_artists.AppleMusicClient")
     def test_returns_results(self, MockClient):
         mock_client = MockClient.return_value
         mock_client.search_artists.return_value = [{"name": "Test Artist"}]
 
-        resp = self.client.get("/api/search/artists?term=Test")
+        resp = self.client.get("/api/artists/search?term=Test")
         self.assertEqual(resp.status_code, 200)
         data = resp.get_json()
         self.assertIn("results", data)
         self.assertEqual(len(data["results"]), 1)
 
-    @patch("api.AppleMusicClient")
+    @patch("api_artists.AppleMusicClient")
     def test_empty_term_returns_400(self, MockClient):
-        resp = self.client.get("/api/search/artists?term=")
+        resp = self.client.get("/api/artists/search?term=")
         self.assertEqual(resp.status_code, 400)
 
-    @patch("api.AppleMusicClient")
+    @patch("api_artists.AppleMusicClient")
     def test_limit_capped_at_50(self, MockClient):
         mock_client = MockClient.return_value
         mock_client.search_artists.return_value = []
 
-        self.client.get("/api/search/artists?term=test&limit=9999")
+        self.client.get("/api/artists/search?term=test&limit=9999")
         call_kwargs = mock_client.search_artists.call_args
         limit = call_kwargs[1].get("limit") if call_kwargs[1] else call_kwargs[0][2]
         self.assertLessEqual(limit, 50)
 
-    @patch("api.AppleMusicClient")
+    @patch("api_artists.AppleMusicClient")
     def test_default_storefront_us(self, MockClient):
         mock_client = MockClient.return_value
         mock_client.search_artists.return_value = []
 
-        self.client.get("/api/search/artists?term=test")
+        self.client.get("/api/artists/search?term=test")
         call_kwargs = mock_client.search_artists.call_args
         storefront = call_kwargs[1].get("storefront") if call_kwargs[1] else call_kwargs[0][1]
         self.assertEqual(storefront, "us")
 
-    @patch("api.AppleMusicClient")
+    @patch("api_artists.AppleMusicClient")
     def test_invalid_limit_returns_400(self, MockClient):
-        resp = self.client.get("/api/search/artists?term=test&limit=abc")
+        resp = self.client.get("/api/artists/search?term=test&limit=abc")
         self.assertEqual(resp.status_code, 400)
         self.assertIn("error", resp.get_json())
 
-    @patch("api.AppleMusicClient")
+    @patch("api_artists.AppleMusicClient")
     def test_invalid_storefront_returns_400(self, MockClient):
-        resp = self.client.get("/api/search/artists?term=test&storefront=bad!")
+        resp = self.client.get("/api/artists/search?term=test&storefront=bad!")
         self.assertEqual(resp.status_code, 400)
         self.assertIn("error", resp.get_json())
 
-    @patch("api.AppleMusicClient")
+    @patch("api_artists.AppleMusicClient")
     def test_rate_limit_returns_429(self, MockClient):
         from client import RateLimitError
 
         mock_client = MockClient.return_value
         mock_client.search_artists.side_effect = RateLimitError("rate limited")
 
-        resp = self.client.get("/api/search/artists?term=test")
+        resp = self.client.get("/api/artists/search?term=test")
         self.assertEqual(resp.status_code, 429)
         self.assertEqual(resp.get_json().get("error"), "rate_limited")
 
@@ -499,7 +499,7 @@ class TestApiSearchArtists(ServerTestCase):
 
 class TestApiConfig(ServerTestCase):
     def test_get_config_returns_defaults_when_no_file(self):
-        resp = self.client.get("/api/config")
+        resp = self.client.get("/api/system/config")
         self.assertEqual(resp.status_code, 200)
         data = resp.get_json()
         self.assertIn("newrelease_poll_interval_days", data)
@@ -509,7 +509,7 @@ class TestApiConfig(ServerTestCase):
     def test_put_config_saves_and_reschedules(self, mock_schedule):
         new_cfg = {"newrelease_poll_interval_days": 1, "check_storefronts": ["us"]}
         resp = self.client.put(
-            "/api/config",
+            "/api/system/config",
             data=json.dumps(new_cfg),
             content_type="application/json",
         )
@@ -521,11 +521,11 @@ class TestApiConfig(ServerTestCase):
     def test_put_config_persists(self, mock_schedule):
         new_cfg = {"newrelease_poll_interval_days": 2, "check_storefronts": ["us"]}
         self.client.put(
-            "/api/config",
+            "/api/system/config",
             data=json.dumps(new_cfg),
             content_type="application/json",
         )
-        resp = self.client.get("/api/config")
+        resp = self.client.get("/api/system/config")
         data = resp.get_json()
         self.assertEqual(data["newrelease_poll_interval_days"], 2)
 
@@ -539,7 +539,7 @@ class TestApiRefresh(ServerTestCase):
     @patch("server.trigger_poll_now")
     @patch("server._is_running", False)
     def test_refresh_triggers_poll(self, mock_trigger):
-        resp = self.client.post("/api/refresh")
+        resp = self.client.post("/api/system/refresh")
         self.assertEqual(resp.status_code, 200)
         self.assertTrue(resp.get_json()["ok"])
         mock_trigger.assert_called_once()
@@ -550,7 +550,7 @@ class TestApiRefresh(ServerTestCase):
         original = server._is_running
         server._is_running = True
         try:
-            resp = self.client.post("/api/refresh")
+            resp = self.client.post("/api/system/refresh")
             self.assertEqual(resp.status_code, 409)
             self.assertFalse(resp.get_json()["ok"])
         finally:
@@ -563,7 +563,7 @@ class TestApiRefresh(ServerTestCase):
 
 
 class TestApiStatus(ServerTestCase):
-    @patch("api.db")
+    @patch("api_system.db")
     def test_returns_status_fields(self, mock_db):
         mock_db.get_last_run.return_value = {
             "ran_at": 1700000000,
@@ -575,7 +575,7 @@ class TestApiStatus(ServerTestCase):
         }
         mock_db.list_albums.return_value = ([], 100)
 
-        resp = self.client.get("/api/status")
+        resp = self.client.get("/api/system/status")
         self.assertEqual(resp.status_code, 200)
         data = resp.get_json()
         self.assertIn("last_run", data)
@@ -586,26 +586,26 @@ class TestApiStatus(ServerTestCase):
         self.assertEqual(data["last_run"]["new_count"], 5)
         self.assertEqual(len(data["last_run"]["storefronts"]), 1)
 
-    @patch("api.db")
+    @patch("api_system.db")
     def test_status_no_last_run(self, mock_db):
         mock_db.get_last_run.return_value = None
         mock_db.list_albums.return_value = ([], 0)
 
-        resp = self.client.get("/api/status")
+        resp = self.client.get("/api/system/status")
         self.assertEqual(resp.status_code, 200)
         data = resp.get_json()
         self.assertIsNone(data["last_run"])
 
-    @patch("api.db")
+    @patch("api_system.db")
     def test_total_albums_reported(self, mock_db):
         mock_db.get_last_run.return_value = None
         mock_db.list_albums.return_value = ([], 42)
 
-        resp = self.client.get("/api/status")
+        resp = self.client.get("/api/system/status")
         data = resp.get_json()
         self.assertEqual(data["total_albums"], 42)
 
-    @patch("api.db")
+    @patch("api_system.db")
     def test_room_errors_included(self, mock_db):
         mock_db.get_last_run.return_value = None
         mock_db.list_albums.return_value = ([], 0)
@@ -613,17 +613,17 @@ class TestApiStatus(ServerTestCase):
         import server
 
         server._last_room_errors = ["hk", "jp"]
-        resp = self.client.get("/api/status")
+        resp = self.client.get("/api/system/status")
         data = resp.get_json()
         self.assertEqual(data["room_errors"], ["hk", "jp"])
         server._last_room_errors = []
 
-    @patch("api.db")
+    @patch("api_system.db")
     def test_room_errors_empty_by_default(self, mock_db):
         mock_db.get_last_run.return_value = None
         mock_db.list_albums.return_value = ([], 0)
 
-        resp = self.client.get("/api/status")
+        resp = self.client.get("/api/system/status")
         data = resp.get_json()
         self.assertEqual(data["room_errors"], [])
 
@@ -634,7 +634,7 @@ class TestApiStatus(ServerTestCase):
 
 
 class TestApiArtistReleases(ServerTestCase):
-    @patch("api.db")
+    @patch("api_artists.db")
     def test_returns_artist_releases(self, mock_db):
         mock_db.get_artist_albums.return_value = [_make_album("A1", artist_id="ART1", artist="Test Artist")]
         mock_db.get_watched_artist_ids.return_value = set()
@@ -647,7 +647,7 @@ class TestApiArtistReleases(ServerTestCase):
         self.assertIn("artist_id", data)
         self.assertEqual(data["artist_id"], "ART1")
 
-    @patch("api.db")
+    @patch("api_artists.db")
     def test_empty_artist_releases(self, mock_db):
         mock_db.get_artist_albums.return_value = []
         mock_db.get_watched_artist_ids.return_value = set()
@@ -659,7 +659,7 @@ class TestApiArtistReleases(ServerTestCase):
         self.assertEqual(data["releases"], [])
         self.assertIsNone(data["artist_name"])
 
-    @patch("api.db")
+    @patch("api_artists.db")
     def test_watched_flag_in_response(self, mock_db):
         mock_db.get_artist_albums.return_value = [_make_album("A1", artist_id="ART1")]
         mock_db.get_watched_artist_ids.return_value = {"ART1"}
@@ -669,7 +669,7 @@ class TestApiArtistReleases(ServerTestCase):
         data = resp.get_json()
         self.assertTrue(data["watched"])
 
-    @patch("api.db")
+    @patch("api_artists.db")
     def test_artist_name_from_artists_table(self, mock_db):
         """artist_name should come from the artists table, not album data."""
         mock_db.get_artist_albums.return_value = [
@@ -682,7 +682,7 @@ class TestApiArtistReleases(ServerTestCase):
         data = resp.get_json()
         self.assertEqual(data["artist_name"], "周杰倫")
 
-    @patch("api.db")
+    @patch("api_artists.db")
     def test_artist_info_included(self, mock_db):
         mock_db.get_artist_albums.return_value = []
         mock_db.get_watched_artist_ids.return_value = set()
@@ -723,9 +723,9 @@ def _sync_thread_patch(*args, **kwargs):
 
 
 class TestApiArtistFetch(ServerTestCase):
-    @patch("api.db")
-    @patch("api.AppleMusicClient")
-    @patch("api.threading.Thread", side_effect=_sync_thread_patch)
+    @patch("api_artists.db")
+    @patch("api_artists.AppleMusicClient")
+    @patch("api_artists.threading.Thread", side_effect=_sync_thread_patch)
     def test_fetch_artist_no_releases(self, _MockThread, MockClient, mock_db):
         mock_client = MockClient.return_value
         mock_client.get_artist_all_releases.return_value = ([], {})
@@ -736,9 +736,9 @@ class TestApiArtistFetch(ServerTestCase):
         self.assertTrue(data["ok"])
         self.assertTrue(data["async"])
 
-    @patch("api.db")
-    @patch("api.AppleMusicClient")
-    @patch("api.threading.Thread", side_effect=_sync_thread_patch)
+    @patch("api_artists.db")
+    @patch("api_artists.AppleMusicClient")
+    @patch("api_artists.threading.Thread", side_effect=_sync_thread_patch)
     def test_fetch_artist_stores_releases(self, _MockThread, MockClient, mock_db):
         mock_client = MockClient.return_value
         mock_client.get_artist_all_releases.return_value = (
@@ -775,9 +775,9 @@ class TestApiArtistFetch(ServerTestCase):
         self.assertTrue(data["async"])
         mock_db.upsert_album.assert_called_once()
 
-    @patch("api.db")
-    @patch("api.AppleMusicClient")
-    @patch("api.threading.Thread", side_effect=_sync_thread_patch)
+    @patch("api_artists.db")
+    @patch("api_artists.AppleMusicClient")
+    @patch("api_artists.threading.Thread", side_effect=_sync_thread_patch)
     def test_fetch_artist_uses_query_storefront(self, _MockThread, MockClient, mock_db):
         mock_client = MockClient.return_value
         mock_client.get_artist_all_releases.return_value = ([], {})
@@ -786,9 +786,9 @@ class TestApiArtistFetch(ServerTestCase):
         call_url = mock_client.get_artist_all_releases.call_args[0][0]
         self.assertIn("/jp/artist/", call_url)
 
-    @patch("api.db")
-    @patch("api.AppleMusicClient")
-    @patch("api.threading.Thread", side_effect=_sync_thread_patch)
+    @patch("api_artists.db")
+    @patch("api_artists.AppleMusicClient")
+    @patch("api_artists.threading.Thread", side_effect=_sync_thread_patch)
     def test_fetch_artist_default_storefront_from_config(self, _MockThread, MockClient, mock_db):
         mock_client = MockClient.return_value
         mock_client.get_artist_all_releases.return_value = ([], {})
@@ -798,16 +798,16 @@ class TestApiArtistFetch(ServerTestCase):
         # Should use first storefront from check_storefronts config (default: "jp")
         self.assertIn("/artist/ART1", call_url)
 
-    @patch("api.db")
-    @patch("api.AppleMusicClient")
+    @patch("api_artists.db")
+    @patch("api_artists.AppleMusicClient")
     def test_fetch_artist_invalid_storefront_returns_400(self, MockClient, mock_db):
         resp = self.client.post("/api/artists/ART1/fetch?storefront=bad!")
         self.assertEqual(resp.status_code, 400)
         self.assertIn("error", resp.get_json())
 
-    @patch("api.db")
-    @patch("api.AppleMusicClient")
-    @patch("api.threading.Thread", side_effect=_sync_thread_patch)
+    @patch("api_artists.db")
+    @patch("api_artists.AppleMusicClient")
+    @patch("api_artists.threading.Thread", side_effect=_sync_thread_patch)
     def test_fetch_artist_checks_new_releases_for_complete_artist(self, _MockThread, MockClient, mock_db):
         mock_client = MockClient.return_value
         mock_client.get_artist_all_releases.return_value = (
@@ -842,9 +842,9 @@ class TestApiArtistFetch(ServerTestCase):
         self.assertEqual(resp.status_code, 202)
         mock_db.check_and_update_new_releases.assert_called_once_with("ART1")
 
-    @patch("api.db")
-    @patch("api.AppleMusicClient")
-    @patch("api.threading.Thread", side_effect=_sync_thread_patch)
+    @patch("api_artists.db")
+    @patch("api_artists.AppleMusicClient")
+    @patch("api_artists.threading.Thread", side_effect=_sync_thread_patch)
     def test_fetch_artist_no_releases_skips_new_release_check(self, _MockThread, MockClient, mock_db):
         mock_client = MockClient.return_value
         mock_client.get_artist_all_releases.return_value = ([], {})
@@ -905,7 +905,7 @@ class TestFrontendServing(ServerTestCase):
 
 
 class TestApiReleasesWatched(ServerTestCase):
-    @patch("api.db")
+    @patch("api_releases.db")
     def test_watched_filter_passed_to_db(self, mock_db):
         mock_db.list_albums.return_value = ([], 0)
         mock_db.get_watched_artist_ids.return_value = set()
@@ -914,7 +914,7 @@ class TestApiReleasesWatched(ServerTestCase):
         args, kwargs = mock_db.list_albums.call_args
         self.assertTrue(kwargs.get("watched_only"))
 
-    @patch("api.db")
+    @patch("api_releases.db")
     def test_watched_filter_false_by_default(self, mock_db):
         mock_db.list_albums.return_value = ([], 0)
         mock_db.get_watched_artist_ids.return_value = set()
@@ -923,7 +923,7 @@ class TestApiReleasesWatched(ServerTestCase):
         args, kwargs = mock_db.list_albums.call_args
         self.assertFalse(kwargs.get("watched_only", False))
 
-    @patch("api.db")
+    @patch("api_releases.db")
     def test_watched_filter_with_search(self, mock_db):
         mock_db.search_albums.return_value = ([], 0)
         mock_db.get_watched_artist_ids.return_value = set()
@@ -934,7 +934,7 @@ class TestApiReleasesWatched(ServerTestCase):
 
 
 class TestApiReleasesReleaseType(ServerTestCase):
-    @patch("api.db")
+    @patch("api_releases.db")
     def test_release_type_passed_to_db(self, mock_db):
         mock_db.list_albums.return_value = ([], 0)
         mock_db.get_watched_artist_ids.return_value = set()
@@ -943,7 +943,7 @@ class TestApiReleasesReleaseType(ServerTestCase):
         args, kwargs = mock_db.list_albums.call_args
         self.assertEqual(kwargs.get("release_type"), "main-albums")
 
-    @patch("api.db")
+    @patch("api_releases.db")
     def test_release_type_empty_by_default(self, mock_db):
         mock_db.list_albums.return_value = ([], 0)
         mock_db.get_watched_artist_ids.return_value = set()
@@ -952,7 +952,7 @@ class TestApiReleasesReleaseType(ServerTestCase):
         args, kwargs = mock_db.list_albums.call_args
         self.assertEqual(kwargs.get("release_type", ""), "")
 
-    @patch("api.db")
+    @patch("api_releases.db")
     def test_release_type_passed_to_search(self, mock_db):
         mock_db.search_albums.return_value = ([], 0)
         mock_db.get_watched_artist_ids.return_value = set()
@@ -968,12 +968,12 @@ class TestApiReleasesReleaseType(ServerTestCase):
 
 
 class TestApiStatusWatchlist(ServerTestCase):
-    @patch("api.db")
+    @patch("api_system.db")
     def test_status_includes_watchlist_fields(self, mock_db):
         mock_db.get_last_run.return_value = None
         mock_db.list_albums.return_value = ([], 0)
 
-        resp = self.client.get("/api/status")
+        resp = self.client.get("/api/system/status")
         data = resp.get_json()
         self.assertIn("watchlist_poll_running", data)
         self.assertIn("watchlist_poll_interval_minutes", data)
@@ -1001,59 +1001,59 @@ def _make_local_artist_result(artist_id="A1", name="Test Artist", match_reason="
 
 
 class TestApiSearchArtistsLocal(ServerTestCase):
-    @patch("api.db")
+    @patch("api_artists.db")
     def test_returns_200_with_results(self, mock_db):
         mock_db.search_artists_local.return_value = [_make_local_artist_result()]
-        resp = self.client.get("/api/search/artists/local?term=test")
+        resp = self.client.get("/api/artists/search/local?term=test")
         self.assertEqual(resp.status_code, 200)
         data = resp.get_json()
         self.assertIn("results", data)
         self.assertEqual(len(data["results"]), 1)
 
-    @patch("api.db")
+    @patch("api_artists.db")
     def test_missing_term_returns_400(self, mock_db):
-        resp = self.client.get("/api/search/artists/local")
+        resp = self.client.get("/api/artists/search/local")
         self.assertEqual(resp.status_code, 400)
         self.assertIn("error", resp.get_json())
 
-    @patch("api.db")
+    @patch("api_artists.db")
     def test_blank_term_returns_400(self, mock_db):
-        resp = self.client.get("/api/search/artists/local?term=")
+        resp = self.client.get("/api/artists/search/local?term=")
         self.assertEqual(resp.status_code, 400)
         self.assertEqual(resp.get_json()["error"], "term is required")
 
-    @patch("api.db")
+    @patch("api_artists.db")
     def test_invalid_limit_returns_400(self, mock_db):
-        resp = self.client.get("/api/search/artists/local?term=foo&limit=abc")
+        resp = self.client.get("/api/artists/search/local?term=foo&limit=abc")
         self.assertEqual(resp.status_code, 400)
         self.assertEqual(resp.get_json()["error"], "limit must be an integer")
 
-    @patch("api.db")
+    @patch("api_artists.db")
     def test_limit_clamped_to_50(self, mock_db):
         mock_db.search_artists_local.return_value = []
-        self.client.get("/api/search/artists/local?term=foo&limit=999")
+        self.client.get("/api/artists/search/local?term=foo&limit=999")
         mock_db.search_artists_local.assert_called_once_with("foo", limit=50)
 
-    @patch("api.db")
+    @patch("api_artists.db")
     def test_default_limit_is_25(self, mock_db):
         mock_db.search_artists_local.return_value = []
-        self.client.get("/api/search/artists/local?term=foo")
+        self.client.get("/api/artists/search/local?term=foo")
         mock_db.search_artists_local.assert_called_once_with("foo", limit=25)
 
-    @patch("api.db")
+    @patch("api_artists.db")
     def test_custom_limit_passed_to_db(self, mock_db):
         mock_db.search_artists_local.return_value = []
-        self.client.get("/api/search/artists/local?term=foo&limit=10")
+        self.client.get("/api/artists/search/local?term=foo&limit=10")
         mock_db.search_artists_local.assert_called_once_with("foo", limit=10)
 
-    @patch("api.db")
+    @patch("api_artists.db")
     def test_term_stripped_of_whitespace(self, mock_db):
         mock_db.search_artists_local.return_value = []
-        self.client.get("/api/search/artists/local?term=+foo+")
+        self.client.get("/api/artists/search/local?term=+foo+")
         args, kwargs = mock_db.search_artists_local.call_args
         self.assertEqual(args[0], "foo")
 
-    @patch("api.db")
+    @patch("api_artists.db")
     def test_result_fields_passed_through(self, mock_db):
         artist = _make_local_artist_result(
             artist_id="ART1",
@@ -1063,17 +1063,17 @@ class TestApiSearchArtistsLocal(ServerTestCase):
         )
         artist["collection_status"] = "complete"
         mock_db.search_artists_local.return_value = [artist]
-        resp = self.client.get("/api/search/artists/local?term=Taylor")
+        resp = self.client.get("/api/artists/search/local?term=Taylor")
         result = resp.get_json()["results"][0]
         self.assertEqual(result["artist_id"], "ART1")
         self.assertEqual(result["match_reason"], "name_exact")
         self.assertTrue(result["watched"])
         self.assertEqual(result["collection_status"], "complete")
 
-    @patch("api.db")
+    @patch("api_artists.db")
     def test_empty_results_returned_as_empty_list(self, mock_db):
         mock_db.search_artists_local.return_value = []
-        resp = self.client.get("/api/search/artists/local?term=nobody")
+        resp = self.client.get("/api/artists/search/local?term=nobody")
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.get_json()["results"], [])
 
@@ -1084,13 +1084,13 @@ class TestApiSearchArtistsLocal(ServerTestCase):
 
 
 class TestApiMusicBrainzLookup(ServerTestCase):
-    @patch("api.db")
+    @patch("api_releases.db")
     def test_returns_404_when_album_missing(self, mock_db):
         mock_db.get_album.return_value = None
         resp = self.client.get("/api/releases/MISSING/musicbrainz")
         self.assertEqual(resp.status_code, 404)
 
-    @patch("api.db")
+    @patch("api_releases.db")
     def test_returns_no_upc_when_upc_is_null(self, mock_db):
         mock_db.get_album.return_value = {"store_adam_id": "A1", "upc": None}
         resp = self.client.get("/api/releases/A1/musicbrainz")
@@ -1099,8 +1099,8 @@ class TestApiMusicBrainzLookup(ServerTestCase):
         self.assertFalse(data["found"])
         self.assertIsNone(data["upc"])
 
-    @patch("api.urllib.request.urlopen")
-    @patch("api.db")
+    @patch("api_releases.urllib.request.urlopen")
+    @patch("api_releases.db")
     def test_returns_found_when_musicbrainz_has_release(self, mock_db, mock_urlopen):
         mock_db.get_album.return_value = {"store_adam_id": "A1", "upc": "00602445790494"}
         mb_response = json.dumps(
@@ -1130,8 +1130,8 @@ class TestApiMusicBrainzLookup(ServerTestCase):
         self.assertIn("musicbrainz.org/release/mb-id-123", data["releases"][0]["url"])
         self.assertEqual(data["artist_mbid"], "mb-artist-1")
 
-    @patch("api.urllib.request.urlopen")
-    @patch("api.db")
+    @patch("api_releases.urllib.request.urlopen")
+    @patch("api_releases.db")
     def test_returns_not_found_when_musicbrainz_empty(self, mock_db, mock_urlopen):
         mock_db.get_album.return_value = {"store_adam_id": "A1", "upc": "123456"}
         mb_response = json.dumps({"releases": []}).encode()
@@ -1147,8 +1147,8 @@ class TestApiMusicBrainzLookup(ServerTestCase):
         self.assertFalse(data["found"])
         self.assertEqual(data["upc"], "123456")
 
-    @patch("api.urllib.request.urlopen")
-    @patch("api.db")
+    @patch("api_releases.urllib.request.urlopen")
+    @patch("api_releases.db")
     def test_returns_502_on_network_error(self, mock_db, mock_urlopen):
         mock_db.get_album.return_value = {"store_adam_id": "A1", "upc": "123456"}
         mock_urlopen.side_effect = Exception("Connection refused")
@@ -1166,7 +1166,7 @@ class TestApiMusicBrainzLookup(ServerTestCase):
 
 
 class TestApiArtistPatch(ServerTestCase):
-    @patch("api.db")
+    @patch("api_artists.db")
     def test_sets_musicbrainz_id(self, mock_db):
         resp = self.client.patch(
             "/api/artists/ART1",
@@ -1176,7 +1176,7 @@ class TestApiArtistPatch(ServerTestCase):
         self.assertEqual(resp.status_code, 200)
         mock_db.update_artist_musicbrainz_id.assert_called_once_with("ART1", "mb-id-123")
 
-    @patch("api.db")
+    @patch("api_artists.db")
     def test_clears_musicbrainz_id(self, mock_db):
         resp = self.client.patch(
             "/api/artists/ART1",
@@ -1186,7 +1186,7 @@ class TestApiArtistPatch(ServerTestCase):
         self.assertEqual(resp.status_code, 200)
         mock_db.update_artist_musicbrainz_id.assert_called_once_with("ART1", None)
 
-    @patch("api.db")
+    @patch("api_artists.db")
     def test_empty_string_treated_as_null(self, mock_db):
         resp = self.client.patch(
             "/api/artists/ART1",
@@ -1203,7 +1203,7 @@ class TestApiArtistPatch(ServerTestCase):
 
 
 class TestApiArtistReleasesIncludesMbid(ServerTestCase):
-    @patch("api.db")
+    @patch("api_artists.db")
     def test_includes_musicbrainz_id(self, mock_db):
         mock_db.get_artist_albums.return_value = []
         mock_db.get_watched_artist_ids.return_value = set()
@@ -1213,7 +1213,7 @@ class TestApiArtistReleasesIncludesMbid(ServerTestCase):
         data = resp.get_json()
         self.assertEqual(data["artist_musicbrainz_id"], "mb-123")
 
-    @patch("api.db")
+    @patch("api_artists.db")
     def test_musicbrainz_id_none_when_not_set(self, mock_db):
         mock_db.get_artist_albums.return_value = []
         mock_db.get_watched_artist_ids.return_value = set()
@@ -1230,7 +1230,7 @@ class TestApiArtistReleasesIncludesMbid(ServerTestCase):
 
 
 class TestApiDbStatus(ServerTestCase):
-    @patch("api.db")
+    @patch("api_system.db")
     def test_returns_expected_fields(self, mock_db):
         mock_db.get_db_stats.return_value = {
             "db_path": "/tmp/test.db",
@@ -1242,7 +1242,7 @@ class TestApiDbStatus(ServerTestCase):
             "page_count": 1,
             "tables": [{"name": "albums", "row_count": 10, "size_bytes": 4096, "page_count": 1}],
         }
-        resp = self.client.get("/api/dbstatus")
+        resp = self.client.get("/api/system/db")
         self.assertEqual(resp.status_code, 200)
         data = resp.get_json()
         self.assertIn("db_path", data)
@@ -1254,7 +1254,7 @@ class TestApiDbStatus(ServerTestCase):
         self.assertIn("page_count", data)
         self.assertIn("tables", data)
 
-    @patch("api.db")
+    @patch("api_system.db")
     def test_tables_have_required_keys(self, mock_db):
         mock_db.get_db_stats.return_value = {
             "db_path": "/tmp/test.db",
@@ -1269,7 +1269,7 @@ class TestApiDbStatus(ServerTestCase):
                 {"name": "artists", "row_count": 2, "size_bytes": 4096, "page_count": 1},
             ],
         }
-        resp = self.client.get("/api/dbstatus")
+        resp = self.client.get("/api/system/db")
         data = resp.get_json()
         for table in data["tables"]:
             self.assertIn("name", table)
@@ -1277,7 +1277,7 @@ class TestApiDbStatus(ServerTestCase):
             self.assertIn("size_bytes", table)
             self.assertIn("page_count", table)
 
-    @patch("api.db")
+    @patch("api_system.db")
     def test_total_size_includes_wal(self, mock_db):
         mock_db.get_db_stats.return_value = {
             "db_path": "/tmp/test.db",
@@ -1289,19 +1289,19 @@ class TestApiDbStatus(ServerTestCase):
             "page_count": 1,
             "tables": [],
         }
-        resp = self.client.get("/api/dbstatus")
+        resp = self.client.get("/api/system/db")
         data = resp.get_json()
         self.assertEqual(data["total_size_bytes"], 38912)
 
 
 class TestApiDiscoveryStatus(ServerTestCase):
-    @patch("api.db")
+    @patch("api_system.db")
     def test_returns_runs_and_count(self, mock_db):
         mock_db.get_discovery_runs.return_value = [
             {"id": 2, "ran_at": 1700086400, "storefront": "jp", "room_id": "999", "new_count": 3, "total_count": 20},
             {"id": 1, "ran_at": 1700000000, "storefront": "us", "room_id": "888", "new_count": 5, "total_count": 17},
         ]
-        resp = self.client.get("/api/discovery_status")
+        resp = self.client.get("/api/system/discovery")
         self.assertEqual(resp.status_code, 200)
         data = resp.get_json()
         self.assertIn("runs", data)
@@ -1310,25 +1310,25 @@ class TestApiDiscoveryStatus(ServerTestCase):
         self.assertEqual(data["runs"][0]["storefront"], "jp")
         self.assertEqual(data["runs"][0]["room_id"], "999")
 
-    @patch("api.db")
+    @patch("api_system.db")
     def test_empty_runs(self, mock_db):
         mock_db.get_discovery_runs.return_value = []
-        resp = self.client.get("/api/discovery_status")
+        resp = self.client.get("/api/system/discovery")
         self.assertEqual(resp.status_code, 200)
         data = resp.get_json()
         self.assertEqual(data["runs"], [])
         self.assertEqual(data["count"], 0)
 
-    @patch("api.db")
+    @patch("api_system.db")
     def test_limit_param_forwarded(self, mock_db):
         mock_db.get_discovery_runs.return_value = []
-        self.client.get("/api/discovery_status?limit=50")
+        self.client.get("/api/system/discovery?limit=50")
         mock_db.get_discovery_runs.assert_called_once_with(limit=50)
 
-    @patch("api.db")
+    @patch("api_system.db")
     def test_invalid_limit_defaults_to_200(self, mock_db):
         mock_db.get_discovery_runs.return_value = []
-        self.client.get("/api/discovery_status?limit=abc")
+        self.client.get("/api/system/discovery?limit=abc")
         mock_db.get_discovery_runs.assert_called_once_with(limit=200)
 
 
