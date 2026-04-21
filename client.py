@@ -715,6 +715,77 @@ class AppleMusicClient:
             "is_group": artist_attrs.get("isGroup"),
         }
 
+    def _view_items(self, path: str, view: str, params: dict, limit: int) -> list:
+        """Fetch a catalog entity's `views[<view>].data` block, limited."""
+        data = self._amp_api_get(path, params)
+        return ((data.get("data") or [{}])[0].get("views", {}).get(view, {}).get("data") or [])[:limit]
+
+    def get_similar_artists(self, artist_id: str, storefront: str = "us", limit: int = 10) -> list:
+        """Fetch Apple Music's similar-artists view for an artist."""
+        items = self._view_items(
+            f"/v1/catalog/{storefront}/artists/{artist_id}",
+            "similar-artists",
+            {"views": "similar-artists", "extend": "artistBio,bornOrFormed,origin"},
+            limit,
+        )
+        out = []
+        for it in items:
+            a = it.get("attributes", {})
+            art = a.get("artwork", {}).get("url", "")
+            g = a.get("genreNames") or []
+            out.append(
+                {
+                    "id": it.get("id"),
+                    "name": a.get("name"),
+                    "url": a.get("url"),
+                    "artwork_url": re.sub(r"\{w\}x\{h\}bb\.[a-z]+", "300x300bb.jpg", art) if art else None,
+                    "genre": g[0] if g else None,
+                    "born_or_formed": a.get("bornOrFormed"),
+                    "origin": a.get("origin"),
+                    "artist_bio": a.get("artistBio"),
+                    "is_group": a.get("isGroup"),
+                }
+            )
+        return out
+
+    def get_you_might_also_like(self, album_id: str, storefront: str = "us", limit: int = 10) -> list:
+        """Fetch Apple Music's you-might-also-like view for an album."""
+        items = self._view_items(
+            f"/v1/catalog/{storefront}/albums/{album_id}",
+            "you-might-also-like",
+            {"views": "you-might-also-like"},
+            limit,
+        )
+        out = []
+        for it in items:
+            a = it.get("attributes", {})
+            art = a.get("artwork", {}).get("url", "")
+            rel = it.get("relationships", {}).get("artists", {}).get("data") or []
+            artists = [
+                {
+                    "id": r.get("id"),
+                    "name": (r.get("attributes") or {}).get("name"),
+                    "url": (r.get("attributes") or {}).get("url"),
+                }
+                for r in rel
+            ]
+            if not artists and a.get("artistName"):
+                artists = [{"name": a.get("artistName"), "url": None}]
+            out.append(
+                {
+                    "store_adam_id": it.get("id"),
+                    "title": a.get("name"),
+                    "artist": a.get("artistName"),
+                    "artists": artists,
+                    "artwork_url": re.sub(r"\{w\}x\{h\}bb\.[a-z]+", "500x500bb.jpg", art) if art else None,
+                    "release_date": a.get("releaseDate"),
+                    "url": a.get("url"),
+                    "storefronts": [storefront],
+                    "watched": False,
+                }
+            )
+        return out
+
     def search_artists(self, term: str, storefront: str = "us", limit: int = 25) -> list:
         """Search for artists by name.
 

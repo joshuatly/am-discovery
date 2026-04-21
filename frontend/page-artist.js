@@ -387,6 +387,7 @@ async function renderArtist(main, artistId) {
 
   if (!data.releases.length) {
     wrap.insertAdjacentHTML("beforeend", `<div class="empty-state"><div class="empty-icon">🎵</div><div class="empty-title">No releases found</div><div class="empty-desc">This artist's releases will appear here after a refresh</div></div>`);
+    appendDiscoverSimilarSection(wrap, artistId);
     return;
   }
 
@@ -438,4 +439,71 @@ async function renderArtist(main, artistId) {
   wrap.appendChild(toolbar);
   wrap.appendChild(gridContainer);
   renderArtistReleaseGrid(data.releases, gridContainer);
+
+  appendDiscoverSimilarSection(wrap, artistId);
+}
+
+// ---------------------------------------------------------------------------
+// Discover Similar — renders ✨ button + horizontal row of similar artists
+// ---------------------------------------------------------------------------
+function appendDiscoverSimilarSection(wrap, artistId) {
+  const section = el("div", "discover-results-section discover-similar-artist-section");
+  const heading = el("div", "discover-similar-heading");
+  const h = el("h3", "", "Similar Artists");
+  const btn = el("button", "btn-discover-similar", "✨ Discover Similar");
+  btn.title = "Discover similar artists via Apple Music";
+  heading.appendChild(h);
+  heading.appendChild(btn);
+  section.appendChild(heading);
+
+  const body = el("div", "discover-similar-body");
+  section.appendChild(body);
+  wrap.appendChild(section);
+
+  btn.addEventListener("click", async () => {
+    btn.disabled = true;
+    const originalLabel = btn.textContent;
+    btn.textContent = "Discovering…";
+    body.innerHTML = "";
+    try {
+      const sf = state.metadataStorefront || "us";
+      const resp = await API.get(`/api/artists/${artistId}/similar?storefront=${sf}&limit=10`);
+      const results = (resp && resp.results) || [];
+      if (!results.length) {
+        body.appendChild(el("div", "discover-empty", "No similar artists found"));
+      } else {
+        const row = el("div", "discover-grid-artists");
+        results.forEach(a => row.appendChild(artistCard(a)));
+
+        const wrapper = el("div", "discover-scroll-wrapper");
+        const arrowL = el("button", "discover-scroll-arrow left", "\u2039");
+        const arrowR = el("button", "discover-scroll-arrow right", "\u203A");
+        arrowL.type = "button";
+        arrowR.type = "button";
+        wrapper.appendChild(arrowL);
+        wrapper.appendChild(arrowR);
+        wrapper.appendChild(row);
+        body.appendChild(wrapper);
+
+        const scrollAmt = 136 * 3;
+        arrowL.addEventListener("click", () => row.scrollBy({ left: -scrollAmt, behavior: "smooth" }));
+        arrowR.addEventListener("click", () => row.scrollBy({ left: scrollAmt, behavior: "smooth" }));
+        const updateArrows = () => {
+          const maxScroll = row.scrollWidth - row.clientWidth;
+          wrapper.classList.toggle("can-scroll-left", row.scrollLeft > 2);
+          wrapper.classList.toggle("can-scroll-right", maxScroll - row.scrollLeft > 2);
+        };
+        row.addEventListener("scroll", updateArrows, { passive: true });
+        requestAnimationFrame(updateArrows);
+      }
+    } catch (err) {
+      const msg = err && String(err.message || "").includes("429")
+        ? "Rate limited — try again in a minute"
+        : "Failed to load similar artists";
+      body.appendChild(el("div", "discover-empty", msg));
+    } finally {
+      btn.disabled = false;
+      btn.textContent = originalLabel;
+    }
+  });
 }

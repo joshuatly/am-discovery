@@ -21,6 +21,7 @@ async function openModal(storeAdamId) {
       && home
       && state.metadataStorefront
       && state.metadataStorefront !== home;
+    const lookupSf = state.metadataStorefront || home || "us";
 
     const dbPromise = API.get(`/api/releases/${storeAdamId}`);
     const lookupPromise = state.metadataStorefront
@@ -30,7 +31,39 @@ async function openModal(storeAdamId) {
       ? API.get(`/api/releases/${storeAdamId}/lookup?storefront=${home}`)
       : null;
 
-    album = await dbPromise;
+    try {
+      album = await dbPromise;
+    } catch {
+      // Album not in local DB (e.g. a "You Might Also Like" suggestion that
+      // was never discovered through room polling). Fall back to a fresh
+      // Apple Music lookup so the modal still renders.
+      try {
+        const fresh = await API.get(`/api/releases/${storeAdamId}/lookup?storefront=${lookupSf}`);
+        album = {
+          store_adam_id: storeAdamId,
+          title: fresh.title,
+          artist: fresh.artist,
+          artists_json: fresh.artists || [],
+          artist_id: fresh.artist_id,
+          artist_url: fresh.artist_url,
+          url: fresh.url || `https://music.apple.com/${lookupSf}/album/${storeAdamId}`,
+          artwork_url: fresh.artwork_url,
+          release_date: fresh.release_date,
+          track_count: fresh.track_count,
+          genre: fresh.genre,
+          description: fresh.description,
+          tracks: fresh.tracks || [],
+          audio_formats: fresh.audio_formats || [],
+          storefronts: [lookupSf],
+          upc: fresh.upc || null,
+          release_type: fresh.release_type || null,
+          _metaSf: lookupSf,
+        };
+      } catch {
+        body.innerHTML = `<div style="padding:32px;text-align:center">Failed to load</div>`;
+        return;
+      }
+    }
 
     if (lookupPromise) {
       try {
@@ -426,6 +459,47 @@ async function openModal(storeAdamId) {
     });
     details.appendChild(myTl);
   }
+
+  // Discover Similar — ✨ button + "You Might Also Like" grid, rendered at the
+  // bottom of the modal (after the tracklist section).
+  const discoverSection = el("div", "discover-results-section");
+  const discoverHeading = el("div", "discover-similar-heading");
+  const discoverH = el("h3", "", "You Might Also Like");
+  const discoverBtn = el("button", "btn-discover-similar", "✨ Discover Similar");
+  discoverBtn.title = "Find albums Apple Music suggests alongside this one";
+  discoverHeading.appendChild(discoverH);
+  discoverHeading.appendChild(discoverBtn);
+  discoverSection.appendChild(discoverHeading);
+  const discoverBody = el("div", "discover-similar-body");
+  discoverSection.appendChild(discoverBody);
+  details.appendChild(discoverSection);
+
+  discoverBtn.addEventListener("click", async () => {
+    discoverBtn.disabled = true;
+    const originalLabel = discoverBtn.textContent;
+    discoverBtn.textContent = "Discovering…";
+    discoverBody.innerHTML = "";
+    try {
+      const sf = state.metadataStorefront || "us";
+      const resp = await API.get(`/api/releases/${album.store_adam_id}/you-might-also-like?storefront=${sf}&limit=10`);
+      const results = (resp && resp.results) || [];
+      if (!results.length) {
+        discoverBody.appendChild(el("div", "discover-empty", "No suggestions found"));
+      } else {
+        const grid = el("div", "discover-grid");
+        results.forEach(a => grid.appendChild(albumCard(a)));
+        discoverBody.appendChild(grid);
+      }
+    } catch (err) {
+      const msg = err && String(err.message || "").includes("429")
+        ? "Rate limited — try again in a minute"
+        : "Failed to load suggestions";
+      discoverBody.appendChild(el("div", "discover-empty", msg));
+    } finally {
+      discoverBtn.disabled = false;
+      discoverBtn.textContent = originalLabel;
+    }
+  });
 
   body.appendChild(details);
 

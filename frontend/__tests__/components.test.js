@@ -585,3 +585,66 @@ describe("buildPagination scroll-to-top", () => {
     expect(onPage).toHaveBeenCalledWith(3);
   });
 });
+
+// ---------------------------------------------------------------------------
+// artistCard
+// ---------------------------------------------------------------------------
+
+describe("artistCard", () => {
+  test("renders artist name and genre", () => {
+    const card = ctx.appWindow.__test_artistCard({
+      id: "ART1",
+      name: "Test Artist",
+      genre: "Pop",
+      artwork_url: "https://example.com/a.jpg",
+    });
+    expect(card.className).toContain("artist-card");
+    expect(card.querySelector(".artist-card-name").textContent).toBe("Test Artist");
+    expect(card.querySelector(".artist-card-genre").textContent).toBe("Pop");
+  });
+
+  test("omits genre element when no genre supplied", () => {
+    const card = ctx.appWindow.__test_artistCard({ id: "ART1", name: "Solo" });
+    expect(card.querySelector(".artist-card-genre")).toBeNull();
+  });
+
+  test("sets data-id for lookup", () => {
+    const card = ctx.appWindow.__test_artistCard({ id: "ART42", name: "X" });
+    expect(card.dataset.id).toBe("ART42");
+  });
+
+  test("click navigates via hash to in-app artist page", () => {
+    const card = ctx.appWindow.__test_artistCard({ id: "ART99", name: "Nav" });
+    ctx.appWindow.location.hash = "#/";
+    card.click();
+    expect(ctx.appWindow.location.hash).toBe("#/artist/ART99");
+  });
+
+  test("falls back to dash when name is missing", () => {
+    const card = ctx.appWindow.__test_artistCard({ id: "ART1" });
+    expect(card.querySelector(".artist-card-name").textContent).toBe("—");
+  });
+
+  test("click sets state.artistHint with carried-through artist fields", () => {
+    ctx.appWindow.__test_state.artistHint = null;
+    const card = ctx.appWindow.__test_artistCard({
+      id: "ART77",
+      name: "Hint Artist",
+      url: "https://music.apple.com/us/artist/77",
+      artwork_url: "https://example.com/77.jpg",
+      genre: "Indie",
+      born_or_formed: "Formed 2018",
+      origin: "Austin, Texas",
+      artist_bio: "Bio text",
+      is_group: true,
+    });
+    card.click();
+    const hint = ctx.appWindow.__test_state.artistHint;
+    expect(hint.id).toBe("ART77");
+    expect(hint.name).toBe("Hint Artist");
+    expect(hint.genre).toBe("Indie");
+    expect(hint.born_or_formed).toBe("Formed 2018");
+    expect(hint.origin).toBe("Austin, Texas");
+    expect(hint.is_group).toBe(true);
+  });
+});

@@ -251,3 +251,39 @@ function albumCard(album) {
 
   return card;
 }
+
+// ---------------------------------------------------------------------------
+// Artist card (circular artwork, navigates to in-app artist page)
+// ---------------------------------------------------------------------------
+function artistCard(artist) {
+  const card = el("div", "artist-card");
+  if (artist.id) card.dataset.id = artist.id;
+
+  card.appendChild(artworkEl(artist.artwork_url, "album-artwork"));
+
+  const name = el("div", "artist-card-name", artist.name || "—");
+  name.title = artist.name || "";
+  card.appendChild(name);
+
+  if (artist.genre) {
+    card.appendChild(el("div", "artist-card-genre", artist.genre));
+  }
+
+  card.addEventListener("click", () => {
+    if (!artist.id) return;
+    state.artistHint = {
+      id: String(artist.id),
+      name: artist.name,
+      url: artist.url,
+      artwork_url: artist.artwork_url,
+      genre: artist.genre,
+      born_or_formed: artist.born_or_formed,
+      origin: artist.origin,
+      artist_bio: artist.artist_bio,
+      is_group: artist.is_group,
+    };
+    location.hash = `#/artist/${artist.id}`;
+  });
+
+  return card;
+}

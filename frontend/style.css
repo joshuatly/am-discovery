@@ -266,6 +266,7 @@ body {
 .main-content {
   margin-left: var(--sidebar-w);
   flex: 1;
+  min-width: 0;
   padding: 32px 36px;
   min-height: 100vh;
 }
@@ -790,6 +791,118 @@ a.sf-chip:hover { opacity: 0.75; }
 }
 .btn-fetch-artist:hover   { background: rgba(168,85,247,0.12); }
 .btn-fetch-artist:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* =========================================================
+   Discover Similar button + results grid
+   ========================================================= */
+.btn-discover-similar {
+  padding: 8px 16px;
+  border-radius: 20px;
+  border: none;
+  background: linear-gradient(135deg, #a855f7 0%, #ec4899 50%, #f59e0b 100%);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all var(--transition);
+  box-shadow: 0 2px 8px rgba(168, 85, 247, 0.3);
+}
+.btn-discover-similar:hover    { filter: brightness(1.1); box-shadow: 0 4px 12px rgba(168, 85, 247, 0.5); }
+.btn-discover-similar:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.discover-results-section { margin-top: 24px; }
+.discover-results-section h3 { font-size: 15px; font-weight: 700; color: var(--text); margin: 0; }
+.discover-similar-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.discover-similar-body { min-height: 20px; }
+.discover-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; }
+.discover-empty { color: var(--text-dim); font-size: 13px; padding: 8px 0; }
+
+/* Apple-Music-style horizontal row of small circular artist thumbnails */
+.discover-grid-artists {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 120px;
+  gap: 16px;
+  overflow-x: auto;
+  padding-bottom: 8px;
+  scrollbar-width: thin;
+}
+.discover-grid-artists::-webkit-scrollbar { height: 6px; }
+.discover-grid-artists::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 3px; }
+
+/* Scroll wrapper with fade hints + arrow buttons */
+.discover-scroll-wrapper { position: relative; overflow: hidden; }
+.discover-scroll-wrapper::before,
+.discover-scroll-wrapper::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 8px;
+  width: 32px;
+  z-index: 1;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity var(--transition);
+}
+.discover-scroll-wrapper::before { left: 0; background: linear-gradient(to right, var(--bg-deep), transparent); }
+.discover-scroll-wrapper::after  { right: 0; background: linear-gradient(to left, var(--bg-deep), transparent); }
+.discover-scroll-wrapper.can-scroll-left::before,
+.discover-scroll-wrapper.can-scroll-right::after { opacity: 1; }
+
+.discover-scroll-arrow {
+  position: absolute;
+  top: 50%;
+  transform: translateY(calc(-50% - 4px));
+  z-index: 2;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: rgba(18, 18, 26, 0.85);
+  color: var(--text);
+  font-size: 16px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity var(--transition), background var(--transition);
+  pointer-events: none;
+  backdrop-filter: blur(8px);
+}
+.discover-scroll-arrow:hover { background: rgba(255, 255, 255, 0.12); }
+.discover-scroll-arrow.left  { left: -4px; }
+.discover-scroll-arrow.right { right: -4px; }
+.discover-scroll-wrapper.can-scroll-left  > .discover-scroll-arrow.left,
+.discover-scroll-wrapper.can-scroll-right > .discover-scroll-arrow.right {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.artist-card { cursor: pointer; text-align: center; padding: 6px; border-radius: 8px; transition: background var(--transition); }
+.artist-card:hover { background: rgba(255,255,255,0.05); }
+.artist-card .album-artwork,
+.artist-card .album-artwork-placeholder {
+  border-radius: 50%;
+  aspect-ratio: 1 / 1;
+  width: 100%;
+  height: auto;
+  object-fit: cover;
+}
+.discover-grid-artists .artist-card .album-artwork,
+.discover-grid-artists .artist-card .album-artwork-placeholder {
+  width: 108px;
+  height: 108px;
+}
+.artist-card-name { font-size: 13px; font-weight: 600; margin-top: 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.artist-card-genre { font-size: 11px; color: var(--text-dim); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* =========================================================
    Watchlist page

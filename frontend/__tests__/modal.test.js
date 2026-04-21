@@ -148,3 +148,97 @@ describe("openModal MusicBrainz and Harmony sections", () => {
     expect(url.searchParams.get("region")).toBe("US,JP,HK");
   });
 });
+
+// ---------------------------------------------------------------------------
+// You Might Also Like — discover-similar button inside the album modal
+// ---------------------------------------------------------------------------
+
+describe("openModal You Might Also Like", () => {
+  const albumData = {
+    store_adam_id: "12345",
+    title: "Test Album",
+    artist: "Test Artist",
+    artist_id: "ART1",
+    artist_url: "https://music.apple.com/us/artist/1",
+    url: "https://music.apple.com/us/album/12345",
+    storefronts: ["us"],
+    release_date: "2024-01-15",
+    artwork_url: null,
+    track_count: 0,
+    genre: "Pop",
+    description: null,
+    upc: "123456789",
+    audio_formats: [],
+    artists_json: [],
+  };
+
+  afterEach(() => {
+    ctx.appWindow.fetch.mockClear();
+    const overlay = ctx.appWindow.document.getElementById("modal-overlay");
+    if (overlay) overlay.style.display = "none";
+    const body = ctx.appWindow.document.getElementById("modal-body");
+    if (body) body.innerHTML = "";
+  });
+
+  test("renders button and shows album grid after click", async () => {
+    ctx.appWindow.fetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve(albumData),
+    });
+    ctx.appWindow.__test_state.metadataStorefront = "us";
+
+    await ctx.appWindow.openModal("12345");
+
+    const body = ctx.appWindow.document.getElementById("modal-body");
+    const btn = body.querySelector(".btn-discover-similar");
+    expect(btn).not.toBeNull();
+    expect(btn.textContent).toContain("Discover Similar");
+    const heading = body.querySelector(".discover-results-section h3");
+    expect(heading).not.toBeNull();
+    expect(heading.textContent).toBe("You Might Also Like");
+
+    ctx.appWindow.fetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({
+        results: [
+          { store_adam_id: "A2", title: "Suggested", artist: "Other", artists: [{ name: "Other", url: null }],
+            artwork_url: null, release_date: "2024-02-01", url: null, storefronts: ["us"], watched: false },
+        ],
+      }),
+    });
+
+    btn.click();
+    await new Promise(r => setTimeout(r, 0));
+    await new Promise(r => setTimeout(r, 0));
+
+    const section = body.querySelector(".discover-results-section");
+    expect(section).not.toBeNull();
+    const cards = section.querySelectorAll(".discover-grid .album-card");
+    expect(cards.length).toBe(1);
+    expect(cards[0].dataset.id).toBe("A2");
+  });
+
+  test("shows empty-state text when no suggestions are returned", async () => {
+    ctx.appWindow.fetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve(albumData),
+    });
+    ctx.appWindow.__test_state.metadataStorefront = "us";
+
+    await ctx.appWindow.openModal("12345");
+
+    ctx.appWindow.fetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({ results: [] }),
+    });
+
+    const body = ctx.appWindow.document.getElementById("modal-body");
+    body.querySelector(".btn-discover-similar").click();
+    await new Promise(r => setTimeout(r, 0));
+    await new Promise(r => setTimeout(r, 0));
+
+    const empty = body.querySelector(".discover-results-section .discover-empty");
+    expect(empty).not.toBeNull();
+    expect(empty.textContent).toMatch(/No suggestions/i);
+  });
+});
