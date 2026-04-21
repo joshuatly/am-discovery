@@ -266,6 +266,7 @@ body {
 .main-content {
   margin-left: var(--sidebar-w);
   flex: 1;
+  min-width: 0;
   padding: 32px 36px;
   min-height: 100vh;
 }
@@ -835,6 +836,55 @@ a.sf-chip:hover { opacity: 0.75; }
 }
 .discover-grid-artists::-webkit-scrollbar { height: 6px; }
 .discover-grid-artists::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 3px; }
+
+/* Scroll wrapper with fade hints + arrow buttons */
+.discover-scroll-wrapper { position: relative; overflow: hidden; }
+.discover-scroll-wrapper::before,
+.discover-scroll-wrapper::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 8px;
+  width: 32px;
+  z-index: 1;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity var(--transition);
+}
+.discover-scroll-wrapper::before { left: 0; background: linear-gradient(to right, var(--bg-deep), transparent); }
+.discover-scroll-wrapper::after  { right: 0; background: linear-gradient(to left, var(--bg-deep), transparent); }
+.discover-scroll-wrapper.can-scroll-left::before,
+.discover-scroll-wrapper.can-scroll-right::after { opacity: 1; }
+
+.discover-scroll-arrow {
+  position: absolute;
+  top: 50%;
+  transform: translateY(calc(-50% - 4px));
+  z-index: 2;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: rgba(18, 18, 26, 0.85);
+  color: var(--text);
+  font-size: 16px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity var(--transition), background var(--transition);
+  pointer-events: none;
+  backdrop-filter: blur(8px);
+}
+.discover-scroll-arrow:hover { background: rgba(255, 255, 255, 0.12); }
+.discover-scroll-arrow.left  { left: -4px; }
+.discover-scroll-arrow.right { right: -4px; }
+.discover-scroll-wrapper.can-scroll-left  > .discover-scroll-arrow.left,
+.discover-scroll-wrapper.can-scroll-right > .discover-scroll-arrow.right {
+  opacity: 1;
+  pointer-events: auto;
+}
 
 .artist-card { cursor: pointer; text-align: center; padding: 6px; border-radius: 8px; transition: background var(--transition); }
 .artist-card:hover { background: rgba(255,255,255,0.05); }

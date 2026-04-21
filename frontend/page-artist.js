@@ -474,7 +474,27 @@ function appendDiscoverSimilarSection(wrap, artistId) {
       } else {
         const row = el("div", "discover-grid-artists");
         results.forEach(a => row.appendChild(artistCard(a)));
-        body.appendChild(row);
+
+        const wrapper = el("div", "discover-scroll-wrapper");
+        const arrowL = el("button", "discover-scroll-arrow left", "\u2039");
+        const arrowR = el("button", "discover-scroll-arrow right", "\u203A");
+        arrowL.type = "button";
+        arrowR.type = "button";
+        wrapper.appendChild(arrowL);
+        wrapper.appendChild(arrowR);
+        wrapper.appendChild(row);
+        body.appendChild(wrapper);
+
+        const scrollAmt = 136 * 3;
+        arrowL.addEventListener("click", () => row.scrollBy({ left: -scrollAmt, behavior: "smooth" }));
+        arrowR.addEventListener("click", () => row.scrollBy({ left: scrollAmt, behavior: "smooth" }));
+        const updateArrows = () => {
+          const maxScroll = row.scrollWidth - row.clientWidth;
+          wrapper.classList.toggle("can-scroll-left", row.scrollLeft > 2);
+          wrapper.classList.toggle("can-scroll-right", maxScroll - row.scrollLeft > 2);
+        };
+        row.addEventListener("scroll", updateArrows, { passive: true });
+        requestAnimationFrame(updateArrows);
       }
     } catch (err) {
       const msg = err && String(err.message || "").includes("429")

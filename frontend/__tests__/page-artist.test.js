@@ -555,6 +555,9 @@ describe("renderArtist Discover Similar", () => {
 
     const section = main.querySelector(".discover-results-section");
     expect(section).not.toBeNull();
+    const wrapper = section.querySelector(".discover-scroll-wrapper");
+    expect(wrapper).not.toBeNull();
+    expect(wrapper.querySelectorAll(".discover-scroll-arrow").length).toBe(2);
     const cards = section.querySelectorAll(".discover-grid-artists .artist-card");
     expect(cards.length).toBe(2);
     expect(cards[0].querySelector(".artist-card-name").textContent).toBe("Similar A");
