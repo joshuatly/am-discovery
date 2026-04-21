@@ -110,6 +110,7 @@ beforeAll(() => {
     window.__test_WATCHLIST_PAGE_SIZE      = WATCHLIST_PAGE_SIZE;
     window.__test_submitCliSchedulerJob    = submitCliSchedulerJob;
     window.__test_albumCard                = albumCard;
+    window.__test_artistCard               = artistCard;
     window.__test_buildPagination          = buildPagination;
     window.__test_sanitizeHtml             = sanitizeHtml;
   `;

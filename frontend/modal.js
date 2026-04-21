@@ -376,6 +376,10 @@ async function openModal(storeAdamId) {
   harmonySection.appendChild(harmonyBtns);
   actions.appendChild(harmonySection);
 
+  const discoverBtn = el("button", "btn-discover-similar", "✨ You Might Also Like");
+  discoverBtn.title = "Find albums Apple Music suggests alongside this one";
+  actions.appendChild(discoverBtn);
+
   details.appendChild(actions);
 
   // Tracklist
@@ -426,6 +430,39 @@ async function openModal(storeAdamId) {
     });
     details.appendChild(myTl);
   }
+
+  // Discover Similar — "You Might Also Like" grid rendered inline after tracklist
+  const discoverSection = el("div", "discover-results-section");
+  details.appendChild(discoverSection);
+
+  discoverBtn.addEventListener("click", async () => {
+    discoverBtn.disabled = true;
+    const originalLabel = discoverBtn.textContent;
+    discoverBtn.textContent = "Loading…";
+    discoverSection.innerHTML = "";
+    try {
+      const sf = state.metadataStorefront || "us";
+      const resp = await API.get(`/api/releases/${album.store_adam_id}/you-might-also-like?storefront=${sf}&limit=10`);
+      const results = (resp && resp.results) || [];
+      const header = el("h3", "", "You Might Also Like");
+      discoverSection.appendChild(header);
+      if (!results.length) {
+        discoverSection.appendChild(el("div", "discover-empty", "No suggestions found"));
+      } else {
+        const grid = el("div", "discover-grid");
+        results.forEach(a => grid.appendChild(albumCard(a)));
+        discoverSection.appendChild(grid);
+      }
+    } catch (err) {
+      const msg = err && String(err.message || "").includes("429")
+        ? "Rate limited — try again in a minute"
+        : "Failed to load suggestions";
+      discoverSection.appendChild(el("div", "discover-empty", msg));
+    } finally {
+      discoverBtn.disabled = false;
+      discoverBtn.textContent = originalLabel;
+    }
+  });
 
   body.appendChild(details);
 

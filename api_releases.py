@@ -13,7 +13,7 @@ from flask import Blueprint, jsonify, request
 
 import db
 from api_utility import _is_watched, _serialize, _validate_storefront
-from client import AppleMusicClient
+from client import AppleMusicClient, RateLimitError
 from config import load_config
 
 releases_bp = Blueprint("releases", __name__)
@@ -300,3 +300,56 @@ def api_lookup(store_adam_id):
     client = AppleMusicClient()
     info = client.get_album_full_info(url)
     return jsonify(info)
+
+
+# ---------------------------------------------------------------------------
+# GET /api/releases/<store_adam_id>/you-might-also-like
+# ---------------------------------------------------------------------------
+
+
+@releases_bp.route("/api/releases/<store_adam_id>/you-might-also-like")
+def api_you_might_also_like(store_adam_id):
+    """Fetch Apple Music's you-might-also-like view for an album.
+    ---
+
+    parameters:
+      - name: store_adam_id
+        in: path
+        type: string
+        required: true
+      - name: storefront
+        in: query
+        type: string
+        default: us
+      - name: limit
+        in: query
+        type: integer
+        default: 10
+    responses:
+      200:
+        description: List of suggested albums from Apple Music
+      400:
+        description: Invalid storefront or limit
+      404:
+        description: Album not found in local database
+      429:
+        description: Rate limited by Apple Music
+
+    """
+    storefront = _validate_storefront(request.args.get("storefront", "us").strip().lower())
+    if not storefront:
+        return jsonify({"error": "invalid storefront"}), 400
+    try:
+        limit = min(int(request.args.get("limit", 10)), 25)
+    except (ValueError, TypeError):
+        return jsonify({"error": "limit must be an integer"}), 400
+
+    if not db.get_album(store_adam_id):
+        return jsonify({"error": "Not found"}), 404
+
+    client = AppleMusicClient()
+    try:
+        results = client.get_you_might_also_like(store_adam_id, storefront=storefront, limit=limit)
+    except RateLimitError:
+        return jsonify({"error": "rate_limited"}), 429
+    return jsonify({"results": results})

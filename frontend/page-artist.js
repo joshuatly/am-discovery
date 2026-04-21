@@ -129,6 +129,11 @@ async function renderArtist(main, artistId) {
 
   actionsRow.appendChild(watchBtn);
   actionsRow.appendChild(fetchBtn);
+
+  const discoverBtn = el("button", "btn-discover-similar", "✨ Discover Similar");
+  discoverBtn.title = "Find artists Apple Music considers similar";
+  actionsRow.appendChild(discoverBtn);
+
   links.appendChild(actionsRow);
 
   // Row 2: watch settings (only visible when watched)
@@ -329,6 +334,39 @@ async function renderArtist(main, artistId) {
   buildMbidDisplay(_currentMbid);
   mbidWrap.appendChild(mbidDisplay);
   links.appendChild(mbidWrap);
+
+  // Discover Similar — results grid rendered inline below the links section
+  const discoverSection = el("div", "discover-results-section");
+  links.appendChild(discoverSection);
+
+  discoverBtn.addEventListener("click", async () => {
+    discoverBtn.disabled = true;
+    const originalLabel = discoverBtn.textContent;
+    discoverBtn.textContent = "Discovering…";
+    discoverSection.innerHTML = "";
+    try {
+      const sf = state.metadataStorefront || "us";
+      const resp = await API.get(`/api/artists/${artistId}/similar?storefront=${sf}&limit=10`);
+      const results = (resp && resp.results) || [];
+      const header = el("h3", "", "Similar Artists");
+      discoverSection.appendChild(header);
+      if (!results.length) {
+        discoverSection.appendChild(el("div", "discover-empty", "No similar artists found"));
+      } else {
+        const grid = el("div", "discover-grid");
+        results.forEach(a => grid.appendChild(artistCard(a)));
+        discoverSection.appendChild(grid);
+      }
+    } catch (err) {
+      const msg = err && String(err.message || "").includes("429")
+        ? "Rate limited — try again in a minute"
+        : "Failed to load similar artists";
+      discoverSection.appendChild(el("div", "discover-empty", msg));
+    } finally {
+      discoverBtn.disabled = false;
+      discoverBtn.textContent = originalLabel;
+    }
+  });
 
   watchBtn.addEventListener("click", async () => {
     const ps = state.metadataStorefront || state.homeStorefront || null;

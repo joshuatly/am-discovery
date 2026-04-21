@@ -585,3 +585,43 @@ describe("buildPagination scroll-to-top", () => {
     expect(onPage).toHaveBeenCalledWith(3);
   });
 });
+
+// ---------------------------------------------------------------------------
+// artistCard
+// ---------------------------------------------------------------------------
+
+describe("artistCard", () => {
+  test("renders artist name and genre", () => {
+    const card = ctx.appWindow.__test_artistCard({
+      id: "ART1",
+      name: "Test Artist",
+      genre: "Pop",
+      artwork_url: "https://example.com/a.jpg",
+    });
+    expect(card.className).toContain("artist-card");
+    expect(card.querySelector(".artist-card-name").textContent).toBe("Test Artist");
+    expect(card.querySelector(".artist-card-genre").textContent).toBe("Pop");
+  });
+
+  test("omits genre element when no genre supplied", () => {
+    const card = ctx.appWindow.__test_artistCard({ id: "ART1", name: "Solo" });
+    expect(card.querySelector(".artist-card-genre")).toBeNull();
+  });
+
+  test("sets data-id for lookup", () => {
+    const card = ctx.appWindow.__test_artistCard({ id: "ART42", name: "X" });
+    expect(card.dataset.id).toBe("ART42");
+  });
+
+  test("click navigates via hash to in-app artist page", () => {
+    const card = ctx.appWindow.__test_artistCard({ id: "ART99", name: "Nav" });
+    ctx.appWindow.location.hash = "#/";
+    card.click();
+    expect(ctx.appWindow.location.hash).toBe("#/artist/ART99");
+  });
+
+  test("falls back to dash when name is missing", () => {
+    const card = ctx.appWindow.__test_artistCard({ id: "ART1" });
+    expect(card.querySelector(".artist-card-name").textContent).toBe("—");
+  });
+});

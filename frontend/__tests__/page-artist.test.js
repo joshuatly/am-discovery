@@ -505,3 +505,109 @@ describe("renderArtist MusicBrainz link", () => {
     expect(mbidLabel).not.toBeNull();
   });
 });
+
+// ---------------------------------------------------------------------------
+// renderArtist — Discover Similar button
+// ---------------------------------------------------------------------------
+
+describe("renderArtist Discover Similar", () => {
+  let main;
+
+  beforeEach(() => {
+    main = ctx.appWindow.document.createElement("div");
+    ctx.appWindow.document.getElementById("main-content").appendChild(main);
+  });
+
+  afterEach(() => {
+    main.remove();
+    ctx.appWindow.fetch.mockClear();
+  });
+
+  test("renders button and shows similar artists grid after click", async () => {
+    makeArtistFetchMock({
+      artist_id: "ART1",
+      artist_name: "Anchor Artist",
+      artist_url: null,
+      artist_artwork_url: null,
+      watched: false,
+      releases: [],
+    });
+
+    await ctx.appWindow.__test_renderArtist(main, "ART1");
+
+    const btn = main.querySelector(".btn-discover-similar");
+    expect(btn).not.toBeNull();
+    expect(btn.textContent).toContain("Discover Similar");
+
+    ctx.appWindow.fetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({
+        results: [
+          { id: "ART2", name: "Similar A", genre: "Pop", artwork_url: null },
+          { id: "ART3", name: "Similar B", genre: "Rock", artwork_url: null },
+        ],
+      }),
+    });
+
+    btn.click();
+    await new Promise(r => setTimeout(r, 0));
+    await new Promise(r => setTimeout(r, 0));
+
+    const section = main.querySelector(".discover-results-section");
+    expect(section).not.toBeNull();
+    const cards = section.querySelectorAll(".discover-grid .artist-card");
+    expect(cards.length).toBe(2);
+    expect(cards[0].querySelector(".artist-card-name").textContent).toBe("Similar A");
+  });
+
+  test("shows empty-state text when no similar artists are returned", async () => {
+    makeArtistFetchMock({
+      artist_id: "ART1",
+      artist_name: "Anchor Artist",
+      watched: false,
+      releases: [],
+    });
+
+    await ctx.appWindow.__test_renderArtist(main, "ART1");
+
+    ctx.appWindow.fetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({ results: [] }),
+    });
+
+    const btn = main.querySelector(".btn-discover-similar");
+    btn.click();
+    await new Promise(r => setTimeout(r, 0));
+    await new Promise(r => setTimeout(r, 0));
+
+    const empty = main.querySelector(".discover-results-section .discover-empty");
+    expect(empty).not.toBeNull();
+    expect(empty.textContent).toMatch(/No similar artists/i);
+  });
+
+  test("renders rate-limited error message on 429", async () => {
+    makeArtistFetchMock({
+      artist_id: "ART1",
+      artist_name: "Anchor Artist",
+      watched: false,
+      releases: [],
+    });
+
+    await ctx.appWindow.__test_renderArtist(main, "ART1");
+
+    ctx.appWindow.fetch.mockResolvedValueOnce({
+      ok: false,
+      status: 429,
+      json: () => Promise.resolve({ error: "rate_limited" }),
+    });
+
+    const btn = main.querySelector(".btn-discover-similar");
+    btn.click();
+    await new Promise(r => setTimeout(r, 0));
+    await new Promise(r => setTimeout(r, 0));
+
+    const empty = main.querySelector(".discover-results-section .discover-empty");
+    expect(empty).not.toBeNull();
+    expect(empty.textContent).toMatch(/Rate limited/i);
+  });
+});

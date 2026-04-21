@@ -13,10 +13,10 @@ from flasgger import Swagger
 from flask import Flask
 
 import db
-from api_utility import api_bp
 from api_artists import artists_bp
 from api_releases import releases_bp
 from api_system import system_bp
+from api_utility import api_bp
 from api_watchlist import watchlist_bp
 from client import AppleMusicClient
 from config import CONFIG_PATH, load_config, save_config  # noqa: F401

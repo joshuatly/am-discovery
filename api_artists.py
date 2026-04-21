@@ -347,3 +347,51 @@ def api_search_artists_local():
 
     results = db.search_artists_local(term, limit=limit)
     return jsonify({"results": results})
+
+
+# ---------------------------------------------------------------------------
+# GET /api/artists/<artist_id>/similar
+# ---------------------------------------------------------------------------
+
+
+@artists_bp.route("/api/artists/<artist_id>/similar")
+def api_similar_artists(artist_id):
+    """Fetch Apple Music's similar-artists view for an artist.
+    ---
+
+    parameters:
+      - name: artist_id
+        in: path
+        type: string
+        required: true
+      - name: storefront
+        in: query
+        type: string
+        default: us
+      - name: limit
+        in: query
+        type: integer
+        default: 10
+    responses:
+      200:
+        description: List of similar artists from Apple Music
+      400:
+        description: Invalid storefront or limit
+      429:
+        description: Rate limited by Apple Music
+
+    """
+    storefront = _validate_storefront(request.args.get("storefront", "us").strip().lower())
+    if not storefront:
+        return jsonify({"error": "invalid storefront"}), 400
+    try:
+        limit = min(int(request.args.get("limit", 10)), 25)
+    except (ValueError, TypeError):
+        return jsonify({"error": "limit must be an integer"}), 400
+
+    client = AppleMusicClient()
+    try:
+        results = client.get_similar_artists(artist_id, storefront=storefront, limit=limit)
+    except RateLimitError:
+        return jsonify({"error": "rate_limited"}), 429
+    return jsonify({"results": results})

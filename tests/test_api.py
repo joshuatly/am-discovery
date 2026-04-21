@@ -1332,5 +1332,126 @@ class TestApiDiscoveryStatus(ServerTestCase):
         mock_db.get_discovery_runs.assert_called_once_with(limit=200)
 
 
+# ---------------------------------------------------------------------------
+# GET /api/artists/<artist_id>/similar
+# ---------------------------------------------------------------------------
+
+
+class TestApiSimilarArtists(ServerTestCase):
+    @patch("api_artists.AppleMusicClient")
+    def test_returns_results(self, MockClient):
+        mock_client = MockClient.return_value
+        mock_client.get_similar_artists.return_value = [
+            {
+                "id": "ART2",
+                "name": "Similar Artist",
+                "url": "https://music.apple.com/us/artist/ART2",
+                "artwork_url": "https://example.com/art2.jpg",
+                "genre": "Pop",
+            },
+        ]
+
+        resp = self.client.get("/api/artists/ART1/similar?storefront=us&limit=5")
+        self.assertEqual(resp.status_code, 200)
+        data = resp.get_json()
+        self.assertIn("results", data)
+        self.assertEqual(len(data["results"]), 1)
+        self.assertEqual(data["results"][0]["id"], "ART2")
+
+    @patch("api_artists.AppleMusicClient")
+    def test_invalid_storefront_returns_400(self, MockClient):
+        resp = self.client.get("/api/artists/ART1/similar?storefront=bad!")
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn("error", resp.get_json())
+
+    @patch("api_artists.AppleMusicClient")
+    def test_invalid_limit_returns_400(self, MockClient):
+        resp = self.client.get("/api/artists/ART1/similar?limit=xyz")
+        self.assertEqual(resp.status_code, 400)
+
+    @patch("api_artists.AppleMusicClient")
+    def test_rate_limit_returns_429(self, MockClient):
+        from client import RateLimitError
+
+        mock_client = MockClient.return_value
+        mock_client.get_similar_artists.side_effect = RateLimitError("rate limited")
+
+        resp = self.client.get("/api/artists/ART1/similar")
+        self.assertEqual(resp.status_code, 429)
+        self.assertEqual(resp.get_json().get("error"), "rate_limited")
+
+    @patch("api_artists.AppleMusicClient")
+    def test_limit_capped_at_25(self, MockClient):
+        mock_client = MockClient.return_value
+        mock_client.get_similar_artists.return_value = []
+
+        self.client.get("/api/artists/ART1/similar?limit=9999")
+        call_kwargs = mock_client.get_similar_artists.call_args
+        limit = call_kwargs[1].get("limit") if call_kwargs[1] else call_kwargs[0][2]
+        self.assertLessEqual(limit, 25)
+
+
+# ---------------------------------------------------------------------------
+# GET /api/releases/<store_adam_id>/you-might-also-like
+# ---------------------------------------------------------------------------
+
+
+class TestApiYouMightAlsoLike(ServerTestCase):
+    @patch("api_releases.AppleMusicClient")
+    @patch("api_releases.db")
+    def test_returns_results(self, mock_db, MockClient):
+        mock_db.get_album.return_value = _make_album("A1")
+        mock_client = MockClient.return_value
+        mock_client.get_you_might_also_like.return_value = [
+            {
+                "store_adam_id": "A2",
+                "title": "Other Album",
+                "artist": "Other Artist",
+                "artists": [{"name": "Other Artist", "url": None}],
+                "artwork_url": "https://example.com/art.jpg",
+                "release_date": "2024-02-01",
+                "url": "https://music.apple.com/us/album/A2",
+                "storefronts": ["us"],
+                "watched": False,
+            },
+        ]
+
+        resp = self.client.get("/api/releases/A1/you-might-also-like?storefront=us&limit=5")
+        self.assertEqual(resp.status_code, 200)
+        data = resp.get_json()
+        self.assertIn("results", data)
+        self.assertEqual(len(data["results"]), 1)
+        self.assertEqual(data["results"][0]["store_adam_id"], "A2")
+
+    @patch("api_releases.AppleMusicClient")
+    @patch("api_releases.db")
+    def test_unknown_album_returns_404(self, mock_db, MockClient):
+        mock_db.get_album.return_value = None
+
+        resp = self.client.get("/api/releases/MISSING/you-might-also-like")
+        self.assertEqual(resp.status_code, 404)
+        MockClient.return_value.get_you_might_also_like.assert_not_called()
+
+    @patch("api_releases.AppleMusicClient")
+    @patch("api_releases.db")
+    def test_invalid_storefront_returns_400(self, mock_db, MockClient):
+        resp = self.client.get("/api/releases/A1/you-might-also-like?storefront=bad!")
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn("error", resp.get_json())
+
+    @patch("api_releases.AppleMusicClient")
+    @patch("api_releases.db")
+    def test_rate_limit_returns_429(self, mock_db, MockClient):
+        from client import RateLimitError
+
+        mock_db.get_album.return_value = _make_album("A1")
+        mock_client = MockClient.return_value
+        mock_client.get_you_might_also_like.side_effect = RateLimitError("rate limited")
+
+        resp = self.client.get("/api/releases/A1/you-might-also-like")
+        self.assertEqual(resp.status_code, 429)
+        self.assertEqual(resp.get_json().get("error"), "rate_limited")
+
+
 if __name__ == "__main__":
     unittest.main()
