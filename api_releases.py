@@ -330,8 +330,6 @@ def api_you_might_also_like(store_adam_id):
         description: List of suggested albums from Apple Music
       400:
         description: Invalid storefront or limit
-      404:
-        description: Album not found in local database
       429:
         description: Rate limited by Apple Music
 
@@ -343,9 +341,6 @@ def api_you_might_also_like(store_adam_id):
         limit = min(int(request.args.get("limit", 10)), 25)
     except (ValueError, TypeError):
         return jsonify({"error": "limit must be an integer"}), 400
-
-    if not db.get_album(store_adam_id):
-        return jsonify({"error": "Not found"}), 404
 
     client = AppleMusicClient()
     try:

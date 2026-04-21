@@ -129,11 +129,6 @@ async function renderArtist(main, artistId) {
 
   actionsRow.appendChild(watchBtn);
   actionsRow.appendChild(fetchBtn);
-
-  const discoverBtn = el("button", "btn-discover-similar", "✨ Discover Similar");
-  discoverBtn.title = "Find artists Apple Music considers similar";
-  actionsRow.appendChild(discoverBtn);
-
   links.appendChild(actionsRow);
 
   // Row 2: watch settings (only visible when watched)
@@ -335,39 +330,6 @@ async function renderArtist(main, artistId) {
   mbidWrap.appendChild(mbidDisplay);
   links.appendChild(mbidWrap);
 
-  // Discover Similar — results grid rendered inline below the links section
-  const discoverSection = el("div", "discover-results-section");
-  links.appendChild(discoverSection);
-
-  discoverBtn.addEventListener("click", async () => {
-    discoverBtn.disabled = true;
-    const originalLabel = discoverBtn.textContent;
-    discoverBtn.textContent = "Discovering…";
-    discoverSection.innerHTML = "";
-    try {
-      const sf = state.metadataStorefront || "us";
-      const resp = await API.get(`/api/artists/${artistId}/similar?storefront=${sf}&limit=10`);
-      const results = (resp && resp.results) || [];
-      const header = el("h3", "", "Similar Artists");
-      discoverSection.appendChild(header);
-      if (!results.length) {
-        discoverSection.appendChild(el("div", "discover-empty", "No similar artists found"));
-      } else {
-        const grid = el("div", "discover-grid");
-        results.forEach(a => grid.appendChild(artistCard(a)));
-        discoverSection.appendChild(grid);
-      }
-    } catch (err) {
-      const msg = err && String(err.message || "").includes("429")
-        ? "Rate limited — try again in a minute"
-        : "Failed to load similar artists";
-      discoverSection.appendChild(el("div", "discover-empty", msg));
-    } finally {
-      discoverBtn.disabled = false;
-      discoverBtn.textContent = originalLabel;
-    }
-  });
-
   watchBtn.addEventListener("click", async () => {
     const ps = state.metadataStorefront || state.homeStorefront || null;
     await toggleWatch(artistId, data.artist_name, data.artist_url, ps);
@@ -425,6 +387,7 @@ async function renderArtist(main, artistId) {
 
   if (!data.releases.length) {
     wrap.insertAdjacentHTML("beforeend", `<div class="empty-state"><div class="empty-icon">🎵</div><div class="empty-title">No releases found</div><div class="empty-desc">This artist's releases will appear here after a refresh</div></div>`);
+    appendDiscoverSimilarSection(wrap, artistId);
     return;
   }
 
@@ -476,4 +439,51 @@ async function renderArtist(main, artistId) {
   wrap.appendChild(toolbar);
   wrap.appendChild(gridContainer);
   renderArtistReleaseGrid(data.releases, gridContainer);
+
+  appendDiscoverSimilarSection(wrap, artistId);
+}
+
+// ---------------------------------------------------------------------------
+// Discover Similar — renders ✨ button + horizontal row of similar artists
+// ---------------------------------------------------------------------------
+function appendDiscoverSimilarSection(wrap, artistId) {
+  const section = el("div", "discover-results-section discover-similar-artist-section");
+  const heading = el("div", "discover-similar-heading");
+  const h = el("h3", "", "Similar Artists");
+  const btn = el("button", "btn-discover-similar", "✨ Discover Similar");
+  btn.title = "Discover similar artists via Apple Music";
+  heading.appendChild(h);
+  heading.appendChild(btn);
+  section.appendChild(heading);
+
+  const body = el("div", "discover-similar-body");
+  section.appendChild(body);
+  wrap.appendChild(section);
+
+  btn.addEventListener("click", async () => {
+    btn.disabled = true;
+    const originalLabel = btn.textContent;
+    btn.textContent = "Discovering…";
+    body.innerHTML = "";
+    try {
+      const sf = state.metadataStorefront || "us";
+      const resp = await API.get(`/api/artists/${artistId}/similar?storefront=${sf}&limit=10`);
+      const results = (resp && resp.results) || [];
+      if (!results.length) {
+        body.appendChild(el("div", "discover-empty", "No similar artists found"));
+      } else {
+        const row = el("div", "discover-grid-artists");
+        results.forEach(a => row.appendChild(artistCard(a)));
+        body.appendChild(row);
+      }
+    } catch (err) {
+      const msg = err && String(err.message || "").includes("429")
+        ? "Rate limited — try again in a minute"
+        : "Failed to load similar artists";
+      body.appendChild(el("div", "discover-empty", msg));
+    } finally {
+      btn.disabled = false;
+      btn.textContent = originalLabel;
+    }
+  });
 }

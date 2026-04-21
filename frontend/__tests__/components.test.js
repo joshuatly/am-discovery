@@ -624,4 +624,27 @@ describe("artistCard", () => {
     const card = ctx.appWindow.__test_artistCard({ id: "ART1" });
     expect(card.querySelector(".artist-card-name").textContent).toBe("—");
   });
+
+  test("click sets state.artistHint with carried-through artist fields", () => {
+    ctx.appWindow.__test_state.artistHint = null;
+    const card = ctx.appWindow.__test_artistCard({
+      id: "ART77",
+      name: "Hint Artist",
+      url: "https://music.apple.com/us/artist/77",
+      artwork_url: "https://example.com/77.jpg",
+      genre: "Indie",
+      born_or_formed: "Formed 2018",
+      origin: "Austin, Texas",
+      artist_bio: "Bio text",
+      is_group: true,
+    });
+    card.click();
+    const hint = ctx.appWindow.__test_state.artistHint;
+    expect(hint.id).toBe("ART77");
+    expect(hint.name).toBe("Hint Artist");
+    expect(hint.genre).toBe("Indie");
+    expect(hint.born_or_formed).toBe("Formed 2018");
+    expect(hint.origin).toBe("Austin, Texas");
+    expect(hint.is_group).toBe(true);
+  });
 });

@@ -725,7 +725,7 @@ class AppleMusicClient:
         items = self._view_items(
             f"/v1/catalog/{storefront}/artists/{artist_id}",
             "similar-artists",
-            {"views": "similar-artists", "extend": "artistBio,genreNames,origin"},
+            {"views": "similar-artists", "extend": "artistBio,bornOrFormed,origin"},
             limit,
         )
         out = []
@@ -740,6 +740,10 @@ class AppleMusicClient:
                     "url": a.get("url"),
                     "artwork_url": re.sub(r"\{w\}x\{h\}bb\.[a-z]+", "300x300bb.jpg", art) if art else None,
                     "genre": g[0] if g else None,
+                    "born_or_formed": a.get("bornOrFormed"),
+                    "origin": a.get("origin"),
+                    "artist_bio": a.get("artistBio"),
+                    "is_group": a.get("isGroup"),
                 }
             )
         return out

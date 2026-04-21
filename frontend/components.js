@@ -270,7 +270,19 @@ function artistCard(artist) {
   }
 
   card.addEventListener("click", () => {
-    if (artist.id) location.hash = `#/artist/${artist.id}`;
+    if (!artist.id) return;
+    state.artistHint = {
+      id: String(artist.id),
+      name: artist.name,
+      url: artist.url,
+      artwork_url: artist.artwork_url,
+      genre: artist.genre,
+      born_or_formed: artist.born_or_formed,
+      origin: artist.origin,
+      artist_bio: artist.artist_bio,
+      is_group: artist.is_group,
+    };
+    location.hash = `#/artist/${artist.id}`;
   });
 
   return card;

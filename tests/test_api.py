@@ -1425,12 +1425,18 @@ class TestApiYouMightAlsoLike(ServerTestCase):
 
     @patch("api_releases.AppleMusicClient")
     @patch("api_releases.db")
-    def test_unknown_album_returns_404(self, mock_db, MockClient):
+    def test_unknown_album_still_proxies_to_apple(self, mock_db, MockClient):
+        # The endpoint is a pure proxy over Apple Music — it should not require
+        # the album to exist in the local DB, so that users can keep clicking
+        # through "You Might Also Like" suggestions.
         mock_db.get_album.return_value = None
+        mock_client = MockClient.return_value
+        mock_client.get_you_might_also_like.return_value = []
 
-        resp = self.client.get("/api/releases/MISSING/you-might-also-like")
-        self.assertEqual(resp.status_code, 404)
-        MockClient.return_value.get_you_might_also_like.assert_not_called()
+        resp = self.client.get("/api/releases/UNKNOWN/you-might-also-like")
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.get_json(), {"results": []})
+        mock_client.get_you_might_also_like.assert_called_once()
 
     @patch("api_releases.AppleMusicClient")
     @patch("api_releases.db")

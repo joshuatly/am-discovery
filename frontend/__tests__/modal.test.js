@@ -192,7 +192,10 @@ describe("openModal You Might Also Like", () => {
     const body = ctx.appWindow.document.getElementById("modal-body");
     const btn = body.querySelector(".btn-discover-similar");
     expect(btn).not.toBeNull();
-    expect(btn.textContent).toContain("You Might Also Like");
+    expect(btn.textContent).toContain("Discover Similar");
+    const heading = body.querySelector(".discover-results-section h3");
+    expect(heading).not.toBeNull();
+    expect(heading.textContent).toBe("You Might Also Like");
 
     ctx.appWindow.fetch.mockResolvedValueOnce({
       ok: true,

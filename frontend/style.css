@@ -810,16 +810,49 @@ a.sf-chip:hover { opacity: 0.75; }
 .btn-discover-similar:hover    { filter: brightness(1.1); box-shadow: 0 4px 12px rgba(168, 85, 247, 0.5); }
 .btn-discover-similar:disabled { opacity: 0.5; cursor: not-allowed; }
 
-.discover-results-section { margin-top: 16px; }
-.discover-results-section h3 { font-size: 14px; font-weight: 600; color: var(--text-dim); margin-bottom: 10px; }
+.discover-results-section { margin-top: 24px; }
+.discover-results-section h3 { font-size: 15px; font-weight: 700; color: var(--text); margin: 0; }
+.discover-similar-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.discover-similar-body { min-height: 20px; }
 .discover-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; }
 .discover-empty { color: var(--text-dim); font-size: 13px; padding: 8px 0; }
 
-.artist-card { cursor: pointer; text-align: center; padding: 8px; border-radius: 8px; transition: background var(--transition); }
+/* Apple-Music-style horizontal row of small circular artist thumbnails */
+.discover-grid-artists {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 120px;
+  gap: 16px;
+  overflow-x: auto;
+  padding-bottom: 8px;
+  scrollbar-width: thin;
+}
+.discover-grid-artists::-webkit-scrollbar { height: 6px; }
+.discover-grid-artists::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 3px; }
+
+.artist-card { cursor: pointer; text-align: center; padding: 6px; border-radius: 8px; transition: background var(--transition); }
 .artist-card:hover { background: rgba(255,255,255,0.05); }
-.artist-card .album-artwork { border-radius: 50%; aspect-ratio: 1 / 1; }
+.artist-card .album-artwork,
+.artist-card .album-artwork-placeholder {
+  border-radius: 50%;
+  aspect-ratio: 1 / 1;
+  width: 100%;
+  height: auto;
+  object-fit: cover;
+}
+.discover-grid-artists .artist-card .album-artwork,
+.discover-grid-artists .artist-card .album-artwork-placeholder {
+  width: 108px;
+  height: 108px;
+}
 .artist-card-name { font-size: 13px; font-weight: 600; margin-top: 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.artist-card-genre { font-size: 11px; color: var(--text-dim); margin-top: 2px; }
+.artist-card-genre { font-size: 11px; color: var(--text-dim); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* =========================================================
    Watchlist page
