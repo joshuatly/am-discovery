@@ -469,10 +469,13 @@ def get_latest_release_date(artist_id: str) -> str | None:
         return row["latest"] if row and row["latest"] else None
 
 
-def check_and_update_new_releases(artist_id: str) -> bool:
+def check_and_update_new_releases(artist_id: str) -> str | None:
     """If artist status is 'complete' and a release exists newer than the completion date, set to 'new_release'.
 
-    Returns True if the status was changed.
+    Returns the cutoff date string (YYYY-MM-DD) used for the comparison if the
+    status was changed, otherwise None. Callers can pass the returned date to
+    :func:`get_new_releases_since` to enumerate the releases that triggered the
+    transition.
     """
     with get_conn() as conn:
         row = conn.execute(
@@ -480,10 +483,10 @@ def check_and_update_new_releases(artist_id: str) -> bool:
             (artist_id,),
         ).fetchone()
         if not row or row["collection_status"] != "complete":
-            return False
+            return None
         completed_at = row["collection_status_updated_at"]
         if not completed_at:
-            return False
+            return None
         # Convert unix timestamp to ISO date for comparison with release_date strings
         completed_date = datetime.fromtimestamp(completed_at, tz=UTC).strftime("%Y-%m-%d")
         latest = conn.execute(
@@ -497,8 +500,20 @@ def check_and_update_new_releases(artist_id: str) -> bool:
                    collection_status_updated_at = ? WHERE artist_id = ?""",
                 (now, artist_id),
             )
-            return True
-        return False
+            return completed_date
+        return None
+
+
+def get_new_releases_since(artist_id: str, since_date: str) -> list[dict]:
+    """Return albums for ``artist_id`` with ``release_date > since_date``, newest first."""
+    with get_conn() as conn:
+        rows = conn.execute(
+            """SELECT * FROM albums
+               WHERE artist_id = ? AND release_date > ?
+               ORDER BY release_date DESC""",
+            (artist_id, since_date),
+        ).fetchall()
+        return [dict(r) for r in rows]
 
 
 def export_watchlist() -> list:

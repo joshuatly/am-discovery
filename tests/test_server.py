@@ -190,5 +190,138 @@ class TestWatchlistPollCollectionStatus(ServerTestCase):
         mock_db.check_and_update_new_releases.assert_called_once_with("ART1")
 
 
+class TestNotificationHooks(ServerTestCase):
+    """_do_poll / _do_watchlist_poll integration with the notifications module."""
+
+    @patch("server.notifications")
+    @patch("server.AppleMusicClient")
+    @patch("server.db")
+    @patch("server._schedule_next")
+    def test_do_poll_enqueues_discovery_complete(
+        self,
+        mock_schedule,
+        mock_db,
+        mock_client_cls,
+        mock_notif,
+    ):
+        mock_client = mock_client_cls.return_value
+        mock_client.discover_new_releases.return_value = ([], "ROOM1", "2026-04-22T10:00Z")
+        mock_db.get_album.return_value = None
+        mock_db.list_albums.return_value = ([], 0)
+        mock_db.log_discovery_run.return_value = None
+        mock_db.get_watched_artist_ids.return_value = set()
+
+        import server
+
+        with patch.object(server, "load_config", return_value={"check_storefronts": ["us"], "home_storefront": "us"}):
+            server._do_poll()
+
+        types_called = [c.args[0] for c in mock_notif.enqueue.call_args_list]
+        self.assertIn("onDiscoveryComplete", types_called)
+        # No errors → no onDiscoveryFailed
+        self.assertNotIn("onDiscoveryFailed", types_called)
+
+    @patch("server.notifications")
+    @patch("server.AppleMusicClient")
+    @patch("server.db")
+    @patch("server._schedule_next")
+    def test_do_poll_enqueues_discovery_failed_when_room_errors(
+        self,
+        mock_schedule,
+        mock_db,
+        mock_client_cls,
+        mock_notif,
+    ):
+        mock_client = mock_client_cls.return_value
+        # room_id is None → counts as room_error
+        mock_client.discover_new_releases.return_value = ([], None, None)
+        mock_db.list_albums.return_value = ([], 0)
+        mock_db.log_discovery_run.return_value = None
+        mock_db.get_watched_artist_ids.return_value = set()
+
+        import server
+
+        with patch.object(server, "load_config", return_value={"check_storefronts": ["jp"], "home_storefront": "us"}):
+            server._do_poll()
+
+        types_called = [c.args[0] for c in mock_notif.enqueue.call_args_list]
+        self.assertIn("onDiscoveryFailed", types_called)
+
+    @patch("server.notifications")
+    @patch("server.db")
+    @patch("server._schedule_watchlist_next")
+    @patch("server.AppleMusicClient")
+    def test_watchlist_poll_no_notifications_when_no_transition(
+        self,
+        mock_client_cls,
+        mock_schedule,
+        mock_db,
+        mock_notif,
+    ):
+        mock_client = mock_client_cls.return_value
+        mock_db.get_artists_needing_refresh.return_value = [
+            {"artist_id": "ART1", "name": "A", "preferred_source": "us"},
+        ]
+        mock_client.get_artist_all_releases.return_value = ([], {"name": "A"})
+        mock_db.check_and_update_new_releases.return_value = None  # no transition
+
+        import server
+
+        server._do_watchlist_poll()
+
+        mock_notif.enqueue.assert_not_called()
+
+    @patch("server.notifications")
+    @patch("server.db")
+    @patch("server._schedule_watchlist_next")
+    @patch("server.AppleMusicClient")
+    def test_watchlist_poll_enqueues_per_release(
+        self,
+        mock_client_cls,
+        mock_schedule,
+        mock_db,
+        mock_notif,
+    ):
+        mock_client = mock_client_cls.return_value
+        mock_db.get_artists_needing_refresh.return_value = [
+            {"artist_id": "ART1", "name": "A", "preferred_source": "us"},
+        ]
+        mock_client.get_artist_all_releases.return_value = ([], {"name": "A"})
+        mock_db.check_and_update_new_releases.return_value = "2026-01-01"
+        mock_db.get_artist_info.return_value = {"name": "A"}
+        mock_db.get_new_releases_since.return_value = [
+            {
+                "store_adam_id": "S1",
+                "title": "Single",
+                "release_type": "singles-eps",
+                "storefronts": '["us"]',
+                "release_date": "2026-04-23",
+                "url": "u",
+                "track_count": 1,
+                "upc": "",
+                "description": "",
+            },
+            {
+                "store_adam_id": "A1",
+                "title": "Album",
+                "release_type": "main-albums",
+                "storefronts": '["us"]',
+                "release_date": "2026-04-23",
+                "url": "u",
+                "track_count": 12,
+                "upc": "",
+                "description": "",
+            },
+        ]
+
+        import server
+
+        server._do_watchlist_poll()
+
+        types_called = [c.args[0] for c in mock_notif.enqueue.call_args_list]
+        self.assertIn("onArtistNewSingle", types_called)
+        self.assertIn("onArtistNewRelease", types_called)
+
+
 if __name__ == "__main__":
     unittest.main()

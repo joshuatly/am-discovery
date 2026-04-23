@@ -113,6 +113,8 @@ beforeAll(() => {
     window.__test_artistCard               = artistCard;
     window.__test_buildPagination          = buildPagination;
     window.__test_sanitizeHtml             = sanitizeHtml;
+    window.__test_renderNotificationEvents = renderNotificationEvents;
+    window.__test_openNotificationEventModal = openNotificationEventModal;
   `;
   ctx.appWindow.document.head.appendChild(exposeScript);
 });

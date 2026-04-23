@@ -12,5 +12,11 @@
   "newrelease_poll_interval_days": 1,
   "watchlist_poll_interval_minutes": 10,
   "watchlist_poll_batch_size": 5,
-  "watchlist_refresh_interval_days": 7
+  "watchlist_refresh_interval_days": 7,
+  "notifications": {
+    "queue_max_size": 100,
+    "max_failures": 5,
+    "rate_limit_per_sec": 1,
+    "events": []
+  }
 }

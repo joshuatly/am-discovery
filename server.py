@@ -4,16 +4,20 @@ Run: uv run python server.py
 """
 
 import concurrent.futures
+import json
 import logging
 import os
 import threading
 import time
+from datetime import UTC, datetime
 
 from flasgger import Swagger
 from flask import Flask
 
 import db
+import notifications
 from api_artists import artists_bp
+from api_notifications import notifications_bp
 from api_releases import releases_bp
 from api_system import system_bp
 from api_utility import api_bp
@@ -38,6 +42,7 @@ app.register_blueprint(releases_bp)
 app.register_blueprint(artists_bp)
 app.register_blueprint(system_bp)
 app.register_blueprint(watchlist_bp)
+app.register_blueprint(notifications_bp)
 
 # ---------------------------------------------------------------------------
 # Polling logic
@@ -170,8 +175,20 @@ def _do_poll():
             if album and album.get("artist_id"):
                 discovered_artist_ids.add(album["artist_id"])
         for artist_id in discovered_artist_ids & watched_ids:
-            if db.check_and_update_new_releases(artist_id):
+            cutoff = db.check_and_update_new_releases(artist_id)
+            if cutoff:
                 logger.info("[Poll] Artist %s has new releases since collection was marked complete", artist_id)
+                _enqueue_artist_release_notifications(artist_id, cutoff)
+
+        # 6. Notifications for the discovery cycle as a whole
+        _fire_discovery_cycle_notifications(
+            ran_at=ran_at,
+            storefronts=storefronts,
+            all_releases=all_releases,
+            new_ids_set=new_ids_set,
+            room_ids=room_ids,
+            room_errors=room_errors,
+        )
 
     except Exception as e:
         logger.error("[Poll] Error: %s", e)
@@ -282,11 +299,13 @@ def _do_watchlist_poll():
                     list(ex.map(fetch_one, releases))
 
                 db.mark_artist_refreshed(artist_id)
-                if db.check_and_update_new_releases(artist_id):
+                cutoff = db.check_and_update_new_releases(artist_id)
+                if cutoff:
                     logger.info(
                         "[WatchlistPoll] %s has new releases since collection was marked complete",
                         artist.get("name"),
                     )
+                    _enqueue_artist_release_notifications(artist_id, cutoff)
                 logger.info("[WatchlistPoll] Refreshed %s (%d releases)", artist.get("name"), len(releases))
 
             except Exception as e:
@@ -318,12 +337,77 @@ def _schedule_watchlist_next(override_delay=None):
 # ---------------------------------------------------------------------------
 
 
+def _enqueue_artist_release_notifications(artist_id: str, cutoff: str) -> None:
+    """Enqueue per-release notifications for an artist that just transitioned to ``new_release``."""
+    info = db.get_artist_info(artist_id) or {}
+    artist_name = info.get("name", "")
+    for r in db.get_new_releases_since(artist_id, cutoff):
+        rt = r.get("release_type") or ""
+        event = "onArtistNewSingle" if rt == "singles-eps" else "onArtistNewRelease"
+        try:
+            sf_list = json.loads(r.get("storefronts") or "[]")
+        except (TypeError, ValueError):
+            sf_list = []
+        notifications.enqueue(
+            event,
+            {
+                "artist": artist_name,
+                "artist_id": artist_id,
+                "title": r.get("title", ""),
+                "track_count": r.get("track_count") or 0,
+                "upc": r.get("upc") or "",
+                "url": r.get("url") or "",
+                "storefronts": ", ".join(sf_list),
+                "store_adam_id": r.get("store_adam_id") or "",
+                "release_date": r.get("release_date") or "",
+                "release_type": rt,
+                "description": (r.get("description") or "").strip(),
+            },
+        )
+
+
+def _fire_discovery_cycle_notifications(
+    *,
+    ran_at: int,
+    storefronts: list[str],
+    all_releases: dict,
+    new_ids_set: set,
+    room_ids: dict,
+    room_errors: list,
+) -> None:
+    sf_new = {
+        sf: sum(1 for aid in all_releases if sf in all_releases[aid].get("storefronts", []) and aid in new_ids_set)
+        for sf in storefronts
+    }
+    summary = "\n".join(f"{sf.upper()}: {n} new" for sf, n in sf_new.items())
+    ran_at_human = datetime.fromtimestamp(ran_at, tz=UTC).strftime("%Y-%m-%d %H:%M UTC")
+    notifications.enqueue(
+        "onDiscoveryComplete",
+        {
+            "run_at": ran_at_human,
+            "new_count": len(new_ids_set),
+            "storefronts": ", ".join(storefronts),
+            "summary": summary,
+            "room_ids": ", ".join(room_ids.get(sf, "") for sf in storefronts),
+        },
+    )
+    if room_errors:
+        notifications.enqueue(
+            "onDiscoveryFailed",
+            {
+                "run_at": ran_at_human,
+                "storefronts": ", ".join(room_errors),
+            },
+        )
+
+
 def init_scheduler():
     """Initialise the database and start background polling timers.
 
     Called by both main() and the gunicorn WSGI entry point (wsgi.py).
     """
     db.init_db()
+    notifications.init()
 
     cfg = load_config()
     interval_sec = cfg.get("newrelease_poll_interval_days", 1) * 86400
