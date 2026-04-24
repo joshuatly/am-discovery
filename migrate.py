@@ -124,6 +124,20 @@ MIGRATIONS = {
         -- Version 15: record the editorial room's lastModifiedDate from the amp-api response.
         ALTER TABLE discovery_runs ADD COLUMN room_last_modified TEXT;
     """,
+    16: """
+        -- Version 16: track watchlist batch refresh history, one row per batch run.
+        CREATE TABLE IF NOT EXISTS watchlist_runs (
+            id                INTEGER PRIMARY KEY AUTOINCREMENT,
+            ran_at            INTEGER,
+            batch_size        INTEGER DEFAULT 0,
+            refreshed_count   INTEGER DEFAULT 0,
+            error_count       INTEGER DEFAULT 0,
+            refreshed_artists TEXT,
+            failed_artists    TEXT,
+            pending_count     INTEGER DEFAULT 0,
+            next_run_at       INTEGER
+        );
+    """,
 }
 
 

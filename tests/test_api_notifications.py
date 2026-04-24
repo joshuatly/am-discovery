@@ -147,14 +147,20 @@ class TestTest(NotificationsApiTestCase):
 
 
 class TestEventTypes(NotificationsApiTestCase):
-    def test_GET_event_types_returns_all_four(self):
+    def test_GET_event_types_returns_all_known(self):
         resp = self.client.get("/api/notifications/event-types")
         self.assertEqual(resp.status_code, 200)
         body = resp.get_json()
         types = [t["event_type"] for t in body["types"]]
         self.assertEqual(
             set(types),
-            {"onDiscoveryComplete", "onDiscoveryFailed", "onArtistNewRelease", "onArtistNewSingle"},
+            {
+                "onDiscoveryComplete",
+                "onDiscoveryFailed",
+                "onArtistNewRelease",
+                "onArtistNewSingle",
+                "onWatchlistBatchComplete",
+            },
         )
 
 

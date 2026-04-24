@@ -24,7 +24,7 @@ import urllib.error
 import urllib.request
 import uuid
 
-from config import CONFIG_LOCK, load_config, save_config
+from config import CONFIG_LOCK, format_local_time, load_config, save_config
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +38,7 @@ EVENT_TYPES = [
     "onDiscoveryFailed",
     "onArtistNewRelease",
     "onArtistNewSingle",
+    "onWatchlistBatchComplete",
 ]
 
 NOTIFICATION_TYPES = ["info", "success", "warning", "failure"]
@@ -62,6 +63,16 @@ DEFAULT_TEMPLATES: dict[str, dict] = {
         "title": "New single from {artist}",
         "body": '{artist} just released "{title}" ({release_date})\n{url}',
         "notification_type": "success",
+    },
+    "onWatchlistBatchComplete": {
+        "title": "AM Discovery: watchlist batch refreshed ({refreshed_count}/{batch_size})",
+        "body": (
+            "Run at {run_at}\n"
+            "Refreshed: {refreshed_artists}\n"
+            "Pending: {pending_count} artists\n"
+            "Next batch: {next_run_at}"
+        ),
+        "notification_type": "info",
     },
 }
 
@@ -93,6 +104,16 @@ EVENT_VARIABLES: dict[str, list[str]] = {
         "release_date",
         "release_type",
         "description",
+    ],
+    "onWatchlistBatchComplete": [
+        "run_at",
+        "batch_size",
+        "refreshed_count",
+        "error_count",
+        "refreshed_artists",
+        "failed_artists",
+        "pending_count",
+        "next_run_at",
     ],
 }
 
@@ -133,6 +154,16 @@ SAMPLE_VARIABLES: dict[str, dict] = {
         "release_date": "2026-04-23",
         "release_type": "singles-eps",
         "description": "Sample single description.",
+    },
+    "onWatchlistBatchComplete": {
+        "run_at": "2026-04-23 14:30 UTC",
+        "batch_size": 5,
+        "refreshed_count": 4,
+        "error_count": 1,
+        "refreshed_artists": "Taylor Swift, IU, YOASOBI, LiSA",
+        "failed_artists": "aespa",
+        "pending_count": 12,
+        "next_run_at": "2026-04-23 14:40 UTC",
     },
 }
 
@@ -342,11 +373,23 @@ def enqueue(event_type: str, variables: dict) -> None:
                 logger.warning("[notifications] queue still full; dropping new item")
 
 
+def _build_sample_variables(event_type: str) -> dict:
+    """Build sample variables for an event type, injecting live timezone-formatted
+    timestamps so test notifications reflect the configured ``timezone``."""
+    variables = dict(SAMPLE_VARIABLES.get(event_type, {}))
+    if event_type in ("onDiscoveryComplete", "onDiscoveryFailed", "onWatchlistBatchComplete"):
+        now = time.time()
+        variables["run_at"] = format_local_time(now)
+        if event_type == "onWatchlistBatchComplete":
+            variables["next_run_at"] = format_local_time(now + 600)
+    return variables
+
+
 def send_test(event: dict, variables: dict | None = None) -> tuple[bool, str]:
     """Synchronously send a test notification; bypasses the queue."""
     event_type = event.get("event_type")
     if variables is None:
-        variables = SAMPLE_VARIABLES.get(event_type, {})
+        variables = _build_sample_variables(event_type)
     item = _render(event, variables)
     item["title"] = f"[TEST] {item['title']}"
     payload = {"body": item["body"], "title": item["title"], "type": item["notification_type"]}

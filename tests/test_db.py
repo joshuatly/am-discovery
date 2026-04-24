@@ -980,6 +980,97 @@ class TestDiscoveryRuns(DBTestCase):
 
 
 # ---------------------------------------------------------------------------
+# count_artists_needing_refresh / log_watchlist_run / get_watchlist_runs
+# ---------------------------------------------------------------------------
+
+
+class TestWatchlistHelpers(DBTestCase):
+    def _insert(self, artist_id: str, last_refreshed):
+        self.db.add_to_watchlist(artist_id, f"name-{artist_id}", None)
+        if last_refreshed is not None:
+            with self.db.get_conn() as conn:
+                conn.execute(
+                    "UPDATE watched_artists SET last_refreshed = ? WHERE artist_id = ?",
+                    (last_refreshed, artist_id),
+                )
+
+    def test_count_artists_needing_refresh_counts_null_and_stale(self):
+        now = int(time.time())
+        self._insert("A1", None)  # never refreshed
+        self._insert("A2", now - 10 * 86400)  # stale (>7 days)
+        self._insert("A3", now - 1 * 86400)  # fresh
+        self.assertEqual(self.db.count_artists_needing_refresh(7), 2)
+
+    def test_count_artists_needing_refresh_respects_interval(self):
+        now = int(time.time())
+        self._insert("A1", now - 3 * 86400)
+        self.assertEqual(self.db.count_artists_needing_refresh(1), 1)
+        self.assertEqual(self.db.count_artists_needing_refresh(7), 0)
+
+    def test_log_and_get_watchlist_runs_roundtrip(self):
+        self.db.log_watchlist_run(
+            batch_size=3,
+            refreshed_artists=["Alice", "Bob"],
+            failed_artists=["Carol"],
+            pending_count=7,
+            next_run_at=1700000000,
+        )
+        runs = self.db.get_watchlist_runs()
+        self.assertEqual(len(runs), 1)
+        r = runs[0]
+        self.assertEqual(r["batch_size"], 3)
+        self.assertEqual(r["refreshed_count"], 2)
+        self.assertEqual(r["error_count"], 1)
+        self.assertEqual(r["refreshed_artists"], ["Alice", "Bob"])
+        self.assertEqual(r["failed_artists"], ["Carol"])
+        self.assertEqual(r["pending_count"], 7)
+        self.assertEqual(r["next_run_at"], 1700000000)
+
+    def test_get_watchlist_runs_respects_limit_and_order(self):
+        for i in range(5):
+            self.db.log_watchlist_run(
+                batch_size=1,
+                refreshed_artists=[f"Artist{i}"],
+                failed_artists=[],
+                pending_count=i,
+                next_run_at=1700000000 + i,
+            )
+        runs = self.db.get_watchlist_runs(limit=2)
+        self.assertEqual(len(runs), 2)
+        # most recent first
+        self.assertEqual(runs[0]["refreshed_artists"], ["Artist4"])
+        self.assertEqual(runs[1]["refreshed_artists"], ["Artist3"])
+
+    def test_get_watchlist_runs_empty(self):
+        self.assertEqual(self.db.get_watchlist_runs(), [])
+
+    def test_log_watchlist_run_prunes_rows_older_than_retention(self):
+        now = int(time.time())
+        # Insert an old row well past the retention window
+        old = now - (self.db.WATCHLIST_RUNS_RETENTION_DAYS + 5) * 86400
+        self.db.log_watchlist_run(
+            batch_size=1,
+            refreshed_artists=["Old"],
+            failed_artists=[],
+            pending_count=0,
+            next_run_at=old + 600,
+            ran_at=old,
+        )
+        # Insert a fresh row — this write triggers the prune
+        self.db.log_watchlist_run(
+            batch_size=1,
+            refreshed_artists=["Fresh"],
+            failed_artists=[],
+            pending_count=0,
+            next_run_at=now + 600,
+            ran_at=now,
+        )
+        runs = self.db.get_watchlist_runs()
+        self.assertEqual(len(runs), 1)
+        self.assertEqual(runs[0]["refreshed_artists"], ["Fresh"])
+
+
+# ---------------------------------------------------------------------------
 # get_conn — transactional behaviour
 # ---------------------------------------------------------------------------
 

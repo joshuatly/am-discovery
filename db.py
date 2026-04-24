@@ -27,7 +27,7 @@ def get_conn():
         conn.close()
 
 
-SCHEMA_VERSION = 15
+SCHEMA_VERSION = 16
 
 # Valid collection_status values and allowed transitions
 COLLECTION_STATUSES = {"new", "complete", "new_release", "in_progress"}
@@ -108,6 +108,18 @@ def init_db():
                     room_last_modified  TEXT,
                     new_count           INTEGER DEFAULT 0,
                     total_count         INTEGER DEFAULT 0
+                );
+
+                CREATE TABLE IF NOT EXISTS watchlist_runs (
+                    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+                    ran_at            INTEGER,
+                    batch_size        INTEGER DEFAULT 0,
+                    refreshed_count   INTEGER DEFAULT 0,
+                    error_count       INTEGER DEFAULT 0,
+                    refreshed_artists TEXT,
+                    failed_artists    TEXT,
+                    pending_count     INTEGER DEFAULT 0,
+                    next_run_at       INTEGER
                 );
 
                 PRAGMA user_version = {SCHEMA_VERSION};
@@ -407,6 +419,17 @@ def get_artists_needing_refresh(batch_size: int = 5, refresh_interval_days: int 
         return [dict(r) for r in rows]
 
 
+def count_artists_needing_refresh(refresh_interval_days: int = 7) -> int:
+    """Return total count of watched artists that need refreshing."""
+    cutoff = int(time.time()) - (refresh_interval_days * 86400)
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT COUNT(*) FROM watched_artists WHERE last_refreshed IS NULL OR last_refreshed < ?",
+            (cutoff,),
+        ).fetchone()
+        return row[0] if row else 0
+
+
 def update_preferred_source(artist_id: str, preferred_source):
     """Set (or clear) the preferred metadata source for a watched artist."""
     with get_conn() as conn:
@@ -616,6 +639,62 @@ def get_discovery_runs(limit: int = 200) -> list[dict]:
     with get_conn() as conn:
         rows = conn.execute("SELECT * FROM discovery_runs ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
         return [dict(r) for r in rows]
+
+
+WATCHLIST_RUNS_RETENTION_DAYS = 30
+
+
+def log_watchlist_run(
+    *,
+    batch_size: int,
+    refreshed_artists: list[str],
+    failed_artists: list[str],
+    pending_count: int,
+    next_run_at: int,
+    ran_at: int | None = None,
+):
+    when = int(time.time()) if ran_at is None else int(ran_at)
+    cutoff = when - WATCHLIST_RUNS_RETENTION_DAYS * 86400
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT INTO watchlist_runs "
+            "(ran_at, batch_size, refreshed_count, error_count, "
+            "refreshed_artists, failed_artists, pending_count, next_run_at) "
+            "VALUES (?,?,?,?,?,?,?,?)",
+            (
+                when,
+                batch_size,
+                len(refreshed_artists),
+                len(failed_artists),
+                json.dumps(refreshed_artists),
+                json.dumps(failed_artists),
+                pending_count,
+                int(next_run_at),
+            ),
+        )
+        # Auto-prune rows older than the retention window on every write.
+        # Watchlist batches run ~every 10 min, so this costs ~microseconds.
+        conn.execute("DELETE FROM watchlist_runs WHERE ran_at < ?", (cutoff,))
+
+
+def get_watchlist_runs(limit: int = 200) -> list[dict]:
+    """Return recent watchlist batch runs, most recent first.
+
+    ``refreshed_artists`` and ``failed_artists`` are deserialised from JSON.
+    """
+    with get_conn() as conn:
+        rows = conn.execute("SELECT * FROM watchlist_runs ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
+    out = []
+    for r in rows:
+        d = dict(r)
+        for key in ("refreshed_artists", "failed_artists"):
+            raw = d.get(key)
+            try:
+                d[key] = json.loads(raw) if raw else []
+            except (TypeError, ValueError):
+                d[key] = []
+        out.append(d)
+    return out
 
 
 def search_albums(

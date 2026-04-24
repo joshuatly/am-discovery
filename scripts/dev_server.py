@@ -3,6 +3,12 @@
 Works correctly in git worktrees by using `git rev-parse --show-toplevel`
 on the common git dir, which always resolves to the main repo regardless of
 which worktree this script is run from.
+
+Imports server as a normal module rather than exec'ing it with ``__name__ ==
+"__main__"``. Exec'ing creates two distinct module objects when the API
+blueprints later ``import server`` — scheduler state set on one copy is
+invisible to the other, causing bugs like ``/api/system/status`` returning a
+stale ``_next_run_at``.
 """
 
 import os
@@ -27,7 +33,13 @@ try:
 except Exception:
     pass  # fall back to server.py's own default
 
-server_py = os.path.join(_repo_root, "server.py")
-sys.argv = [server_py, "--debug"] + sys.argv[1:]
-with open(server_py) as f:
-    exec(compile(f.read(), server_py, "exec"), {"__file__": server_py, "__name__": "__main__"})
+# Add repo root to sys.path so ``import server`` resolves.
+if _repo_root not in sys.path:
+    sys.path.insert(0, _repo_root)
+
+# Forward remaining CLI args to server.main() via sys.argv.
+sys.argv = ["server.py", "--debug"] + sys.argv[1:]
+
+import server  # noqa: E402
+
+server.main()

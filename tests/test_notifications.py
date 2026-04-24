@@ -184,6 +184,36 @@ class TestEnqueue(NotificationsTestCase):
         item = q.get()
         self.assertIn("Second", item["title"])
 
+    def test_enqueue_watchlist_batch_complete_renders(self):
+        import notifications
+
+        notifications.create_event(
+            {
+                "event_type": "onWatchlistBatchComplete",
+                "apprise_url": "http://x",
+                "title_template": "batch {refreshed_count}/{batch_size}",
+                "body_template": "did {refreshed_artists}; pending {pending_count}; next {next_run_at}",
+            },
+        )
+        q = self._make_queue()
+        notifications.enqueue(
+            "onWatchlistBatchComplete",
+            {
+                "run_at": "2026-04-24 14:30 UTC",
+                "batch_size": 3,
+                "refreshed_count": 2,
+                "error_count": 1,
+                "refreshed_artists": "Alice, Bob",
+                "failed_artists": "Carol",
+                "pending_count": 7,
+                "next_run_at": "2026-04-24 14:40 UTC",
+            },
+        )
+        self.assertEqual(q.qsize(), 1)
+        item = q.get()
+        self.assertEqual(item["title"], "batch 2/3")
+        self.assertEqual(item["body"], "did Alice, Bob; pending 7; next 2026-04-24 14:40 UTC")
+
 
 # ---------------------------------------------------------------------------
 # send_test
@@ -237,6 +267,27 @@ class TestSendTest(NotificationsTestCase):
         ok, msg = notifications.send_test(ev)
         self.assertFalse(ok)
         self.assertIn("empty", msg)
+
+    def test_test_notification_uses_configured_timezone(self):
+        import config
+        import notifications
+
+        config.save_config({"timezone": "Asia/Hong_Kong"})
+        ev = notifications.create_event(
+            {
+                "event_type": "onWatchlistBatchComplete",
+                "apprise_url": "http://x/notify/y",
+                "title_template": "{run_at}",
+                "body_template": "next {next_run_at}",
+            },
+        )
+        with patch("urllib.request.urlopen", return_value=self._mock_response()) as m:
+            ok, _ = notifications.send_test(ev)
+        self.assertTrue(ok)
+        sent = m.call_args[0][0]
+        body = json.loads(sent.data.decode())
+        self.assertIn("HKT", body["title"])
+        self.assertIn("HKT", body["body"])
 
 
 # ---------------------------------------------------------------------------

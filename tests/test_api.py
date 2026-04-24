@@ -10,6 +10,7 @@ import json
 import os
 import tempfile
 import threading as _real_threading
+import time
 import unittest
 import unittest.mock
 from unittest.mock import patch
@@ -505,8 +506,9 @@ class TestApiConfig(ServerTestCase):
         self.assertIn("newrelease_poll_interval_days", data)
         self.assertIn("check_storefronts", data)
 
+    @patch("server.db.get_last_run", return_value=None)
     @patch("server._schedule_next")
-    def test_put_config_saves_and_reschedules(self, mock_schedule):
+    def test_put_config_saves_and_reschedules(self, mock_schedule, _mock_get_last_run):
         new_cfg = {"newrelease_poll_interval_days": 1, "check_storefronts": ["us"]}
         resp = self.client.put(
             "/api/system/config",
@@ -517,8 +519,9 @@ class TestApiConfig(ServerTestCase):
         self.assertTrue(resp.get_json()["ok"])
         mock_schedule.assert_called_once()
 
+    @patch("server.db.get_last_run", return_value=None)
     @patch("server._schedule_next")
-    def test_put_config_persists(self, mock_schedule):
+    def test_put_config_persists(self, mock_schedule, _mock_get_last_run):
         new_cfg = {"newrelease_poll_interval_days": 2, "check_storefronts": ["us"]}
         self.client.put(
             "/api/system/config",
@@ -529,8 +532,9 @@ class TestApiConfig(ServerTestCase):
         data = resp.get_json()
         self.assertEqual(data["newrelease_poll_interval_days"], 2)
 
+    @patch("server.db.get_last_run", return_value=None)
     @patch("server._schedule_next")
-    def test_put_config_preserves_notifications_events(self, mock_schedule):
+    def test_put_config_preserves_notifications_events(self, mock_schedule, _mock_get_last_run):
         # Simulates the bug: Settings page loads cfg at T0 (no events), user adds
         # an event via the modal → config.json now has it, then user clicks Save
         # Config which echoes the stale notifications block. The PUT must not
@@ -1003,6 +1007,78 @@ class TestApiStatusWatchlist(ServerTestCase):
         self.assertIn("watchlist_poll_running", data)
         self.assertIn("watchlist_poll_interval_minutes", data)
 
+    @patch("api_system.db")
+    def test_status_includes_human_timestamps(self, mock_db):
+        import server
+
+        mock_db.get_last_run.return_value = {"ran_at": 1700000000, "new_count": 2}
+        mock_db.list_albums.return_value = ([], 0)
+        # Simulate scheduler having set a future next_run_at
+        server._next_run_at = 1700086400
+
+        resp = self.client.get("/api/system/status")
+        data = resp.get_json()
+        self.assertEqual(data["next_run_at"], 1700086400)
+        self.assertIsInstance(data["next_run_at_human"], str)
+        self.assertIn("UTC", data["next_run_at_human"])
+        self.assertEqual(data["last_run"]["ran_at"], 1700000000)
+        self.assertIn("UTC", data["last_run"]["ran_at_human"])
+
+    @patch("api_system.db")
+    def test_status_next_run_at_not_null_during_initial_poll(self, mock_db):
+        """Regression: _next_run_at was 0.0 between startup and first _schedule_next,
+        making /api/system/status return null. trigger_poll_now now sets it to now().
+        """
+        import server
+
+        mock_db.get_last_run.return_value = None
+        mock_db.list_albums.return_value = ([], 0)
+        server._next_run_at = 0.0
+
+        with patch("server._do_poll"):
+            server.trigger_poll_now()
+
+        resp = self.client.get("/api/system/status")
+        data = resp.get_json()
+        self.assertIsNotNone(data["next_run_at"])
+        self.assertIsNotNone(data["next_run_at_human"])
+
+    @patch("server.db")
+    @patch("api_system.db")
+    def test_status_next_run_at_anchored_to_last_run_when_initial_poll_skipped(
+        self,
+        mock_api_db,
+        mock_server_db,
+    ):
+        """When init_scheduler sees a recent last_run, it calls _schedule_next with
+        (interval - elapsed). The resulting _next_run_at = time.time() + delay must
+        equal last_run.ran_at + interval_sec, anchoring the cadence to the last run.
+        """
+        import server
+
+        # Last run was 6h ago; interval is 1 day → next run should fire 18h from now
+        # AND at last_run + 24h exactly (within a second).
+        last_ran_at = int(time.time()) - 6 * 3600
+        interval_sec = 86400
+        mock_server_db.get_last_run.return_value = {"ran_at": last_ran_at}
+        mock_server_db.list_albums.return_value = ([], 0)
+        mock_api_db.get_last_run.return_value = {"ran_at": last_ran_at}
+        mock_api_db.list_albums.return_value = ([], 0)
+        server._next_run_at = 0.0
+        server._is_running = False
+
+        with (
+            patch.object(server, "load_config", return_value={"newrelease_poll_interval_days": 1}),
+            patch("server.threading.Timer"),  # don't actually fire
+        ):
+            server.init_scheduler()
+
+        resp = self.client.get("/api/system/status")
+        data = resp.get_json()
+        self.assertIsNotNone(data["next_run_at"])
+        # Within 2 seconds of last_run + interval
+        self.assertAlmostEqual(data["next_run_at"], last_ran_at + interval_sec, delta=2)
+
 
 # ---------------------------------------------------------------------------
 # GET /api/search/artists/local
@@ -1336,6 +1412,19 @@ class TestApiDiscoveryStatus(ServerTestCase):
         self.assertEqual(data["runs"][0]["room_id"], "999")
 
     @patch("api_system.db")
+    def test_ran_at_human_added_alongside_unix(self, mock_db):
+        mock_db.get_discovery_runs.return_value = [
+            {"id": 1, "ran_at": 1700000000, "storefront": "us", "room_id": "1", "new_count": 0, "total_count": 0},
+        ]
+        resp = self.client.get("/api/system/discovery")
+        row = resp.get_json()["runs"][0]
+        # Raw unix preserved so consumers doing client-side time math still work
+        self.assertEqual(row["ran_at"], 1700000000)
+        # Human-readable added alongside
+        self.assertIsInstance(row["ran_at_human"], str)
+        self.assertIn("UTC", row["ran_at_human"])
+
+    @patch("api_system.db")
     def test_empty_runs(self, mock_db):
         mock_db.get_discovery_runs.return_value = []
         resp = self.client.get("/api/system/discovery")
@@ -1355,6 +1444,67 @@ class TestApiDiscoveryStatus(ServerTestCase):
         mock_db.get_discovery_runs.return_value = []
         self.client.get("/api/system/discovery?limit=abc")
         mock_db.get_discovery_runs.assert_called_once_with(limit=200)
+
+
+class TestApiWatchlistLog(ServerTestCase):
+    @patch("api_system.db")
+    def test_returns_runs_and_count(self, mock_db):
+        mock_db.get_watchlist_runs.return_value = [
+            {
+                "id": 2,
+                "ran_at": 1700086400,
+                "batch_size": 2,
+                "refreshed_count": 2,
+                "error_count": 0,
+                "refreshed_artists": ["Alice", "Bob"],
+                "failed_artists": [],
+                "pending_count": 3,
+                "next_run_at": 1700087000,
+            },
+            {
+                "id": 1,
+                "ran_at": 1700000000,
+                "batch_size": 1,
+                "refreshed_count": 0,
+                "error_count": 1,
+                "refreshed_artists": [],
+                "failed_artists": ["Carol"],
+                "pending_count": 5,
+                "next_run_at": 1700000600,
+            },
+        ]
+        resp = self.client.get("/api/system/watchlist_log")
+        self.assertEqual(resp.status_code, 200)
+        data = resp.get_json()
+        self.assertEqual(data["count"], 2)
+        row = data["runs"][0]
+        self.assertEqual(row["refreshed_artists"], ["Alice", "Bob"])
+        # Raw unix preserved alongside new human-readable fields
+        self.assertEqual(row["ran_at"], 1700086400)
+        self.assertEqual(row["next_run_at"], 1700087000)
+        self.assertIsInstance(row["ran_at_human"], str)
+        self.assertIsInstance(row["next_run_at_human"], str)
+
+    @patch("api_system.db")
+    def test_empty_runs(self, mock_db):
+        mock_db.get_watchlist_runs.return_value = []
+        resp = self.client.get("/api/system/watchlist_log")
+        self.assertEqual(resp.status_code, 200)
+        data = resp.get_json()
+        self.assertEqual(data["runs"], [])
+        self.assertEqual(data["count"], 0)
+
+    @patch("api_system.db")
+    def test_limit_param_forwarded(self, mock_db):
+        mock_db.get_watchlist_runs.return_value = []
+        self.client.get("/api/system/watchlist_log?limit=50")
+        mock_db.get_watchlist_runs.assert_called_once_with(limit=50)
+
+    @patch("api_system.db")
+    def test_invalid_limit_defaults_to_200(self, mock_db):
+        mock_db.get_watchlist_runs.return_value = []
+        self.client.get("/api/system/watchlist_log?limit=abc")
+        mock_db.get_watchlist_runs.assert_called_once_with(limit=200)
 
 
 # ---------------------------------------------------------------------------
