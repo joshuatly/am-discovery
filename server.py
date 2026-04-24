@@ -7,9 +7,9 @@ import concurrent.futures
 import json
 import logging
 import os
+import sys
 import threading
 import time
-from datetime import UTC, datetime
 
 from flasgger import Swagger
 from flask import Flask
@@ -23,7 +23,7 @@ from api_system import system_bp
 from api_utility import api_bp
 from api_watchlist import watchlist_bp
 from client import AppleMusicClient
-from config import CONFIG_PATH, load_config, save_config  # noqa: F401
+from config import CONFIG_PATH, format_local_time, load_config, save_config  # noqa: F401
 
 # ---------------------------------------------------------------------------
 # App setup
@@ -221,11 +221,14 @@ def _schedule_next(override_delay=None):
 
 def trigger_poll_now():
     """Cancel any pending timer and run immediately in a thread."""
-    global _poll_timer
+    global _poll_timer, _next_run_at
     with _scheduler_lock:
         if _poll_timer:
             _poll_timer.cancel()
             _poll_timer = None
+    # Represent the in-flight poll as "running now" so /api/system/status doesn't
+    # report null until _schedule_next runs in _do_poll's finally block.
+    _next_run_at = time.time()
     t = threading.Thread(target=_do_poll, daemon=True)
     t.start()
 
@@ -275,6 +278,8 @@ def _do_watchlist_poll():
 
         logger.info("[WatchlistPoll] Refreshing %d artists", len(artists))
         client = AppleMusicClient()
+        refreshed_names: list[str] = []
+        failed_names: list[str] = []
 
         for artist in artists:
             artist_id = artist["artist_id"]
@@ -334,9 +339,36 @@ def _do_watchlist_poll():
                     )
                     _enqueue_artist_release_notifications(artist_id, cutoff)
                 logger.info("[WatchlistPoll] Refreshed %s (%d releases)", artist.get("name"), len(releases))
+                refreshed_names.append(artist.get("name") or artist_id)
 
             except Exception as e:
                 logger.error("[WatchlistPoll] Error refreshing %s: %s", artist.get("name"), e)
+                failed_names.append(artist.get("name") or artist_id)
+
+        try:
+            now = time.time()
+            interval_min = cfg.get("watchlist_poll_interval_minutes", 10)
+            next_run_ts = now + interval_min * 60
+            pending_count = db.count_artists_needing_refresh(refresh_days)
+            db.log_watchlist_run(
+                batch_size=len(artists),
+                refreshed_artists=refreshed_names,
+                failed_artists=failed_names,
+                pending_count=pending_count,
+                next_run_at=int(next_run_ts),
+                ran_at=int(now),
+            )
+            if refreshed_names:
+                _fire_watchlist_batch_notification(
+                    refreshed_names=refreshed_names,
+                    failed_names=failed_names,
+                    batch_size=len(artists),
+                    pending_count=pending_count,
+                    run_at_ts=now,
+                    next_run_ts=next_run_ts,
+                )
+        except Exception as e:
+            logger.error("[WatchlistPoll] Error logging/notifying batch: %s", e)
 
     except Exception as e:
         logger.error("[WatchlistPoll] Error: %s", e)
@@ -393,6 +425,33 @@ def _enqueue_artist_release_notifications(artist_id: str, cutoff: str) -> None:
         )
 
 
+def _fire_watchlist_batch_notification(
+    *,
+    refreshed_names: list[str],
+    failed_names: list[str],
+    batch_size: int,
+    pending_count: int,
+    run_at_ts: float,
+    next_run_ts: float,
+) -> None:
+    """Fire a notification summarising a watchlist batch that refreshed at least one artist."""
+    run_at_human = format_local_time(run_at_ts)
+    next_run_at_human = format_local_time(next_run_ts)
+    notifications.enqueue(
+        "onWatchlistBatchComplete",
+        {
+            "run_at": run_at_human,
+            "batch_size": batch_size,
+            "refreshed_count": len(refreshed_names),
+            "error_count": len(failed_names),
+            "refreshed_artists": ", ".join(refreshed_names),
+            "failed_artists": ", ".join(failed_names),
+            "pending_count": pending_count,
+            "next_run_at": next_run_at_human,
+        },
+    )
+
+
 def _fire_discovery_cycle_notifications(
     *,
     ran_at: int,
@@ -407,7 +466,7 @@ def _fire_discovery_cycle_notifications(
         for sf in storefronts
     }
     summary = "\n".join(f"{sf.upper()}: {n} new" for sf, n in sf_new.items())
-    ran_at_human = datetime.fromtimestamp(ran_at, tz=UTC).strftime("%Y-%m-%d %H:%M UTC")
+    ran_at_human = format_local_time(ran_at)
     notifications.enqueue(
         "onDiscoveryComplete",
         {
@@ -479,4 +538,14 @@ def main():
 
 
 if __name__ == "__main__":
+    # When invoked as a script (``python server.py``), Python registers this
+    # module as ``__main__``. Any later ``import server`` inside Flask route
+    # handlers (e.g. the ``_server()`` helper in ``api_system.py``) would
+    # otherwise load server.py a SECOND time as a distinct ``server`` module.
+    # The scheduler mutates globals on ``__main__`` but the API would read
+    # them from the duplicate ``server`` module — so ``_next_run_at`` /
+    # ``_is_running`` / ``_last_room_errors`` / ``_watchlist_running`` appear
+    # stuck at their initial state. Alias ``sys.modules["server"]`` to this
+    # module so the two names resolve to the same object.
+    sys.modules["server"] = sys.modules[__name__]
     main()

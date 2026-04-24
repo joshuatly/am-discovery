@@ -201,6 +201,32 @@ async function renderSettings(main) {
   cliPresetGroup.appendChild(cliPresetInput);
   form.appendChild(cliPresetGroup);
 
+  // Timezone
+  const tzGroup = el("div");
+  tzGroup.style.display = "flex";
+  tzGroup.style.flexDirection = "column";
+  tzGroup.style.gap = "8px";
+  const tzLabel = el("label", "", "Timezone");
+  tzLabel.style.fontWeight = "600";
+  const tzDesc = el(
+    "p",
+    "",
+    "IANA timezone name used to format timestamps in notifications and API responses. " +
+      "Examples: UTC, Asia/Hong_Kong, America/New_York, Europe/London. Defaults to UTC.",
+  );
+  tzDesc.style.fontSize = "12px";
+  tzDesc.style.color = "var(--text-dim)";
+  tzDesc.style.margin = "0";
+  tzGroup.appendChild(tzLabel);
+  tzGroup.appendChild(tzDesc);
+  const tzInput = el("input", "search-input");
+  tzInput.type = "text";
+  tzInput.value = cfg.timezone || "UTC";
+  tzInput.placeholder = "UTC";
+  tzInput.style.maxWidth = "240px";
+  tzGroup.appendChild(tzInput);
+  form.appendChild(tzGroup);
+
   const errorMsg = el("div", "");
   errorMsg.style.color = "red";
   errorMsg.style.display = "none";
@@ -267,6 +293,7 @@ async function renderSettings(main) {
         cors_proxy: parsedProxy,
         cli_scheduler_url: cliUrlInput.value.trim(),
         cli_scheduler_preset: cliPresetInput.value.trim(),
+        timezone: tzInput.value.trim() || "UTC",
       };
 
       await API.put("/api/system/config", newCfg);
@@ -347,6 +374,7 @@ const NOTIF_EVENT_LABELS = {
   onDiscoveryFailed: "Discovery failed",
   onArtistNewRelease: "Watched artist: new release",
   onArtistNewSingle: "Watched artist: new single",
+  onWatchlistBatchComplete: "Watchlist batch complete",
 };
 
 function _notifTruncateUrl(url, max = 40) {

@@ -69,6 +69,42 @@ class TestConfigHelpers(ServerTestCase):
         loaded = config.load_config()
         self.assertIn("check_storefronts", loaded)
 
+    def test_default_timezone_is_utc(self):
+        import config
+
+        cfg = config.load_config()
+        self.assertEqual(cfg["timezone"], "UTC")
+
+
+class TestFormatLocalTime(ServerTestCase):
+    def test_uses_utc_by_default(self):
+        import config
+
+        result = config.format_local_time(1700000000)
+        self.assertIn("UTC", result)
+        self.assertTrue(result.startswith("2023-"))
+
+    def test_uses_configured_timezone(self):
+        import config
+
+        config.save_config({"timezone": "Asia/Hong_Kong"})
+        result = config.format_local_time(1700000000)
+        self.assertIn("HKT", result)
+
+    def test_invalid_timezone_falls_back_to_utc(self):
+        import config
+
+        config.save_config({"timezone": "Not/A/Zone"})
+        result = config.format_local_time(1700000000)
+        self.assertIn("UTC", result)
+
+    def test_empty_timezone_falls_back_to_utc(self):
+        import config
+
+        config.save_config({"timezone": ""})
+        result = config.format_local_time(1700000000)
+        self.assertIn("UTC", result)
+
 
 # ---------------------------------------------------------------------------
 # Polling integration with collection status
@@ -252,7 +288,7 @@ class TestNotificationHooks(ServerTestCase):
     @patch("server.db")
     @patch("server._schedule_watchlist_next")
     @patch("server.AppleMusicClient")
-    def test_watchlist_poll_no_notifications_when_no_transition(
+    def test_watchlist_poll_no_per_release_notifications_when_no_transition(
         self,
         mock_client_cls,
         mock_schedule,
@@ -263,6 +299,7 @@ class TestNotificationHooks(ServerTestCase):
         mock_db.get_artists_needing_refresh.return_value = [
             {"artist_id": "ART1", "name": "A", "preferred_source": "us"},
         ]
+        mock_db.count_artists_needing_refresh.return_value = 0
         mock_client.get_artist_all_releases.return_value = ([], {"name": "A"})
         mock_db.check_and_update_new_releases.return_value = None  # no transition
 
@@ -270,7 +307,9 @@ class TestNotificationHooks(ServerTestCase):
 
         server._do_watchlist_poll()
 
-        mock_notif.enqueue.assert_not_called()
+        types_called = [c.args[0] for c in mock_notif.enqueue.call_args_list]
+        self.assertNotIn("onArtistNewSingle", types_called)
+        self.assertNotIn("onArtistNewRelease", types_called)
 
     @patch("server.notifications")
     @patch("server.db")
@@ -287,6 +326,7 @@ class TestNotificationHooks(ServerTestCase):
         mock_db.get_artists_needing_refresh.return_value = [
             {"artist_id": "ART1", "name": "A", "preferred_source": "us"},
         ]
+        mock_db.count_artists_needing_refresh.return_value = 0
         mock_client.get_artist_all_releases.return_value = ([], {"name": "A"})
         mock_db.check_and_update_new_releases.return_value = "2026-01-01"
         mock_db.get_artist_info.return_value = {"name": "A"}
@@ -322,6 +362,86 @@ class TestNotificationHooks(ServerTestCase):
         types_called = [c.args[0] for c in mock_notif.enqueue.call_args_list]
         self.assertIn("onArtistNewSingle", types_called)
         self.assertIn("onArtistNewRelease", types_called)
+
+    @patch("server.notifications")
+    @patch("server.db")
+    @patch("server._schedule_watchlist_next")
+    @patch("server.AppleMusicClient")
+    def test_watchlist_poll_enqueues_batch_complete(
+        self,
+        mock_client_cls,
+        mock_schedule,
+        mock_db,
+        mock_notif,
+    ):
+        mock_client = mock_client_cls.return_value
+        mock_db.get_artists_needing_refresh.return_value = [
+            {"artist_id": "ART1", "name": "Alice", "preferred_source": "us"},
+        ]
+        mock_db.count_artists_needing_refresh.return_value = 4
+        mock_client.get_artist_all_releases.return_value = ([], {"name": "Alice"})
+        mock_db.check_and_update_new_releases.return_value = None
+
+        import server
+
+        server._do_watchlist_poll()
+
+        batch_calls = [c for c in mock_notif.enqueue.call_args_list if c.args[0] == "onWatchlistBatchComplete"]
+        self.assertEqual(len(batch_calls), 1)
+        payload = batch_calls[0].args[1]
+        self.assertEqual(payload["refreshed_count"], 1)
+        self.assertEqual(payload["refreshed_artists"], "Alice")
+        self.assertEqual(payload["pending_count"], 4)
+        self.assertIn("UTC", payload["next_run_at"])
+        mock_db.log_watchlist_run.assert_called_once()
+
+    @patch("server.notifications")
+    @patch("server.db")
+    @patch("server._schedule_watchlist_next")
+    @patch("server.AppleMusicClient")
+    def test_watchlist_poll_no_batch_complete_when_empty(
+        self,
+        mock_client_cls,
+        mock_schedule,
+        mock_db,
+        mock_notif,
+    ):
+        mock_db.get_artists_needing_refresh.return_value = []
+
+        import server
+
+        server._do_watchlist_poll()
+
+        types_called = [c.args[0] for c in mock_notif.enqueue.call_args_list]
+        self.assertNotIn("onWatchlistBatchComplete", types_called)
+        mock_db.log_watchlist_run.assert_not_called()
+
+    @patch("server.notifications")
+    @patch("server.db")
+    @patch("server._schedule_watchlist_next")
+    @patch("server.AppleMusicClient")
+    def test_watchlist_poll_no_batch_complete_when_all_fail(
+        self,
+        mock_client_cls,
+        mock_schedule,
+        mock_db,
+        mock_notif,
+    ):
+        mock_client = mock_client_cls.return_value
+        mock_db.get_artists_needing_refresh.return_value = [
+            {"artist_id": "ART1", "name": "Alice", "preferred_source": "us"},
+        ]
+        mock_db.count_artists_needing_refresh.return_value = 1
+        mock_client.get_artist_all_releases.side_effect = RuntimeError("boom")
+
+        import server
+
+        server._do_watchlist_poll()
+
+        types_called = [c.args[0] for c in mock_notif.enqueue.call_args_list]
+        self.assertNotIn("onWatchlistBatchComplete", types_called)
+        # Batch still logged (for debug visibility) even though every artist failed
+        mock_db.log_watchlist_run.assert_called_once()
 
 
 class TestRescheduleAfterConfigChange(ServerTestCase):

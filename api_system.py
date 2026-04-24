@@ -7,12 +7,11 @@ database statistics, discovery history, and the CLI Scheduler proxy.
 import json
 import urllib.error
 import urllib.request
-from datetime import UTC, datetime
 
 from flask import Blueprint, jsonify, request
 
 import db
-from config import CONFIG_LOCK, load_config, save_config
+from config import CONFIG_LOCK, format_local_time, load_config, save_config
 
 system_bp = Blueprint("system", __name__)
 
@@ -114,12 +113,16 @@ def api_status():
     srv = _server()
     last = db.get_last_run()
     cfg = load_config()
-    next_dt = datetime.fromtimestamp(srv._next_run_at, tz=UTC).isoformat() if srv._next_run_at else None
+    next_run_at = srv._next_run_at or None
+    next_run_at_human = format_local_time(next_run_at) if next_run_at else None
+    if last and last.get("ran_at"):
+        last = {**last, "ran_at_human": format_local_time(last["ran_at"])}
     total = db.list_albums(1, 1)[1]
     return jsonify(
         {
             "last_run": last,
-            "next_run_at": next_dt,
+            "next_run_at": next_run_at,
+            "next_run_at_human": next_run_at_human,
             "is_running": srv._is_running,
             "newrelease_poll_interval_days": cfg.get("newrelease_poll_interval_days"),
             "total_albums": total,
@@ -170,6 +173,41 @@ def api_discovery_status():
     except (TypeError, ValueError):
         limit = 200
     runs = db.get_discovery_runs(limit=limit)
+    for r in runs:
+        if r.get("ran_at") is not None:
+            r["ran_at_human"] = format_local_time(r["ran_at"])
+    return jsonify({"runs": runs, "count": len(runs)})
+
+
+# ---------------------------------------------------------------------------
+# GET /api/system/watchlist_log
+# ---------------------------------------------------------------------------
+
+
+@system_bp.route("/api/system/watchlist_log")
+def api_watchlist_log():
+    """Return recent watchlist batch run records, one row per batch.
+    ---
+    parameters:
+      - name: limit
+        in: query
+        type: integer
+        default: 200
+        description: Maximum number of rows to return (most recent first)
+    responses:
+      200:
+        description: List of watchlist batch run records
+    """
+    try:
+        limit = int(request.args.get("limit", 200))
+    except (TypeError, ValueError):
+        limit = 200
+    runs = db.get_watchlist_runs(limit=limit)
+    for r in runs:
+        if r.get("ran_at") is not None:
+            r["ran_at_human"] = format_local_time(r["ran_at"])
+        if r.get("next_run_at") is not None:
+            r["next_run_at_human"] = format_local_time(r["next_run_at"])
     return jsonify({"runs": runs, "count": len(runs)})
 
 

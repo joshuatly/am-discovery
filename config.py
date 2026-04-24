@@ -6,8 +6,13 @@ All code that reads or writes config.json lives here so that both the server
 
 import copy
 import json
+import logging
 import os
 import threading
+from datetime import UTC, datetime
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+logger = logging.getLogger(__name__)
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 CONFIG_PATH = os.path.join(BASE_DIR, "config.json")
@@ -25,6 +30,7 @@ _DEFAULTS = {
     "watchlist_refresh_interval_days": 7,
     "cli_scheduler_url": "",
     "cli_scheduler_preset": "",
+    "timezone": "UTC",
     "notifications": {
         "queue_max_size": 100,
         "max_failures": 5,
@@ -46,3 +52,18 @@ def load_config() -> dict:
 def save_config(cfg: dict) -> None:
     with CONFIG_LOCK, open(CONFIG_PATH, "w", encoding="utf-8") as f:
         json.dump(cfg, f, indent=2, ensure_ascii=False)
+
+
+def format_local_time(ts) -> str:
+    """Format a UNIX timestamp into a human-readable string using ``timezone`` from config.
+
+    Falls back to UTC when the configured value is empty or not a recognised IANA zone.
+    The ``%Z`` suffix renders the zone abbreviation (e.g. ``HKT``, ``EDT``, ``UTC``).
+    """
+    tz_name = (load_config().get("timezone") or "UTC").strip() or "UTC"
+    try:
+        tz = ZoneInfo(tz_name)
+    except (ZoneInfoNotFoundError, ValueError):
+        logger.warning("invalid timezone %r, falling back to UTC", tz_name)
+        tz = UTC
+    return datetime.fromtimestamp(ts, tz=tz).strftime("%Y-%m-%d %H:%M %Z")
