@@ -323,5 +323,40 @@ class TestNotificationHooks(ServerTestCase):
         self.assertIn("onArtistNewRelease", types_called)
 
 
+class TestDiscoveryPollRescheduleOnFailure(ServerTestCase):
+    """_do_poll must shorten the next delay when the poll raises before log_discovery_run."""
+
+    @patch("server.AppleMusicClient")
+    @patch("server.db")
+    @patch("server._schedule_next")
+    def test_failure_before_log_reschedules_with_retry_delay(self, mock_schedule, mock_db, mock_client_cls):
+        mock_client = mock_client_cls.return_value
+        # Raise inside the main body so log_discovery_run is never reached.
+        mock_client.discover_new_releases.side_effect = RuntimeError("network dead")
+
+        import server
+
+        server._do_poll()
+
+        mock_schedule.assert_called_once_with(override_delay=server.POLL_FAILURE_RETRY_SEC)
+
+    @patch("server.AppleMusicClient")
+    @patch("server.db")
+    @patch("server._schedule_next")
+    def test_success_reschedules_with_full_interval(self, mock_schedule, mock_db, mock_client_cls):
+        mock_client = mock_client_cls.return_value
+        mock_client.discover_new_releases.return_value = ([], "ROOM1", "2026-04-22T10:00Z")
+        mock_db.list_albums.return_value = ([], 0)
+        mock_db.log_discovery_run.return_value = None
+        mock_db.get_watched_artist_ids.return_value = set()
+
+        import server
+
+        with patch.object(server, "load_config", return_value={"check_storefronts": ["us"], "home_storefront": "us"}):
+            server._do_poll()
+
+        mock_schedule.assert_called_once_with(override_delay=None)
+
+
 if __name__ == "__main__":
     unittest.main()

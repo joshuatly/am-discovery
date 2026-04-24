@@ -54,10 +54,16 @@ _poll_timer: threading.Timer | None = None
 _is_running = False
 _last_room_errors: list[str] = []
 
+# Retry delay used when _do_poll raises before completing. Without this, any
+# transient failure would push the next attempt a full poll interval out —
+# 24h by default — even though no ran_at was written to the DB.
+POLL_FAILURE_RETRY_SEC = 600
+
 
 def _do_poll():
     global _next_run_at, _is_running, _last_room_errors
     _is_running = True
+    success = False
     try:
         cfg = load_config()
         storefronts = cfg.get("check_storefronts", [])
@@ -165,6 +171,7 @@ def _do_poll():
             room_id = room_ids.get(sf, "")
             db.log_discovery_run(sf, room_id, sf_new, total, room_last_modified.get(sf), ran_at=ran_at)
         logger.info("[Poll] Done. DB total: %d", total)
+        success = True
 
         # 5. Check if any discovered albums trigger a new_release status for watched artists
         watched_ids = db.get_watched_artist_ids()
@@ -194,7 +201,7 @@ def _do_poll():
         logger.error("[Poll] Error: %s", e)
     finally:
         _is_running = False
-        _schedule_next()
+        _schedule_next(override_delay=None if success else POLL_FAILURE_RETRY_SEC)
 
 
 def _schedule_next(override_delay=None):
