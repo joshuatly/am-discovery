@@ -1484,6 +1484,30 @@ class TestCheckAndUpdateNewReleases(DBTestCase):
         result = self.db.check_and_update_new_releases("MISSING")
         self.assertFalse(result)
 
+    def test_returns_cutoff_date_string_on_transition(self):
+        self.db.add_to_watchlist("ART1", "Artist One")
+        self.db.update_collection_status("ART1", "complete")
+        self._add_album("A1", "ART1", "2099-01-01")
+        result = self.db.check_and_update_new_releases("ART1")
+        # Returns the prior 'complete' date (today's date in YYYY-MM-DD form)
+        self.assertIsInstance(result, str)
+        self.assertEqual(len(result), 10)  # YYYY-MM-DD
+
+    def test_get_new_releases_since_returns_only_newer(self):
+        self.db.add_to_watchlist("ART1", "Artist One")
+        self._add_album("A1", "ART1", "2024-01-01")
+        self._add_album("A2", "ART1", "2024-06-15")
+        self._add_album("A3", "ART1", "2025-03-10")
+        rows = self.db.get_new_releases_since("ART1", "2024-05-01")
+        ids = [r["store_adam_id"] for r in rows]
+        self.assertEqual(set(ids), {"A2", "A3"})
+        # Newest first
+        self.assertEqual(rows[0]["store_adam_id"], "A3")
+
+    def test_get_new_releases_since_empty_when_no_match(self):
+        rows = self.db.get_new_releases_since("MISSING", "2020-01-01")
+        self.assertEqual(rows, [])
+
     def test_get_latest_release_date(self):
         self.db.add_to_watchlist("ART1", "Artist One")
         self._add_album("A1", "ART1", "2024-01-15")

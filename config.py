@@ -4,6 +4,7 @@ All code that reads or writes config.json lives here so that both the server
 (scheduler) and the API blueprints can import it without circular dependencies.
 """
 
+import copy
 import json
 import os
 
@@ -19,14 +20,21 @@ _DEFAULTS = {
     "watchlist_refresh_interval_days": 7,
     "cli_scheduler_url": "",
     "cli_scheduler_preset": "",
+    "notifications": {
+        "queue_max_size": 100,
+        "max_failures": 5,
+        "rate_limit_per_sec": 1,
+        "events": [],
+    },
 }
 
 
 def load_config() -> dict:
+    defaults = copy.deepcopy(_DEFAULTS)
     if os.path.exists(CONFIG_PATH):
         with open(CONFIG_PATH, encoding="utf-8") as f:
-            return {**_DEFAULTS, **json.load(f)}
-    return dict(_DEFAULTS)
+            return {**defaults, **json.load(f)}
+    return defaults
 
 
 def save_config(cfg: dict) -> None:
