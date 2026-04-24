@@ -12,7 +12,7 @@ from datetime import UTC, datetime
 from flask import Blueprint, jsonify, request
 
 import db
-from config import load_config, save_config
+from config import CONFIG_LOCK, load_config, save_config
 
 system_bp = Blueprint("system", __name__)
 
@@ -61,8 +61,15 @@ def api_config_put():
         description: Success
 
     """
-    cfg = request.get_json(force=True)
-    save_config(cfg)
+    incoming = request.get_json(force=True) or {}
+    # `notifications` is owned by /api/notifications routes. The Settings page
+    # echoes a stale copy from page-load, so accepting it here would wipe any
+    # events created via the per-event modal.
+    incoming.pop("notifications", None)
+    with CONFIG_LOCK:
+        cfg = load_config()
+        cfg.update(incoming)
+        save_config(cfg)
     # Re-arm the discovery timer based on last_run, so saving config does not
     # push the next poll out by a full interval.
     _server().reschedule_after_config_change()

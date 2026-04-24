@@ -529,6 +529,31 @@ class TestApiConfig(ServerTestCase):
         data = resp.get_json()
         self.assertEqual(data["newrelease_poll_interval_days"], 2)
 
+    @patch("server._schedule_next")
+    def test_put_config_preserves_notifications_events(self, mock_schedule):
+        # Simulates the bug: Settings page loads cfg at T0 (no events), user adds
+        # an event via the modal → config.json now has it, then user clicks Save
+        # Config which echoes the stale notifications block. The PUT must not
+        # wipe the event.
+        import notifications
+
+        notifications.create_event(
+            {"event_type": "onDiscoveryComplete", "apprise_url": "http://example/notify"},
+        )
+        stale_payload = {
+            "check_storefronts": ["us"],
+            "notifications": {"events": [], "max_failures": 5, "queue_max_size": 100, "rate_limit_per_sec": 1},
+        }
+        resp = self.client.put(
+            "/api/system/config",
+            data=json.dumps(stale_payload),
+            content_type="application/json",
+        )
+        self.assertEqual(resp.status_code, 200)
+        events = notifications.list_events()
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0]["event_type"], "onDiscoveryComplete")
+
 
 # ---------------------------------------------------------------------------
 # POST /api/refresh

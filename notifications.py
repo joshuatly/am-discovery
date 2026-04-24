@@ -24,7 +24,7 @@ import urllib.error
 import urllib.request
 import uuid
 
-from config import load_config, save_config
+from config import CONFIG_LOCK, load_config, save_config
 
 logger = logging.getLogger(__name__)
 
@@ -150,7 +150,6 @@ class _SafeDict(dict):
 _queue: queue.Queue | None = None
 _thread: threading.Thread | None = None
 _started = False
-_config_lock = threading.Lock()
 _state_lock = threading.Lock()
 
 
@@ -184,7 +183,7 @@ def _post_apprise(url: str, payload: dict, timeout: int = 10) -> tuple[bool, str
 
 
 # ---------------------------------------------------------------------------
-# Config persistence (read-modify-write under _config_lock)
+# Config persistence (read-modify-write under CONFIG_LOCK)
 # ---------------------------------------------------------------------------
 
 
@@ -198,7 +197,7 @@ def _get_notifications_block(cfg: dict) -> dict:
 
 
 def _persist_event_change(event_id: str, **fields) -> None:
-    with _config_lock:
+    with CONFIG_LOCK:
         cfg = load_config()
         block = _get_notifications_block(cfg)
         for ev in block["events"]:
@@ -245,7 +244,7 @@ def get_event(event_id: str) -> dict | None:
 
 def create_event(event: dict) -> dict:
     new_event = _normalise_event(event)
-    with _config_lock:
+    with CONFIG_LOCK:
         cfg = load_config()
         block = _get_notifications_block(cfg)
         block["events"].append(new_event)
@@ -255,7 +254,7 @@ def create_event(event: dict) -> dict:
 
 
 def update_event(event_id: str, patch: dict) -> dict | None:
-    with _config_lock:
+    with CONFIG_LOCK:
         cfg = load_config()
         block = _get_notifications_block(cfg)
         for i, ev in enumerate(block["events"]):
@@ -269,7 +268,7 @@ def update_event(event_id: str, patch: dict) -> dict | None:
 
 
 def delete_event(event_id: str) -> bool:
-    with _config_lock:
+    with CONFIG_LOCK:
         cfg = load_config()
         block = _get_notifications_block(cfg)
         before = len(block["events"])

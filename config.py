@@ -7,9 +7,14 @@ All code that reads or writes config.json lives here so that both the server
 import copy
 import json
 import os
+import threading
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 CONFIG_PATH = os.path.join(BASE_DIR, "config.json")
+
+# Shared across any module that does read-modify-write on config.json.
+# RLock so callers can nest load_config/save_config inside a held lock.
+CONFIG_LOCK = threading.RLock()
 
 _DEFAULTS = {
     "newrelease_poll_interval_days": 1,
@@ -31,12 +36,13 @@ _DEFAULTS = {
 
 def load_config() -> dict:
     defaults = copy.deepcopy(_DEFAULTS)
-    if os.path.exists(CONFIG_PATH):
-        with open(CONFIG_PATH, encoding="utf-8") as f:
-            return {**defaults, **json.load(f)}
-    return defaults
+    with CONFIG_LOCK:
+        if os.path.exists(CONFIG_PATH):
+            with open(CONFIG_PATH, encoding="utf-8") as f:
+                return {**defaults, **json.load(f)}
+        return defaults
 
 
 def save_config(cfg: dict) -> None:
-    with open(CONFIG_PATH, "w", encoding="utf-8") as f:
+    with CONFIG_LOCK, open(CONFIG_PATH, "w", encoding="utf-8") as f:
         json.dump(cfg, f, indent=2, ensure_ascii=False)
