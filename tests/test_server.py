@@ -6,6 +6,7 @@ API route tests live in test_api.py and test_api_watchlist.py.
 import contextlib
 import os
 import tempfile
+import time
 import unittest
 from unittest.mock import patch
 
@@ -321,6 +322,56 @@ class TestNotificationHooks(ServerTestCase):
         types_called = [c.args[0] for c in mock_notif.enqueue.call_args_list]
         self.assertIn("onArtistNewSingle", types_called)
         self.assertIn("onArtistNewRelease", types_called)
+
+
+class TestRescheduleAfterConfigChange(ServerTestCase):
+    """Saving config must not push the discovery cadence out by a full interval."""
+
+    @patch("server.db")
+    @patch("server._schedule_next")
+    def test_preserves_cadence_when_last_run_recent(self, mock_schedule, mock_db):
+        import server
+
+        # last_run is 6 hours old, interval is 1 day → expect ~18h delay.
+        mock_db.get_last_run.return_value = {"ran_at": int(time.time()) - 6 * 3600}
+        with patch.object(server, "load_config", return_value={"newrelease_poll_interval_days": 1}):
+            server._is_running = False
+            server.reschedule_after_config_change()
+
+        mock_schedule.assert_called_once()
+        kwargs = mock_schedule.call_args.kwargs
+        self.assertIn("override_delay", kwargs)
+        # Allow a small fudge for wall-clock drift between the two time.time() calls.
+        expected = 86400 - 6 * 3600
+        self.assertAlmostEqual(kwargs["override_delay"], expected, delta=5)
+
+    @patch("server.db")
+    @patch("server._schedule_next")
+    def test_overdue_last_run_clamps_delay_to_zero(self, mock_schedule, mock_db):
+        import server
+
+        # last_run is 2 days old, interval is 1 day → overdue, delay should be 0.
+        mock_db.get_last_run.return_value = {"ran_at": int(time.time()) - 2 * 86400}
+        with patch.object(server, "load_config", return_value={"newrelease_poll_interval_days": 1}):
+            server._is_running = False
+            server.reschedule_after_config_change()
+
+        mock_schedule.assert_called_once_with(override_delay=0.0)
+
+    @patch("server.db")
+    @patch("server._schedule_next")
+    def test_skips_when_poll_is_running(self, mock_schedule, mock_db):
+        import server
+
+        mock_db.get_last_run.return_value = {"ran_at": int(time.time()) - 3600}
+        server._is_running = True
+        try:
+            with patch.object(server, "load_config", return_value={"newrelease_poll_interval_days": 1}):
+                server.reschedule_after_config_change()
+        finally:
+            server._is_running = False
+
+        mock_schedule.assert_not_called()
 
 
 class TestDiscoveryPollRescheduleOnFailure(ServerTestCase):

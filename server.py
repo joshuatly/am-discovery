@@ -230,6 +230,26 @@ def trigger_poll_now():
     t.start()
 
 
+def reschedule_after_config_change():
+    """Re-arm the discovery timer using the freshly saved config.
+
+    Anchors the next run on last_run.ran_at so saving config does not push
+    the cadence out by a full interval. Skips if a poll is currently running
+    — that poll's finally block will re-arm using the new interval.
+    """
+    if _is_running:
+        return
+    cfg = load_config()
+    interval_sec = cfg.get("newrelease_poll_interval_days", 1) * 86400
+    last_run = db.get_last_run()
+    if last_run and last_run.get("ran_at"):
+        elapsed = time.time() - last_run["ran_at"]
+        delay = max(0.0, interval_sec - elapsed)
+    else:
+        delay = interval_sec
+    _schedule_next(override_delay=delay)
+
+
 # ---------------------------------------------------------------------------
 # Watchlist polling logic
 # ---------------------------------------------------------------------------

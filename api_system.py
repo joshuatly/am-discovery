@@ -63,8 +63,9 @@ def api_config_put():
     """
     cfg = request.get_json(force=True)
     save_config(cfg)
-    # Reschedule with new interval
-    _server()._schedule_next()
+    # Re-arm the discovery timer based on last_run, so saving config does not
+    # push the next poll out by a full interval.
+    _server().reschedule_after_config_change()
     return jsonify({"ok": True})
 
 
