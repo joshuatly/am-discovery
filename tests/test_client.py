@@ -1219,5 +1219,44 @@ class TestDiscoverNewReleases(unittest.TestCase):
             self.client.discover_new_releases("us")
 
 
+class TestDiscoverRoomUrl(unittest.TestCase):
+    def setUp(self):
+        self.client = _make_client()
+
+    def _make_new_page_html(self, room_path, title="New Releases"):
+        """Build HTML mimicking a storefront /new page with a room link."""
+        sections = [
+            {
+                "header": {
+                    "item": {
+                        "titleLink": {
+                            "title": title,
+                            "url": room_path,
+                        },
+                    },
+                },
+            },
+        ]
+        payload = _make_room_payload(sections)
+        return ROOM_HTML_TEMPLATE.format(payload=payload)
+
+    @patch.object(AppleMusicClient, "_web_get")
+    def test_returns_room_url_when_storefront_matches(self, mock_web_get):
+        mock_web_get.return_value = self._make_new_page_html("/jp/room/6760868920")
+        result = self.client.discover_room_url("jp")
+        self.assertEqual(result, "https://music.apple.com/jp/room/6760868920")
+
+    @patch.object(AppleMusicClient, "_web_get")
+    def test_returns_none_when_storefront_mismatches(self, mock_web_get):
+        mock_web_get.return_value = self._make_new_page_html("/us/room/6762434882")
+        result = self.client.discover_room_url("bp")
+        self.assertIsNone(result)
+
+    @patch.object(AppleMusicClient, "_web_get")
+    def test_returns_none_when_web_get_fails(self, mock_web_get):
+        mock_web_get.return_value = None
+        self.assertIsNone(self.client.discover_room_url("jp"))
+
+
 if __name__ == "__main__":
     unittest.main()

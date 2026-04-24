@@ -302,6 +302,15 @@ class AppleMusicClient:
             title_lower = title_text.lower() if isinstance(title_text, str) else ""
             if any(t in title_lower for t in _NEW_RELEASE_TITLES):
                 if room_url:
+                    sf_match = re.search(r"music\.apple\.com/(\w+)/room/", room_url)
+                    if sf_match and sf_match.group(1) != storefront:
+                        logger.error(
+                            "[%s] Room URL storefront mismatch (got %s): %s",
+                            storefront.upper(),
+                            sf_match.group(1),
+                            room_url,
+                        )
+                        return None
                     logger.info(
                         "[%s] Discovered new release room: %s",
                         storefront.upper(),
