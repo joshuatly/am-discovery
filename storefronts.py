@@ -10,6 +10,7 @@ from storefront_locales import STOREFRONT_LOCALES
 DEFAULT_LOCALE = "en-US"
 
 DISCOVERY_NAMES: dict[str, str] = {
+    "cn": "最新发行",
     "hk": "新發行",
     "mo": "新發行",
     "tw": "新發行",
