@@ -1539,8 +1539,10 @@ class TestCheckAndUpdateNewReleases(DBTestCase):
                 (release_date, store_id),
             )
 
-    def test_no_change_when_status_not_complete(self):
+    def test_no_change_when_album_predates_baseline(self):
+        """A 'new' artist with only older albums must not fire."""
         self.db.add_to_watchlist("ART1", "Artist One")
+        # Artist baseline is 'now'; an album dated in the past is not newer.
         self._add_album("A1", "ART1", "2025-06-01")
         result = self.db.check_and_update_new_releases("ART1")
         self.assertFalse(result)
@@ -1562,14 +1564,24 @@ class TestCheckAndUpdateNewReleases(DBTestCase):
         wl = self.db.get_watchlist()
         self.assertEqual(wl[0]["collection_status"], "new_release")
 
-    def test_no_change_when_in_progress(self):
+    def test_fires_when_in_progress_without_changing_status(self):
+        """``in_progress`` artists must still fire notifications, but stay ``in_progress``."""
         self.db.add_to_watchlist("ART1", "Artist One")
         self.db.update_collection_status("ART1", "in_progress")
         self._add_album("A1", "ART1", "2099-01-01")
         result = self.db.check_and_update_new_releases("ART1")
-        self.assertFalse(result)
+        self.assertTrue(result, "Expected fire while in_progress")
         wl = self.db.get_watchlist()
         self.assertEqual(wl[0]["collection_status"], "in_progress")
+
+    def test_fires_when_new_without_changing_status(self):
+        """Freshly-added (``new``) artists must still fire notifications, but stay ``new``."""
+        self.db.add_to_watchlist("ART1", "Artist One")
+        self._add_album("A1", "ART1", "2099-01-01")
+        result = self.db.check_and_update_new_releases("ART1")
+        self.assertTrue(result, "Expected fire while in 'new' state")
+        wl = self.db.get_watchlist()
+        self.assertEqual(wl[0]["collection_status"], "new")
 
     def test_nonexistent_artist(self):
         result = self.db.check_and_update_new_releases("MISSING")

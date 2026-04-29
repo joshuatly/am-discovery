@@ -493,15 +493,21 @@ def get_latest_release_date(artist_id: str) -> str | None:
 
 
 def check_and_update_new_releases(artist_id: str) -> str | None:
-    """If a release exists newer than the artist's status baseline, set status to 'new_release'.
+    """If a release exists newer than the artist's status baseline, fire notifications.
 
-    Fires for both ``complete`` (initial transition) and ``new_release`` (further
-    new releases) statuses. The baseline is ``collection_status_updated_at``,
-    which advances every time this function fires, so each new album triggers
-    exactly one notification batch.
+    Fires for every ``collection_status`` (``new``, ``in_progress``, ``complete``,
+    ``new_release``). The baseline is ``collection_status_updated_at`` — set
+    when the artist was added or last transitioned — and advances every time
+    this function fires, so each new album triggers exactly one notification
+    batch.
+
+    Status side-effect: only ``complete`` transitions to ``new_release`` (the
+    one user-visible state change driven by this function). Other statuses are
+    preserved so user-driven curation flows (``in_progress``) and the initial
+    ``new`` state are not disturbed.
 
     Returns the cutoff date string (YYYY-MM-DD) used for the comparison if a
-    transition occurred, otherwise None. Callers can pass the returned date to
+    fire occurred, otherwise None. Callers can pass the returned date to
     :func:`get_new_releases_since` to enumerate the releases that triggered it.
     """
     with get_conn() as conn:
@@ -509,8 +515,9 @@ def check_and_update_new_releases(artist_id: str) -> str | None:
             "SELECT collection_status, collection_status_updated_at FROM watched_artists WHERE artist_id = ?",
             (artist_id,),
         ).fetchone()
-        if not row or row["collection_status"] not in ("complete", "new_release"):
+        if not row:
             return None
+        status = row["collection_status"] or "new"
         baseline_at = row["collection_status_updated_at"]
         if not baseline_at:
             return None
@@ -522,10 +529,11 @@ def check_and_update_new_releases(artist_id: str) -> str | None:
         ).fetchone()
         if latest and latest["latest"]:
             now = int(time.time())
+            new_status = "new_release" if status == "complete" else status
             conn.execute(
-                """UPDATE watched_artists SET collection_status = 'new_release',
+                """UPDATE watched_artists SET collection_status = ?,
                    collection_status_updated_at = ? WHERE artist_id = ?""",
-                (now, artist_id),
+                (new_status, now, artist_id),
             )
             return baseline_date
         return None
