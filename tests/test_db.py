@@ -1584,6 +1584,56 @@ class TestCheckAndUpdateNewReleases(DBTestCase):
         self.assertIsInstance(result, str)
         self.assertEqual(len(result), 10)  # YYYY-MM-DD
 
+    def test_fires_again_when_already_in_new_release_state(self):
+        """A second new album dropping after a prior 'new_release' transition must re-fire.
+
+        Regression: previously the function only handled status='complete', so
+        artists stuck in 'new_release' silently dropped subsequent notifications
+        for further new albums.
+        """
+        import time as _time
+        from datetime import UTC as _UTC
+        from datetime import datetime as _datetime
+
+        import db as _db
+
+        def _set_baseline(ts: int) -> None:
+            with _db.get_conn() as conn:
+                conn.execute(
+                    "UPDATE watched_artists SET collection_status_updated_at = ? WHERE artist_id = ?",
+                    (ts, "ART1"),
+                )
+
+        def _date(days_ago: int) -> str:
+            return _datetime.fromtimestamp(int(_time.time()) - days_ago * 86400, tz=_UTC).strftime("%Y-%m-%d")
+
+        self.db.add_to_watchlist("ART1", "Artist One")
+        self.db.update_collection_status("ART1", "complete")
+        # Rewind baseline 30 days so release dates can sit strictly between baseline and now.
+        _set_baseline(int(_time.time()) - 30 * 86400)
+
+        # First new album dated 20 days ago (after complete baseline, before now).
+        self._add_album("A1", "ART1", _date(20))
+        self.assertTrue(self.db.check_and_update_new_releases("ART1"))
+        wl = self.db.get_watchlist()
+        self.assertEqual(wl[0]["collection_status"], "new_release")
+
+        # No new album since the transition → must not re-fire.
+        self.assertIsNone(self.db.check_and_update_new_releases("ART1"))
+
+        # Simulate real time passing: rewind baseline so a fresh album lands after it.
+        _set_baseline(int(_time.time()) - 10 * 86400)
+
+        # Second new album drops 2 days ago — function MUST fire again even though
+        # status is currently 'new_release'.
+        self._add_album("A2", "ART1", _date(2))
+        self.assertTrue(
+            self.db.check_and_update_new_releases("ART1"),
+            "Expected new release to re-fire while in 'new_release' state",
+        )
+        wl = self.db.get_watchlist()
+        self.assertEqual(wl[0]["collection_status"], "new_release")
+
     def test_get_new_releases_since_returns_only_newer(self):
         self.db.add_to_watchlist("ART1", "Artist One")
         self._add_album("A1", "ART1", "2024-01-01")

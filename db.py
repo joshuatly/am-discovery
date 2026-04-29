@@ -493,28 +493,32 @@ def get_latest_release_date(artist_id: str) -> str | None:
 
 
 def check_and_update_new_releases(artist_id: str) -> str | None:
-    """If artist status is 'complete' and a release exists newer than the completion date, set to 'new_release'.
+    """If a release exists newer than the artist's status baseline, set status to 'new_release'.
 
-    Returns the cutoff date string (YYYY-MM-DD) used for the comparison if the
-    status was changed, otherwise None. Callers can pass the returned date to
-    :func:`get_new_releases_since` to enumerate the releases that triggered the
-    transition.
+    Fires for both ``complete`` (initial transition) and ``new_release`` (further
+    new releases) statuses. The baseline is ``collection_status_updated_at``,
+    which advances every time this function fires, so each new album triggers
+    exactly one notification batch.
+
+    Returns the cutoff date string (YYYY-MM-DD) used for the comparison if a
+    transition occurred, otherwise None. Callers can pass the returned date to
+    :func:`get_new_releases_since` to enumerate the releases that triggered it.
     """
     with get_conn() as conn:
         row = conn.execute(
             "SELECT collection_status, collection_status_updated_at FROM watched_artists WHERE artist_id = ?",
             (artist_id,),
         ).fetchone()
-        if not row or row["collection_status"] != "complete":
+        if not row or row["collection_status"] not in ("complete", "new_release"):
             return None
-        completed_at = row["collection_status_updated_at"]
-        if not completed_at:
+        baseline_at = row["collection_status_updated_at"]
+        if not baseline_at:
             return None
         # Convert unix timestamp to ISO date for comparison with release_date strings
-        completed_date = datetime.fromtimestamp(completed_at, tz=UTC).strftime("%Y-%m-%d")
+        baseline_date = datetime.fromtimestamp(baseline_at, tz=UTC).strftime("%Y-%m-%d")
         latest = conn.execute(
             "SELECT MAX(release_date) AS latest FROM albums WHERE artist_id = ? AND release_date > ?",
-            (artist_id, completed_date),
+            (artist_id, baseline_date),
         ).fetchone()
         if latest and latest["latest"]:
             now = int(time.time())
@@ -523,7 +527,7 @@ def check_and_update_new_releases(artist_id: str) -> str | None:
                    collection_status_updated_at = ? WHERE artist_id = ?""",
                 (now, artist_id),
             )
-            return completed_date
+            return baseline_date
         return None
 
 
