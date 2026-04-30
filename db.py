@@ -551,6 +551,25 @@ def get_new_releases_since(artist_id: str, since_date: str) -> list[dict]:
         return [dict(r) for r in rows]
 
 
+def get_albums_first_seen_after(since_ts: int, min_release_date: str) -> list[dict]:
+    """Return albums whose ``first_seen`` is strictly greater than ``since_ts`` and
+    whose ``release_date`` is on or after ``min_release_date``. NULL ``release_date``
+    is excluded (no date → can't gate by age). Future release dates are allowed.
+
+    Used by the notification scanner to find newly-inserted albums worth notifying on.
+    """
+    with get_conn() as conn:
+        rows = conn.execute(
+            """SELECT * FROM albums
+               WHERE first_seen > ?
+                 AND release_date IS NOT NULL
+                 AND release_date >= ?
+               ORDER BY first_seen ASC""",
+            (since_ts, min_release_date),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
 def export_watchlist() -> list:
     """Export the full watchlist as a list of dicts suitable for JSON serialization."""
     with get_conn() as conn:

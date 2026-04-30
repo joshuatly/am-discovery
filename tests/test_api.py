@@ -656,6 +656,42 @@ class TestApiStatus(ServerTestCase):
         data = resp.get_json()
         self.assertEqual(data["room_errors"], [])
 
+    @patch("api_system.db")
+    def test_status_exposes_last_notify_at_when_unset(self, mock_db):
+        mock_db.get_last_run.return_value = None
+        mock_db.list_albums.return_value = ([], 0)
+        import notifications
+
+        notifications._last_notify_at = None
+        resp = self.client.get("/api/system/status")
+        data = resp.get_json()
+        self.assertIn("last_notify_at", data)
+        self.assertIn("last_notify_at_human", data)
+        self.assertIsNone(data["last_notify_at"])
+        self.assertIsNone(data["last_notify_at_human"])
+
+    @patch("api_system.db")
+    def test_status_exposes_last_notify_at_when_set(self, mock_db):
+        mock_db.get_last_run.return_value = None
+        mock_db.list_albums.return_value = ([], 0)
+        import notifications
+
+        notifications._last_notify_at = 1_700_000_000
+        resp = self.client.get("/api/system/status")
+        data = resp.get_json()
+        self.assertEqual(data["last_notify_at"], 1_700_000_000)
+        self.assertIsNotNone(data["last_notify_at_human"])
+        notifications._last_notify_at = None
+
+    @patch("api_system.db")
+    def test_status_exposes_notification_intervals(self, mock_db):
+        mock_db.get_last_run.return_value = None
+        mock_db.list_albums.return_value = ([], 0)
+        resp = self.client.get("/api/system/status")
+        data = resp.get_json()
+        self.assertIn("notification_scan_interval_minutes", data)
+        self.assertIn("notification_max_release_age_days", data)
+
 
 # ---------------------------------------------------------------------------
 # GET /api/artists/<artist_id>/releases

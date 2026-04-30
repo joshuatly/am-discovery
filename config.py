@@ -28,6 +28,8 @@ _DEFAULTS = {
     "watchlist_poll_interval_minutes": 10,
     "watchlist_poll_batch_size": 5,
     "watchlist_refresh_interval_days": 7,
+    "notification_scan_interval_minutes": 10,
+    "notification_max_release_age_days": 7,
     "cli_scheduler_url": "",
     "cli_scheduler_preset": "",
     "timezone": "UTC",
@@ -54,16 +56,24 @@ def save_config(cfg: dict) -> None:
         json.dump(cfg, f, indent=2, ensure_ascii=False)
 
 
+def _local_tz() -> ZoneInfo:
+    tz_name = (load_config().get("timezone") or "UTC").strip() or "UTC"
+    try:
+        return ZoneInfo(tz_name)
+    except (ZoneInfoNotFoundError, ValueError):
+        logger.warning("invalid timezone %r, falling back to UTC", tz_name)
+        return UTC
+
+
 def format_local_time(ts) -> str:
     """Format a UNIX timestamp into a human-readable string using ``timezone`` from config.
 
     Falls back to UTC when the configured value is empty or not a recognised IANA zone.
     The ``%Z`` suffix renders the zone abbreviation (e.g. ``HKT``, ``EDT``, ``UTC``).
     """
-    tz_name = (load_config().get("timezone") or "UTC").strip() or "UTC"
-    try:
-        tz = ZoneInfo(tz_name)
-    except (ZoneInfoNotFoundError, ValueError):
-        logger.warning("invalid timezone %r, falling back to UTC", tz_name)
-        tz = UTC
-    return datetime.fromtimestamp(ts, tz=tz).strftime("%Y-%m-%d %H:%M %Z")
+    return datetime.fromtimestamp(ts, tz=_local_tz()).strftime("%Y-%m-%d %H:%M %Z")
+
+
+def format_local_date(ts) -> str:
+    """Return ``YYYY-MM-DD`` for ``ts`` (UNIX seconds) in the configured ``timezone``."""
+    return datetime.fromtimestamp(ts, tz=_local_tz()).strftime("%Y-%m-%d")

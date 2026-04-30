@@ -11,6 +11,7 @@ import urllib.request
 from flask import Blueprint, jsonify, request
 
 import db
+import notifications
 from config import CONFIG_LOCK, format_local_time, load_config, save_config
 
 system_bp = Blueprint("system", __name__)
@@ -118,6 +119,7 @@ def api_status():
     if last and last.get("ran_at"):
         last = {**last, "ran_at_human": format_local_time(last["ran_at"])}
     total = db.list_albums(1, 1)[1]
+    last_notify_at = notifications.get_last_notify_at()
     return jsonify(
         {
             "last_run": last,
@@ -129,6 +131,10 @@ def api_status():
             "watchlist_poll_running": srv._watchlist_running,
             "watchlist_poll_interval_minutes": cfg.get("watchlist_poll_interval_minutes"),
             "room_errors": srv._last_room_errors,
+            "last_notify_at": last_notify_at,
+            "last_notify_at_human": format_local_time(last_notify_at) if last_notify_at else None,
+            "notification_scan_interval_minutes": cfg.get("notification_scan_interval_minutes"),
+            "notification_max_release_age_days": cfg.get("notification_max_release_age_days"),
         },
     )
 
