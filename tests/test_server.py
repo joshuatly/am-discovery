@@ -315,13 +315,17 @@ class TestNotificationHooks(ServerTestCase):
     @patch("server.db")
     @patch("server._schedule_watchlist_next")
     @patch("server.AppleMusicClient")
-    def test_watchlist_poll_enqueues_per_release(
+    def test_watchlist_poll_does_not_directly_enqueue_per_release(
         self,
         mock_client_cls,
         mock_schedule,
         mock_db,
         mock_notif,
     ):
+        """Per-release dispatch was moved into the notifications scanner thread.
+        _do_watchlist_poll itself must never enqueue onArtistNewSingle /
+        onArtistNewRelease — even when check_and_update_new_releases reports a
+        curation transition (the side-effect we still preserve)."""
         mock_client = mock_client_cls.return_value
         mock_db.get_artists_needing_refresh.return_value = [
             {"artist_id": "ART1", "name": "A", "preferred_source": "us"},
@@ -329,39 +333,14 @@ class TestNotificationHooks(ServerTestCase):
         mock_db.count_artists_needing_refresh.return_value = 0
         mock_client.get_artist_all_releases.return_value = ([], {"name": "A"})
         mock_db.check_and_update_new_releases.return_value = "2026-01-01"
-        mock_db.get_artist_info.return_value = {"name": "A"}
-        mock_db.get_new_releases_since.return_value = [
-            {
-                "store_adam_id": "S1",
-                "title": "Single",
-                "release_type": "singles-eps",
-                "storefronts": '["us"]',
-                "release_date": "2026-04-23",
-                "url": "u",
-                "track_count": 1,
-                "upc": "",
-                "description": "",
-            },
-            {
-                "store_adam_id": "A1",
-                "title": "Album",
-                "release_type": "main-albums",
-                "storefronts": '["us"]',
-                "release_date": "2026-04-23",
-                "url": "u",
-                "track_count": 12,
-                "upc": "",
-                "description": "",
-            },
-        ]
 
         import server
 
         server._do_watchlist_poll()
 
         types_called = [c.args[0] for c in mock_notif.enqueue.call_args_list]
-        self.assertIn("onArtistNewSingle", types_called)
-        self.assertIn("onArtistNewRelease", types_called)
+        self.assertNotIn("onArtistNewSingle", types_called)
+        self.assertNotIn("onArtistNewRelease", types_called)
 
     @patch("server.notifications")
     @patch("server.db")

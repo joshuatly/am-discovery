@@ -1869,5 +1869,51 @@ class TestSearchArtistsLocal(DBTestCase):
         self.assertIsNone(results[0]["alt_name"])
 
 
+class TestGetAlbumsFirstSeenAfter(DBTestCase):
+    def _set_first_seen(self, store_adam_id, ts):
+        with self.db.get_conn() as conn:
+            conn.execute(
+                "UPDATE albums SET first_seen = ? WHERE store_adam_id = ?",
+                (ts, store_adam_id),
+            )
+
+    def test_excludes_first_seen_at_or_before_cutoff(self):
+        self.db.upsert_album(_minimal_album(store_adam_id="A", release_date="2026-04-30"))
+        self._set_first_seen("A", 1000)
+        rows = self.db.get_albums_first_seen_after(1000, "2020-01-01")
+        self.assertEqual(rows, [])
+        rows = self.db.get_albums_first_seen_after(999, "2020-01-01")
+        self.assertEqual(len(rows), 1)
+
+    def test_excludes_old_release_date(self):
+        self.db.upsert_album(_minimal_album(store_adam_id="A", release_date="2020-01-01"))
+        self._set_first_seen("A", 5000)
+        rows = self.db.get_albums_first_seen_after(0, "2026-04-23")
+        self.assertEqual(rows, [])
+
+    def test_excludes_null_release_date(self):
+        self.db.upsert_album(
+            _minimal_album(store_adam_id="A", release_date=None, info_fetched=0),
+        )
+        self._set_first_seen("A", 5000)
+        rows = self.db.get_albums_first_seen_after(0, "2020-01-01")
+        self.assertEqual(rows, [])
+
+    def test_includes_future_release_date(self):
+        self.db.upsert_album(_minimal_album(store_adam_id="A", release_date="2099-12-31"))
+        self._set_first_seen("A", 5000)
+        rows = self.db.get_albums_first_seen_after(0, "2026-04-23")
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["store_adam_id"], "A")
+
+    def test_orders_by_first_seen_ascending(self):
+        self.db.upsert_album(_minimal_album(store_adam_id="A", release_date="2026-04-30"))
+        self.db.upsert_album(_minimal_album(store_adam_id="B", release_date="2026-04-30"))
+        self._set_first_seen("A", 9000)
+        self._set_first_seen("B", 7000)
+        rows = self.db.get_albums_first_seen_after(0, "2026-04-23")
+        self.assertEqual([r["store_adam_id"] for r in rows], ["B", "A"])
+
+
 if __name__ == "__main__":
     unittest.main()

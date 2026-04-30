@@ -4,7 +4,6 @@ Run: uv run python server.py
 """
 
 import concurrent.futures
-import json
 import logging
 import os
 import sys
@@ -173,19 +172,17 @@ def _do_poll():
         logger.info("[Poll] Done. DB total: %d", total)
         success = True
 
-        # 5. Check if any discovered albums trigger a new_release status for watched artists
+        # 5. Drive the curation status transition (complete -> new_release) for any
+        # watched artist that received a discovered album in this poll.
+        # Notifications fire from the dedicated scanner thread in notifications.py.
         watched_ids = db.get_watched_artist_ids()
         discovered_artist_ids = {all_releases[aid].get("artist_id") or "" for aid in all_releases}
-        # Also include artist_id from full info fetches (stored in DB)
         for aid in new_ids:
             album = db.get_album(aid)
             if album and album.get("artist_id"):
                 discovered_artist_ids.add(album["artist_id"])
         for artist_id in discovered_artist_ids & watched_ids:
-            cutoff = db.check_and_update_new_releases(artist_id)
-            if cutoff:
-                logger.info("[Poll] Artist %s has new releases since collection was marked complete", artist_id)
-                _enqueue_artist_release_notifications(artist_id, cutoff)
+            db.check_and_update_new_releases(artist_id)
 
         # 6. Notifications for the discovery cycle as a whole
         _fire_discovery_cycle_notifications(
@@ -331,13 +328,8 @@ def _do_watchlist_poll():
                     list(ex.map(fetch_one, releases))
 
                 db.mark_artist_refreshed(artist_id)
-                cutoff = db.check_and_update_new_releases(artist_id)
-                if cutoff:
-                    logger.info(
-                        "[WatchlistPoll] %s has new releases since collection was marked complete",
-                        artist.get("name"),
-                    )
-                    _enqueue_artist_release_notifications(artist_id, cutoff)
+                # Drive curation status transition; notifications fire from the scanner thread.
+                db.check_and_update_new_releases(artist_id)
                 logger.info("[WatchlistPoll] Refreshed %s (%d releases)", artist.get("name"), len(releases))
                 refreshed_names.append(artist.get("name") or artist_id)
 
@@ -394,35 +386,6 @@ def _schedule_watchlist_next(override_delay=None):
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
-
-
-def _enqueue_artist_release_notifications(artist_id: str, cutoff: str) -> None:
-    """Enqueue per-release notifications for an artist that just transitioned to ``new_release``."""
-    info = db.get_artist_info(artist_id) or {}
-    artist_name = info.get("name", "")
-    for r in db.get_new_releases_since(artist_id, cutoff):
-        rt = r.get("release_type") or ""
-        event = "onArtistNewSingle" if rt == "singles-eps" else "onArtistNewRelease"
-        try:
-            sf_list = json.loads(r.get("storefronts") or "[]")
-        except (TypeError, ValueError):
-            sf_list = []
-        notifications.enqueue(
-            event,
-            {
-                "artist": artist_name,
-                "artist_id": artist_id,
-                "title": r.get("title", ""),
-                "track_count": r.get("track_count") or 0,
-                "upc": r.get("upc") or "",
-                "url": r.get("url") or "",
-                "storefronts": ", ".join(sf_list),
-                "store_adam_id": r.get("store_adam_id") or "",
-                "release_date": r.get("release_date") or "",
-                "release_type": rt,
-                "description": (r.get("description") or "").strip(),
-            },
-        )
 
 
 def _fire_watchlist_batch_notification(
@@ -494,6 +457,7 @@ def init_scheduler():
     """
     db.init_db()
     notifications.init()
+    notifications.init_scanner()
 
     cfg = load_config()
     interval_sec = cfg.get("newrelease_poll_interval_days", 1) * 86400

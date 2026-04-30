@@ -23,8 +23,10 @@ import time
 import urllib.error
 import urllib.request
 import uuid
+from datetime import datetime, timedelta
 
-from config import CONFIG_LOCK, format_local_time, load_config, save_config
+import db
+from config import CONFIG_LOCK, format_local_date, format_local_time, load_config, save_config
 
 logger = logging.getLogger(__name__)
 
@@ -182,6 +184,12 @@ _queue: queue.Queue | None = None
 _thread: threading.Thread | None = None
 _started = False
 _state_lock = threading.Lock()
+
+# Scanner-thread state (separate from the Apprise sender above).
+_last_notify_at: int | None = None
+_scan_timer: threading.Timer | None = None
+_scan_lock = threading.Lock()
+_scanner_started = False
 
 
 def _safe_format(template: str, variables: dict) -> str:
@@ -475,4 +483,148 @@ def init() -> None:
         block.get("queue_max_size", 100),
         block.get("rate_limit_per_sec", 1),
         block.get("max_failures", 5),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Watched-artist scanner (fires onArtistNewRelease / onArtistNewSingle)
+# ---------------------------------------------------------------------------
+
+
+def _ids_from_artists_json(blob) -> set[str]:
+    """Extract the set of ``id`` fields from an ``artists_json`` text blob.
+
+    The blob is JSON-encoded by :func:`db.upsert_album` as a list of
+    ``{id, name, url}`` objects. Returns an empty set on missing/malformed input.
+    """
+    if not blob:
+        return set()
+    try:
+        parsed = json.loads(blob) if isinstance(blob, str) else blob
+    except (TypeError, ValueError):
+        return set()
+    if not isinstance(parsed, list):
+        return set()
+    out: set[str] = set()
+    for entry in parsed:
+        if isinstance(entry, dict):
+            aid = entry.get("id")
+            if aid:
+                out.add(str(aid))
+    return out
+
+
+def enqueue_album_notification(album: dict, artist_name: str) -> None:
+    """Pick the right event type for ``album`` and enqueue a notification."""
+    rt = album.get("release_type") or ""
+    event = "onArtistNewSingle" if rt == "singles-eps" else "onArtistNewRelease"
+    sf_raw = album.get("storefronts") or "[]"
+    try:
+        sf_list = json.loads(sf_raw) if isinstance(sf_raw, str) else list(sf_raw)
+    except (TypeError, ValueError):
+        sf_list = []
+    enqueue(
+        event,
+        {
+            "artist": artist_name,
+            "artist_id": album.get("artist_id") or "",
+            "title": album.get("title", ""),
+            "track_count": album.get("track_count") or 0,
+            "upc": album.get("upc") or "",
+            "url": album.get("url") or "",
+            "storefronts": ", ".join(sf_list),
+            "store_adam_id": album.get("store_adam_id") or "",
+            "release_date": album.get("release_date") or "",
+            "release_type": rt,
+            "description": (album.get("description") or "").strip(),
+        },
+    )
+
+
+def get_last_notify_at() -> int | None:
+    """Return the unix timestamp of the most recent completed scan, or None
+    if the scanner has not yet been started or has not yet completed a scan."""
+    return _last_notify_at
+
+
+def _run_scan() -> None:
+    """One scanner tick: find new watched-artist albums in the lookback window
+    and enqueue notifications. Reschedules itself in ``finally``."""
+    global _last_notify_at
+    try:
+        cfg = load_config()
+        interval_sec = max(60, int(cfg.get("notification_scan_interval_minutes", 10)) * 60)
+        max_age_days = max(0, int(cfg.get("notification_max_release_age_days", 7)))
+        now = int(time.time())
+
+        today_local = format_local_date(now)
+        min_release_date = (datetime.strptime(today_local, "%Y-%m-%d") - timedelta(days=max_age_days)).strftime(
+            "%Y-%m-%d"
+        )
+
+        rows = db.get_albums_first_seen_after(
+            since_ts=now - interval_sec,
+            min_release_date=min_release_date,
+        )
+        fired = 0
+        if rows:
+            watched = db.get_watched_artist_ids()
+            for r in rows:
+                ids: set[str] = set()
+                primary = r.get("artist_id")
+                if primary:
+                    ids.add(str(primary))
+                ids |= _ids_from_artists_json(r.get("artists_json"))
+                hit = ids & watched
+                if not hit:
+                    continue
+                matched_id = next(iter(hit))
+                artist_name = (db.get_artist_info(matched_id) or {}).get("name", "")
+                enqueue_album_notification(r, artist_name)
+                fired += 1
+
+        _last_notify_at = now
+        logger.info(
+            "[notifications] scan complete (window=%ds rows=%d fired=%d)",
+            interval_sec,
+            len(rows),
+            fired,
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.error("[notifications] scan failed: %s", e)
+    finally:
+        _schedule_next_scan()
+
+
+def _schedule_next_scan() -> None:
+    global _scan_timer
+    cfg = load_config()
+    interval_sec = max(60, int(cfg.get("notification_scan_interval_minutes", 10)) * 60)
+    with _scan_lock:
+        if _scan_timer:
+            _scan_timer.cancel()
+        _scan_timer = threading.Timer(interval_sec, _run_scan)
+        _scan_timer.daemon = True
+        _scan_timer.start()
+    logger.debug("[notifications] next scan in %ds", interval_sec)
+
+
+def init_scanner() -> None:
+    """Start the watched-artist scanner thread. Idempotent.
+
+    Initialises ``_last_notify_at`` to ``now()`` so the first scan window
+    is ``(startup_ts, startup_ts + interval_sec]`` — no inserts before
+    startup get notified.
+    """
+    global _scanner_started, _last_notify_at
+    if _scanner_started:
+        return
+    _last_notify_at = int(time.time())
+    _scanner_started = True
+    _schedule_next_scan()
+    cfg = load_config()
+    logger.info(
+        "[notifications] scanner started (interval=%dm, max_release_age_days=%d)",
+        cfg.get("notification_scan_interval_minutes", 10),
+        cfg.get("notification_max_release_age_days", 7),
     )

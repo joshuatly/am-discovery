@@ -5,6 +5,7 @@ import json
 import os
 import queue
 import tempfile
+import time
 import unittest
 import urllib.error
 from unittest.mock import MagicMock, patch
@@ -29,11 +30,21 @@ class NotificationsTestCase(unittest.TestCase):
         notifications._queue = None
         notifications._thread = None
         notifications._started = False
+        notifications._last_notify_at = None
+        if notifications._scan_timer is not None:
+            notifications._scan_timer.cancel()
+        notifications._scan_timer = None
+        notifications._scanner_started = False
 
     def tearDown(self):
         import config
+        import notifications
 
         config.CONFIG_PATH = self._orig_config_path
+        if notifications._scan_timer is not None:
+            notifications._scan_timer.cancel()
+            notifications._scan_timer = None
+        notifications._scanner_started = False
         with contextlib.suppress(FileNotFoundError):
             os.unlink(self._cfg_path)
 
@@ -340,6 +351,349 @@ class TestFailureHandling(NotificationsTestCase):
         loaded = notifications.get_event(ev["id"])
         self.assertEqual(loaded["consecutive_failures"], 0)
         self.assertIsNone(loaded["disabled_reason"])
+
+
+# ---------------------------------------------------------------------------
+# _ids_from_artists_json
+# ---------------------------------------------------------------------------
+
+
+class TestIdsFromArtistsJson(NotificationsTestCase):
+    def test_none_returns_empty_set(self):
+        from notifications import _ids_from_artists_json
+
+        self.assertEqual(_ids_from_artists_json(None), set())
+
+    def test_empty_string_returns_empty_set(self):
+        from notifications import _ids_from_artists_json
+
+        self.assertEqual(_ids_from_artists_json(""), set())
+
+    def test_malformed_json_returns_empty_set(self):
+        from notifications import _ids_from_artists_json
+
+        self.assertEqual(_ids_from_artists_json("{not json"), set())
+
+    def test_extracts_ids_from_list_of_dicts(self):
+        from notifications import _ids_from_artists_json
+
+        blob = json.dumps([{"id": "A1", "name": "x"}, {"id": "B2"}])
+        self.assertEqual(_ids_from_artists_json(blob), {"A1", "B2"})
+
+    def test_skips_entries_without_id(self):
+        from notifications import _ids_from_artists_json
+
+        blob = json.dumps([{"id": "A1"}, {"name": "no-id"}, "string-entry"])
+        self.assertEqual(_ids_from_artists_json(blob), {"A1"})
+
+
+# ---------------------------------------------------------------------------
+# enqueue_album_notification (event-type dispatch)
+# ---------------------------------------------------------------------------
+
+
+class TestEnqueueAlbumNotification(NotificationsTestCase):
+    def _setup_event(self, event_type):
+        import notifications
+
+        notifications._queue = queue.Queue(maxsize=10)
+        notifications.create_event(
+            {
+                "event_type": event_type,
+                "apprise_url": "http://x/notify/y",
+                "title_template": "{title}",
+                "body_template": "{artist} {release_type}",
+            },
+        )
+
+    def test_singles_eps_uses_new_single(self):
+        import notifications
+
+        self._setup_event("onArtistNewSingle")
+        album = {
+            "store_adam_id": "1",
+            "title": "Hit",
+            "release_type": "singles-eps",
+            "release_date": "2026-04-30",
+        }
+        notifications.enqueue_album_notification(album, "Test Artist")
+        self.assertEqual(notifications._queue.qsize(), 1)
+        item = notifications._queue.get()
+        self.assertEqual(item["title"], "Hit")
+        self.assertEqual(item["body"], "Test Artist singles-eps")
+
+    def test_main_albums_uses_new_release(self):
+        import notifications
+
+        self._setup_event("onArtistNewRelease")
+        album = {"store_adam_id": "1", "title": "Album", "release_type": "main-albums"}
+        notifications.enqueue_album_notification(album, "X")
+        self.assertEqual(notifications._queue.qsize(), 1)
+
+    def test_null_release_type_uses_new_release(self):
+        import notifications
+
+        self._setup_event("onArtistNewRelease")
+        album = {"store_adam_id": "1", "title": "Mystery"}  # no release_type
+        notifications.enqueue_album_notification(album, "X")
+        self.assertEqual(notifications._queue.qsize(), 1)
+
+    def test_storefronts_string_blob_decoded(self):
+        import notifications
+
+        notifications._queue = queue.Queue(maxsize=10)
+        notifications.create_event(
+            {
+                "event_type": "onArtistNewRelease",
+                "apprise_url": "http://x/notify/y",
+                "title_template": "{storefronts}",
+                "body_template": "x",
+            },
+        )
+        notifications.enqueue_album_notification(
+            {"title": "T", "storefronts": json.dumps(["us", "jp"])},
+            "Artist",
+        )
+        item = notifications._queue.get()
+        self.assertEqual(item["title"], "us, jp")
+
+
+# ---------------------------------------------------------------------------
+# _run_scan (the watched-artist scanner)
+# ---------------------------------------------------------------------------
+
+
+class TestRunScan(NotificationsTestCase):
+    def setUp(self):
+        super().setUp()
+        import notifications
+
+        notifications._queue = queue.Queue(maxsize=50)
+        # Arm an event so enqueue() actually queues something. Apprise URL is
+        # never hit because _run_scan does not call _post_apprise.
+        notifications.create_event(
+            {
+                "event_type": "onArtistNewRelease",
+                "apprise_url": "http://x/notify/y",
+                "title_template": "{title}",
+                "body_template": "{artist} {release_type}",
+            },
+        )
+        notifications.create_event(
+            {
+                "event_type": "onArtistNewSingle",
+                "apprise_url": "http://x/notify/y",
+                "title_template": "single:{title}",
+                "body_template": "{artist}",
+            },
+        )
+
+    def _patches(
+        self,
+        *,
+        rows: list[dict],
+        watched: set[str] | None = None,
+        artist_name: str = "Test Artist",
+    ):
+        watched_set = watched if watched is not None else {"A1"}
+        return (
+            patch("notifications.db.get_albums_first_seen_after", return_value=rows),
+            patch("notifications.db.get_watched_artist_ids", return_value=watched_set),
+            patch("notifications.db.get_artist_info", return_value={"name": artist_name}),
+            patch("notifications._schedule_next_scan", lambda: None),
+        )
+
+    def _run_with(self, *, rows, watched=None, artist_name="Test Artist"):
+        import notifications
+
+        ps = self._patches(rows=rows, watched=watched, artist_name=artist_name)
+        with ps[0], ps[1], ps[2], ps[3]:
+            notifications._run_scan()
+
+    def _drain(self):
+        import notifications
+
+        items = []
+        while not notifications._queue.empty():
+            items.append(notifications._queue.get())
+        return items
+
+    def test_no_rows_no_notifications(self):
+        import notifications
+
+        self._run_with(rows=[])
+        self.assertEqual(notifications._queue.qsize(), 0)
+
+    def test_unwatched_artist_no_notification(self):
+        rows = [
+            {
+                "store_adam_id": "1",
+                "title": "X",
+                "artist_id": "OTHER",
+                "artists_json": json.dumps([{"id": "OTHER"}]),
+                "release_type": "main-albums",
+                "release_date": "2026-04-29",
+                "storefronts": json.dumps(["us"]),
+            },
+        ]
+        self._run_with(rows=rows, watched={"A1"})
+        self.assertEqual(self._drain(), [])
+
+    def test_match_via_primary_artist_id(self):
+        rows = [
+            {
+                "store_adam_id": "1",
+                "title": "Album X",
+                "artist_id": "A1",
+                "artists_json": None,
+                "release_type": "main-albums",
+                "release_date": "2026-04-29",
+                "storefronts": json.dumps(["us"]),
+            },
+        ]
+        self._run_with(rows=rows, watched={"A1"})
+        items = self._drain()
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0]["title"], "Album X")
+
+    def test_match_via_artists_json_featured_artist(self):
+        rows = [
+            {
+                "store_adam_id": "2",
+                "title": "Collab",
+                "artist_id": "PRIMARY",
+                "artists_json": json.dumps([{"id": "PRIMARY"}, {"id": "FEATURED"}]),
+                "release_type": "main-albums",
+                "release_date": "2026-04-29",
+                "storefronts": "[]",
+            },
+        ]
+        self._run_with(rows=rows, watched={"FEATURED"})
+        self.assertEqual(len(self._drain()), 1)
+
+    def test_singles_eps_dispatches_single_event(self):
+        rows = [
+            {
+                "store_adam_id": "3",
+                "title": "Hit",
+                "artist_id": "A1",
+                "artists_json": None,
+                "release_type": "singles-eps",
+                "release_date": "2026-04-29",
+                "storefronts": "[]",
+            },
+        ]
+        self._run_with(rows=rows, watched={"A1"})
+        items = self._drain()
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0]["title"], "single:Hit")
+
+    def test_null_release_type_dispatches_release_event(self):
+        rows = [
+            {
+                "store_adam_id": "4",
+                "title": "Mystery",
+                "artist_id": "A1",
+                "artists_json": None,
+                "release_type": None,
+                "release_date": "2026-04-29",
+                "storefronts": "[]",
+            },
+        ]
+        self._run_with(rows=rows, watched={"A1"})
+        items = self._drain()
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0]["title"], "Mystery")
+
+    def test_sets_last_notify_at_to_now(self):
+        import notifications
+
+        self._run_with(rows=[])
+        self.assertIsNotNone(notifications._last_notify_at)
+        # Within a few seconds of test execution time.
+        self.assertGreater(notifications._last_notify_at, int(time.time()) - 5)
+
+    def test_scan_failure_still_advances_last_notify_at_to_none_safe(self):
+        # Even if get_albums_first_seen_after raises, the scan must not crash;
+        # it must log and reschedule. _last_notify_at is unchanged.
+        import notifications
+
+        notifications._last_notify_at = 12345
+        with (
+            patch(
+                "notifications.db.get_albums_first_seen_after",
+                side_effect=RuntimeError("db down"),
+            ),
+            patch("notifications._schedule_next_scan", lambda: None),
+        ):
+            notifications._run_scan()
+        # Should still be the prior value because we set _last_notify_at = now
+        # only on success path — verify the function did not crash.
+        self.assertEqual(notifications._last_notify_at, 12345)
+
+
+# ---------------------------------------------------------------------------
+# init_scanner / get_last_notify_at
+# ---------------------------------------------------------------------------
+
+
+class TestInitScanner(NotificationsTestCase):
+    def test_get_last_notify_at_none_before_init(self):
+        import notifications
+
+        self.assertIsNone(notifications.get_last_notify_at())
+
+    def test_init_scanner_sets_last_notify_at_and_arms_timer(self):
+        import notifications
+
+        with patch("notifications._schedule_next_scan") as mock_sched:
+            notifications.init_scanner()
+        self.assertIsNotNone(notifications._last_notify_at)
+        self.assertTrue(notifications._scanner_started)
+        mock_sched.assert_called_once()
+
+    def test_init_scanner_idempotent(self):
+        import notifications
+
+        with patch("notifications._schedule_next_scan") as mock_sched:
+            notifications.init_scanner()
+            notifications.init_scanner()
+        self.assertEqual(mock_sched.call_count, 1)
+
+
+# ---------------------------------------------------------------------------
+# Integration: query window math (uses time.time mock)
+# ---------------------------------------------------------------------------
+
+
+class TestScanWindow(NotificationsTestCase):
+    def test_query_uses_now_minus_interval_seconds(self):
+        import config
+        import notifications
+
+        config.save_config(
+            {"notification_scan_interval_minutes": 10, "notification_max_release_age_days": 7},
+        )
+        notifications._queue = queue.Queue(maxsize=10)
+        captured = {}
+
+        def fake_query(since_ts, min_release_date):
+            captured["since_ts"] = since_ts
+            captured["min_release_date"] = min_release_date
+            return []
+
+        with (
+            patch("notifications.db.get_albums_first_seen_after", side_effect=fake_query),
+            patch("notifications.db.get_watched_artist_ids", return_value=set()),
+            patch("notifications._schedule_next_scan", lambda: None),
+            patch("notifications.time.time", return_value=2_000_000),
+        ):
+            notifications._run_scan()
+        # since_ts should be now - 600 (10 min × 60s).
+        self.assertEqual(captured["since_ts"], 2_000_000 - 600)
+        # min_release_date is 7 days before 2_000_000's local date.
+        # 2_000_000 unix is 1970-01-24 UTC; minus 7 days is 1970-01-17.
+        self.assertEqual(captured["min_release_date"], "1970-01-17")
 
 
 if __name__ == "__main__":
