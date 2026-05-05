@@ -16,6 +16,7 @@ from flask import Flask
 import db
 import notifications
 from api_artists import artists_bp
+from api_debug import debug_bp
 from api_notifications import notifications_bp
 from api_releases import releases_bp
 from api_system import system_bp
@@ -42,6 +43,7 @@ app.register_blueprint(artists_bp)
 app.register_blueprint(system_bp)
 app.register_blueprint(watchlist_bp)
 app.register_blueprint(notifications_bp)
+app.register_blueprint(debug_bp)
 
 # ---------------------------------------------------------------------------
 # Polling logic

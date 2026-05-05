@@ -166,6 +166,29 @@ class AppleMusicClient:
             logger.warning("[amp-api] GET %s failed: %s", url, e)
             return {}
 
+    def catalog_get_raw(self, path: str, params: dict = None) -> tuple[int, dict | str]:
+        """GET from amp-api.music.apple.com and return (status_code, body).
+
+        Unlike _amp_api_get, errors are not swallowed — the HTTP status and
+        response body (or error message string) are always returned so callers
+        can surface the real Apple Music response.
+        """
+        query = ("?" + urllib.parse.urlencode(params)) if params else ""
+        url = self._apply_proxy(f"{_AMP_API_BASE}{path}{query}")
+        req = urllib.request.Request(url, headers=self._amp_headers)
+        logger.debug("[amp-api raw] GET %s", url)
+        try:
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                return resp.status, json.loads(resp.read().decode("utf-8"))
+        except urllib.error.HTTPError as e:
+            try:
+                body = json.loads(e.read().decode("utf-8"))
+            except Exception:
+                body = {"error": str(e)}
+            return e.code, body
+        except Exception as e:
+            return 0, {"error": str(e)}
+
     def get_album_full_info(self, url: str) -> dict:
         """Fetch full album metadata via the catalog API."""
         result = {
