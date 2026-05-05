@@ -6,6 +6,19 @@ import tempfile
 import unittest
 from unittest.mock import MagicMock, patch
 
+from client import _VIEW_MAP
+
+_ARTIST_DEFAULTS = {
+    "views": ",".join(_VIEW_MAP),
+    **{f"limit[{v}]": "100" for v in _VIEW_MAP},
+    "extend": "bornOrFormed,origin,artistBio",
+}
+
+_ALBUM_DEFAULTS = {
+    "include": "tracks,artists",
+    "extend": "extendedAssetUrls",
+}
+
 
 class DebugEndpointTestCase(unittest.TestCase):
     def setUp(self):
@@ -38,39 +51,52 @@ class DebugEndpointTestCase(unittest.TestCase):
     def test_artist_missing_id_returns_400(self):
         resp = self.client.get("/api/debug/apple-music/artist")
         self.assertEqual(resp.status_code, 400)
-        data = resp.get_json()
-        self.assertIn("error", data)
+        self.assertIn("error", resp.get_json())
 
     def test_artist_invalid_storefront_returns_400(self):
         resp = self.client.get("/api/debug/apple-music/artist?id=12345&storefront=toolong")
         self.assertEqual(resp.status_code, 400)
-        data = resp.get_json()
-        self.assertIn("error", data)
+        self.assertIn("error", resp.get_json())
 
     @patch("api_debug.AppleMusicClient")
-    def test_artist_returns_raw_payload(self, MockClient):
-        raw_payload = {"data": [{"id": "12345", "attributes": {"name": "Test Artist"}}]}
-        instance = MagicMock()
-        instance.catalog_get_raw.return_value = (200, raw_payload)
-        MockClient.return_value = instance
-
-        resp = self.client.get("/api/debug/apple-music/artist?id=12345&storefront=us")
-        self.assertEqual(resp.status_code, 200)
-        self.assertEqual(resp.get_json(), raw_payload)
-        instance.catalog_get_raw.assert_called_once_with("/v1/catalog/us/artists/12345", None)
-
-    @patch("api_debug.AppleMusicClient")
-    def test_artist_forwards_include_and_extend(self, MockClient):
+    def test_artist_uses_app_defaults(self, MockClient):
         instance = MagicMock()
         instance.catalog_get_raw.return_value = (200, {"data": []})
         MockClient.return_value = instance
 
-        resp = self.client.get("/api/debug/apple-music/artist?id=99&storefront=jp&include=albums&extend=artistBio")
+        resp = self.client.get("/api/debug/apple-music/artist?id=12345&storefront=us")
         self.assertEqual(resp.status_code, 200)
         instance.catalog_get_raw.assert_called_once_with(
-            "/v1/catalog/jp/artists/99",
-            {"include": "albums", "extend": "artistBio"},
+            "/v1/catalog/us/artists/12345",
+            _ARTIST_DEFAULTS,
         )
+
+    @patch("api_debug.AppleMusicClient")
+    def test_artist_extend_overrides_default(self, MockClient):
+        instance = MagicMock()
+        instance.catalog_get_raw.return_value = (200, {"data": []})
+        MockClient.return_value = instance
+
+        resp = self.client.get("/api/debug/apple-music/artist?id=99&storefront=jp&extend=artistBio")
+        self.assertEqual(resp.status_code, 200)
+        _, called_params = instance.catalog_get_raw.call_args[0]
+        self.assertEqual(called_params["extend"], "artistBio")
+        # views and limits still present
+        self.assertIn("views", called_params)
+
+    @patch("api_debug.AppleMusicClient")
+    def test_artist_views_override_rebuilds_limits(self, MockClient):
+        instance = MagicMock()
+        instance.catalog_get_raw.return_value = (200, {"data": []})
+        MockClient.return_value = instance
+
+        resp = self.client.get("/api/debug/apple-music/artist?id=1&storefront=us&views=full-albums")
+        self.assertEqual(resp.status_code, 200)
+        _, called_params = instance.catalog_get_raw.call_args[0]
+        self.assertEqual(called_params["views"], "full-albums")
+        self.assertIn("limit[full-albums]", called_params)
+        # limits for other views should be gone
+        self.assertNotIn("limit[singles]", called_params)
 
     @patch("api_debug.AppleMusicClient")
     def test_artist_propagates_error_status(self, MockClient):
@@ -94,7 +120,8 @@ class DebugEndpointTestCase(unittest.TestCase):
 
         resp = self.client.get("/api/debug/apple-music/artist?id=123")
         self.assertEqual(resp.status_code, 200)
-        instance.catalog_get_raw.assert_called_once_with("/v1/catalog/hk/artists/123", None)
+        called_path, _ = instance.catalog_get_raw.call_args[0]
+        self.assertIn("/hk/artists/123", called_path)
 
     # ------------------------------------------------------------------
     # /api/debug/apple-music/album
@@ -103,39 +130,48 @@ class DebugEndpointTestCase(unittest.TestCase):
     def test_album_missing_id_returns_400(self):
         resp = self.client.get("/api/debug/apple-music/album")
         self.assertEqual(resp.status_code, 400)
-        data = resp.get_json()
-        self.assertIn("error", data)
+        self.assertIn("error", resp.get_json())
 
     def test_album_invalid_storefront_returns_400(self):
         resp = self.client.get("/api/debug/apple-music/album?id=12345&storefront=TOOLONG")
         self.assertEqual(resp.status_code, 400)
 
     @patch("api_debug.AppleMusicClient")
-    def test_album_returns_raw_payload(self, MockClient):
-        raw_payload = {"data": [{"id": "999", "attributes": {"name": "Test Album"}}]}
-        instance = MagicMock()
-        instance.catalog_get_raw.return_value = (200, raw_payload)
-        MockClient.return_value = instance
-
-        resp = self.client.get("/api/debug/apple-music/album?id=999&storefront=us")
-        self.assertEqual(resp.status_code, 200)
-        self.assertEqual(resp.get_json(), raw_payload)
-        instance.catalog_get_raw.assert_called_once_with("/v1/catalog/us/albums/999", None)
-
-    @patch("api_debug.AppleMusicClient")
-    def test_album_forwards_include_and_extend(self, MockClient):
+    def test_album_uses_app_defaults(self, MockClient):
         instance = MagicMock()
         instance.catalog_get_raw.return_value = (200, {"data": []})
         MockClient.return_value = instance
 
-        resp = self.client.get(
-            "/api/debug/apple-music/album?id=42&storefront=tw&include=tracks,artists&extend=extendedAssetUrls"
-        )
+        resp = self.client.get("/api/debug/apple-music/album?id=999&storefront=us")
         self.assertEqual(resp.status_code, 200)
         instance.catalog_get_raw.assert_called_once_with(
-            "/v1/catalog/tw/albums/42",
-            {"include": "tracks,artists", "extend": "extendedAssetUrls"},
+            "/v1/catalog/us/albums/999",
+            _ALBUM_DEFAULTS,
         )
+
+    @patch("api_debug.AppleMusicClient")
+    def test_album_include_overrides_default(self, MockClient):
+        instance = MagicMock()
+        instance.catalog_get_raw.return_value = (200, {"data": []})
+        MockClient.return_value = instance
+
+        resp = self.client.get("/api/debug/apple-music/album?id=42&storefront=tw&include=tracks")
+        self.assertEqual(resp.status_code, 200)
+        _, called_params = instance.catalog_get_raw.call_args[0]
+        self.assertEqual(called_params["include"], "tracks")
+        self.assertEqual(called_params["extend"], "extendedAssetUrls")  # default preserved
+
+    @patch("api_debug.AppleMusicClient")
+    def test_album_extend_overrides_default(self, MockClient):
+        instance = MagicMock()
+        instance.catalog_get_raw.return_value = (200, {"data": []})
+        MockClient.return_value = instance
+
+        resp = self.client.get("/api/debug/apple-music/album?id=42&storefront=tw&extend=foo")
+        self.assertEqual(resp.status_code, 200)
+        _, called_params = instance.catalog_get_raw.call_args[0]
+        self.assertEqual(called_params["extend"], "foo")
+        self.assertEqual(called_params["include"], "tracks,artists")  # default preserved
 
     @patch("api_debug.AppleMusicClient")
     def test_album_propagates_error_status(self, MockClient):
@@ -159,7 +195,8 @@ class DebugEndpointTestCase(unittest.TestCase):
 
         resp = self.client.get("/api/debug/apple-music/album?id=55")
         self.assertEqual(resp.status_code, 200)
-        instance.catalog_get_raw.assert_called_once_with("/v1/catalog/my/albums/55", None)
+        called_path, _ = instance.catalog_get_raw.call_args[0]
+        self.assertIn("/my/albums/55", called_path)
 
     @patch("api_debug.AppleMusicClient")
     def test_connection_error_returns_502(self, MockClient):

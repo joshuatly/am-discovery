@@ -9,10 +9,22 @@ when present.
 from flask import Blueprint, jsonify, request
 
 from api_utility import _validate_storefront
-from client import AppleMusicClient
+from client import _VIEW_MAP, AppleMusicClient
 from config import load_config
 
 debug_bp = Blueprint("debug", __name__)
+
+# Defaults mirror exactly what the app sends for each entity type.
+_ARTIST_DEFAULT_PARAMS = {
+    "views": ",".join(_VIEW_MAP),
+    **{f"limit[{v}]": "100" for v in _VIEW_MAP},
+    "extend": "bornOrFormed,origin,artistBio",
+}
+
+_ALBUM_DEFAULT_PARAMS = {
+    "include": "tracks,artists",
+    "extend": "extendedAssetUrls",
+}
 
 
 def _storefront_or_default(sf_param: str | None) -> str | None:
@@ -46,20 +58,21 @@ def debug_apple_music_artist():
         description: >
           Two-letter storefront code (e.g. "us", "jp"). Defaults to
           home_storefront from config.
-      - name: include
+      - name: views
         in: query
         type: string
         required: false
         description: >
-          Comma-separated relationships to include (e.g. "albums,playlists").
-          Forwarded verbatim to the Apple Music API.
+          Comma-separated view keys to fetch (e.g.
+          "full-albums,compilation-albums,live-albums,singles").
+          Defaults to all four views used by the app.
       - name: extend
         in: query
         type: string
         required: false
         description: >
-          Comma-separated extended attributes (e.g. "bornOrFormed,artistBio").
-          Forwarded verbatim to the Apple Music API.
+          Comma-separated extended attributes to include. Defaults to
+          "bornOrFormed,origin,artistBio" (same as the app).
     responses:
       200:
         description: Raw Apple Music catalog response (success or API error body)
@@ -76,14 +89,23 @@ def debug_apple_music_artist():
     if not storefront:
         return jsonify({"error": "Invalid storefront"}), 400
 
-    params = {}
-    if request.args.get("include"):
-        params["include"] = request.args["include"]
+    params = dict(_ARTIST_DEFAULT_PARAMS)
+    if request.args.get("views"):
+        # Replace views and rebuild per-view limits for the new set.
+        views_val = request.args["views"]
+        params["views"] = views_val
+        for key in list(params):
+            if key.startswith("limit["):
+                del params[key]
+        for v in views_val.split(","):
+            v = v.strip()
+            if v:
+                params[f"limit[{v}]"] = "100"
     if request.args.get("extend"):
         params["extend"] = request.args["extend"]
 
     client = AppleMusicClient()
-    status, body = client.catalog_get_raw(f"/v1/catalog/{storefront}/artists/{artist_id}", params or None)
+    status, body = client.catalog_get_raw(f"/v1/catalog/{storefront}/artists/{artist_id}", params)
     return jsonify(body), status or 502
 
 
@@ -116,15 +138,15 @@ def debug_apple_music_album():
         type: string
         required: false
         description: >
-          Comma-separated relationships to include (e.g. "tracks,artists").
-          Forwarded verbatim to the Apple Music API.
+          Comma-separated relationships to include. Defaults to
+          "tracks,artists" (same as the app).
       - name: extend
         in: query
         type: string
         required: false
         description: >
-          Comma-separated extended attributes (e.g. "extendedAssetUrls").
-          Forwarded verbatim to the Apple Music API.
+          Comma-separated extended attributes to include. Defaults to
+          "extendedAssetUrls" (same as the app).
     responses:
       200:
         description: Raw Apple Music catalog response (success or API error body)
@@ -141,12 +163,12 @@ def debug_apple_music_album():
     if not storefront:
         return jsonify({"error": "Invalid storefront"}), 400
 
-    params = {}
+    params = dict(_ALBUM_DEFAULT_PARAMS)
     if request.args.get("include"):
         params["include"] = request.args["include"]
     if request.args.get("extend"):
         params["extend"] = request.args["extend"]
 
     client = AppleMusicClient()
-    status, body = client.catalog_get_raw(f"/v1/catalog/{storefront}/albums/{album_id}", params or None)
+    status, body = client.catalog_get_raw(f"/v1/catalog/{storefront}/albums/{album_id}", params)
     return jsonify(body), status or 502
