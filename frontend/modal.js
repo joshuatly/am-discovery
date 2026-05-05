@@ -50,6 +50,7 @@ async function openModal(storeAdamId) {
           artwork_url: fresh.artwork_url,
           release_date: fresh.release_date,
           track_count: fresh.track_count,
+          music_video_count: fresh.music_video_count || 0,
           genre: fresh.genre,
           description: fresh.description,
           tracks: fresh.tracks || [],
@@ -75,6 +76,7 @@ async function openModal(storeAdamId) {
         if (fresh.genre)        album.genre        = fresh.genre;
         if (fresh.description)  album.description  = fresh.description;
         if (fresh.tracks?.length) album.tracks     = fresh.tracks;
+        if (fresh.music_video_count != null) album.music_video_count = fresh.music_video_count;
         if (fresh.audio_formats?.length) album.audio_formats = fresh.audio_formats;
         album._metaSf = state.metadataStorefront;
       } catch {}
@@ -166,7 +168,10 @@ async function openModal(storeAdamId) {
     tags.appendChild(t);
   }
   if (album.track_count) {
-    const t = el("span", "modal-tag", `🎵 ${album.track_count} tracks`);
+    const mvCount = album.music_video_count || 0;
+    const songCount = album.track_count - mvCount;
+    const countLabel = mvCount > 0 ? `${songCount}+${mvCount}` : `${album.track_count}`;
+    const t = el("span", "modal-tag", `🎵 ${countLabel} tracks`);
     tags.appendChild(t);
   }
   if (album.genre) {
@@ -415,10 +420,18 @@ async function openModal(storeAdamId) {
   if (tracks.length) {
     const tl = el("div", "tracklist");
     const tlHead = el("div", "tracklist-header");
-    if (hasDiff) {
-      tlHead.innerHTML = `${sfChipHtml(album._metaSf, "font-size:10px;vertical-align:middle;")} &nbsp;Tracklist — ${tracks.length} track${tracks.length !== 1 ? "s" : ""}`;
+    const mvCount = tracks.filter(t => t.is_music_video).length;
+    const songCount = tracks.length - mvCount;
+    let trackLabel;
+    if (mvCount > 0) {
+      trackLabel = `${songCount} track${songCount !== 1 ? "s" : ""} + ${mvCount} video${mvCount !== 1 ? "s" : ""}`;
     } else {
-      tlHead.textContent = `Tracklist — ${tracks.length} track${tracks.length !== 1 ? "s" : ""}`;
+      trackLabel = `${tracks.length} track${tracks.length !== 1 ? "s" : ""}`;
+    }
+    if (hasDiff) {
+      tlHead.innerHTML = `${sfChipHtml(album._metaSf, "font-size:10px;vertical-align:middle;")} &nbsp;Tracklist — ${trackLabel}`;
+    } else {
+      tlHead.textContent = `Tracklist — ${trackLabel}`;
     }
     tl.appendChild(tlHead);
     tracks.forEach((t, i) => {
@@ -426,10 +439,15 @@ async function openModal(storeAdamId) {
       const rowDiffers = hasDiff && myTrack && t.title !== myTrack.title;
       const row = el("div", `track-row${rowDiffers ? " track-differs" : ""}`);
       const num = el("span", "track-num", String(t.track_number ?? i + 1));
-      const title = el("span", "track-title", t.title || "—");
+      const titleCell = el("span", "track-title-cell");
+      const titleSpan = el("span", "track-title", t.title || "—");
+      titleCell.appendChild(titleSpan);
+      if (t.is_music_video) {
+        titleCell.appendChild(el("span", "track-mv-badge", "MV"));
+      }
       const dur = el("span", "track-dur", formatDuration(t.duration_ms));
       row.appendChild(num);
-      row.appendChild(title);
+      row.appendChild(titleCell);
       row.appendChild(dur);
       tl.appendChild(row);
     });
@@ -443,17 +461,27 @@ async function openModal(storeAdamId) {
   if (hasDiff && myTracks.length) {
     const myTl = el("div", "tracklist");
     const myTlHead = el("div", "tracklist-header tracklist-header-my");
-    myTlHead.innerHTML = `${sfChipHtml(homeForDiff, "font-size:10px;vertical-align:middle;")} &nbsp;Tracklist — ${myTracks.length} track${myTracks.length !== 1 ? "s" : ""}`;
+    const myMvCount = myTracks.filter(t => t.is_music_video).length;
+    const mySongCount = myTracks.length - myMvCount;
+    const myTrackLabel = myMvCount > 0
+      ? `${mySongCount} track${mySongCount !== 1 ? "s" : ""} + ${myMvCount} video${myMvCount !== 1 ? "s" : ""}`
+      : `${myTracks.length} track${myTracks.length !== 1 ? "s" : ""}`;
+    myTlHead.innerHTML = `${sfChipHtml(homeForDiff, "font-size:10px;vertical-align:middle;")} &nbsp;Tracklist — ${myTrackLabel}`;
     myTl.appendChild(myTlHead);
     myTracks.forEach((t, i) => {
       const mainTrack = tracks[i];
       const rowDiffers = mainTrack && t.title !== mainTrack.title;
       const row = el("div", `track-row${rowDiffers ? " track-differs-my" : ""}`);
       const num = el("span", "track-num", String(t.track_number ?? i + 1));
-      const title = el("span", "track-title", t.title || "—");
+      const titleCell = el("span", "track-title-cell");
+      const titleSpan = el("span", "track-title", t.title || "—");
+      titleCell.appendChild(titleSpan);
+      if (t.is_music_video) {
+        titleCell.appendChild(el("span", "track-mv-badge", "MV"));
+      }
       const dur = el("span", "track-dur", formatDuration(t.duration_ms));
       row.appendChild(num);
-      row.appendChild(title);
+      row.appendChild(titleCell);
       row.appendChild(dur);
       myTl.appendChild(row);
     });

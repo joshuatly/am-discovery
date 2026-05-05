@@ -533,6 +533,27 @@ describe("albumCard track-count chip", () => {
     // placeholder used when artwork_url is null
     expect(wrap.querySelector(".album-artwork-placeholder")).not.toBeNull();
   });
+
+  test("shows X+Y chip when music_video_count > 0", () => {
+    const card = ctx.appWindow.albumCard({ ...baseAlbum, track_count: 2, music_video_count: 1 });
+    const chip = card.querySelector(".track-count-chip");
+    expect(chip).not.toBeNull();
+    expect(chip.textContent).toBe("1+1");
+  });
+
+  test("shows plain count when music_video_count is 0", () => {
+    const card = ctx.appWindow.albumCard({ ...baseAlbum, track_count: 10, music_video_count: 0 });
+    const chip = card.querySelector(".track-count-chip");
+    expect(chip).not.toBeNull();
+    expect(chip.textContent).toBe("10");
+  });
+
+  test("shows plain count when music_video_count is absent", () => {
+    const card = ctx.appWindow.albumCard({ ...baseAlbum, track_count: 5 });
+    const chip = card.querySelector(".track-count-chip");
+    expect(chip).not.toBeNull();
+    expect(chip.textContent).toBe("5");
+  });
 });
 
 // ---------------------------------------------------------------------------

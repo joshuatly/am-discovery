@@ -197,6 +197,7 @@ class AppleMusicClient:
             "release_date": None,
             "artwork_url": None,
             "track_count": None,
+            "music_video_count": 0,
             "genre": None,
             "description": None,
             "artist_id": None,
@@ -260,18 +261,24 @@ class AppleMusicClient:
             result["artist_url"] = artists[0]["url"]
 
         tracks = []
+        mv_count = 0
         for t in rels.get("tracks", {}).get("data") or []:
             tattrs = t.get("attributes") or {}
             title = tattrs.get("name")
             if title:
+                is_mv = t.get("type") == "music-videos"
+                if is_mv:
+                    mv_count += 1
                 tracks.append(
                     {
                         "title": title,
                         "track_number": tattrs.get("trackNumber"),
                         "duration_ms": tattrs.get("durationInMillis"),
+                        "is_music_video": is_mv,
                     },
                 )
         result["tracks"] = tracks
+        result["music_video_count"] = mv_count
 
         return result
 
