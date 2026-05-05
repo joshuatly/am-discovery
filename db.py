@@ -27,7 +27,7 @@ def get_conn():
         conn.close()
 
 
-SCHEMA_VERSION = 16
+SCHEMA_VERSION = 17
 
 # Valid collection_status values and allowed transitions
 COLLECTION_STATUSES = {"new", "complete", "new_release", "in_progress"}
@@ -64,6 +64,7 @@ def init_db():
                     release_date   TEXT,
                     artwork_url    TEXT,
                     track_count    INTEGER,
+                    music_video_count INTEGER DEFAULT 0,
                     genre          TEXT,
                     description    TEXT,
                     info_fetched   INTEGER DEFAULT 0,
@@ -178,6 +179,7 @@ def upsert_album(data: dict):
                 release_date=coalesce(?, release_date),
                 artwork_url=coalesce(?, artwork_url),
                 track_count=coalesce(?, track_count),
+                music_video_count=coalesce(?, music_video_count),
                 genre=coalesce(?, genre),
                 description=coalesce(?, description),
                 info_fetched=max(info_fetched, ?),
@@ -198,6 +200,7 @@ def upsert_album(data: dict):
                 data.get("release_date"),
                 data.get("artwork_url"),
                 data.get("track_count"),
+                data.get("music_video_count"),
                 data.get("genre"),
                 data.get("description"),
                 1 if data.get("info_fetched") else 0,

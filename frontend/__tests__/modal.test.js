@@ -242,3 +242,109 @@ describe("openModal You Might Also Like", () => {
     expect(empty.textContent).toMatch(/No suggestions/i);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Music video track handling in modal
+// ---------------------------------------------------------------------------
+
+describe("openModal music video tracks", () => {
+  const makeAlbumData = (extra = {}) => ({
+    store_adam_id: "12345",
+    title: "Test Single",
+    artist: "Test Artist",
+    artist_id: "ART1",
+    artist_url: "https://music.apple.com/us/artist/1",
+    url: "https://music.apple.com/us/album/12345",
+    storefronts: ["us"],
+    release_date: "2024-01-15",
+    artwork_url: null,
+    track_count: 2,
+    music_video_count: 1,
+    genre: "Pop",
+    description: null,
+    upc: null,
+    audio_formats: [],
+    artists_json: [],
+    tracks: [
+      { title: "Song A", track_number: 1, duration_ms: 200000, is_music_video: false },
+      { title: "Song A", track_number: 2, duration_ms: 198000, is_music_video: true },
+    ],
+    ...extra,
+  });
+
+  afterEach(() => {
+    ctx.appWindow.fetch.mockClear();
+    const overlay = ctx.appWindow.document.getElementById("modal-overlay");
+    if (overlay) overlay.style.display = "none";
+    const body = ctx.appWindow.document.getElementById("modal-body");
+    if (body) body.innerHTML = "";
+  });
+
+  test("track count tag shows X+Y when music_video_count > 0", async () => {
+    ctx.appWindow.fetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve(makeAlbumData()),
+    });
+    ctx.appWindow.__test_state.metadataStorefront = null;
+
+    await ctx.appWindow.openModal("12345");
+
+    const body = ctx.appWindow.document.getElementById("modal-body");
+    const tags = Array.from(body.querySelectorAll(".modal-tag"));
+    const trackTag = tags.find(t => t.textContent.includes("🎵"));
+    expect(trackTag).not.toBeUndefined();
+    expect(trackTag.textContent).toContain("1+1");
+  });
+
+  test("track count tag shows plain count when no music videos", async () => {
+    ctx.appWindow.fetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve(makeAlbumData({ track_count: 10, music_video_count: 0, tracks: [] })),
+    });
+    ctx.appWindow.__test_state.metadataStorefront = null;
+
+    await ctx.appWindow.openModal("12345");
+
+    const body = ctx.appWindow.document.getElementById("modal-body");
+    const tags = Array.from(body.querySelectorAll(".modal-tag"));
+    const trackTag = tags.find(t => t.textContent.includes("🎵"));
+    expect(trackTag).not.toBeUndefined();
+    expect(trackTag.textContent).toContain("10");
+    expect(trackTag.textContent).not.toContain("+");
+  });
+
+  test("tracklist header shows songs + videos count", async () => {
+    ctx.appWindow.fetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve(makeAlbumData()),
+    });
+    ctx.appWindow.__test_state.metadataStorefront = null;
+
+    await ctx.appWindow.openModal("12345");
+
+    const body = ctx.appWindow.document.getElementById("modal-body");
+    const header = body.querySelector(".tracklist-header");
+    expect(header).not.toBeNull();
+    expect(header.textContent).toMatch(/1 track/);
+    expect(header.textContent).toMatch(/1 video/);
+  });
+
+  test("music video track row has MV badge", async () => {
+    ctx.appWindow.fetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve(makeAlbumData()),
+    });
+    ctx.appWindow.__test_state.metadataStorefront = null;
+
+    await ctx.appWindow.openModal("12345");
+
+    const body = ctx.appWindow.document.getElementById("modal-body");
+    const rows = body.querySelectorAll(".track-row");
+    expect(rows.length).toBe(2);
+    // Row 1: song — no badge
+    expect(rows[0].querySelector(".track-mv-badge")).toBeNull();
+    // Row 2: music video — has badge
+    expect(rows[1].querySelector(".track-mv-badge")).not.toBeNull();
+    expect(rows[1].querySelector(".track-mv-badge").textContent).toBe("MV");
+  });
+});

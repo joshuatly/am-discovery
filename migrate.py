@@ -138,6 +138,10 @@ MIGRATIONS = {
             next_run_at       INTEGER
         );
     """,
+    17: """
+        -- Version 17: track music video count separately from song track count.
+        ALTER TABLE albums ADD COLUMN music_video_count INTEGER DEFAULT 0;
+    """,
 }
 
 

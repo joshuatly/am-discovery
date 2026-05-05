@@ -208,7 +208,10 @@ function albumCard(album) {
   const artWrap = el("div", "album-art-wrap");
   artWrap.appendChild(artworkEl(album.artwork_url, "album-artwork"));
   if (album.track_count) {
-    const tc = el("span", "track-count-chip", `${album.track_count}`);
+    const mvCount = album.music_video_count || 0;
+    const songCount = album.track_count - mvCount;
+    const chipLabel = mvCount > 0 ? `${songCount}+${mvCount}` : `${album.track_count}`;
+    const tc = el("span", "track-count-chip", chipLabel);
     artWrap.appendChild(tc);
   }
   card.appendChild(artWrap);
