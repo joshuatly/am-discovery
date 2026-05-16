@@ -1,0 +1,968 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Discovery Design Guidance · ab + am</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist:wght@300;400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="doc.css" />
+  <link rel="stylesheet" href="demos.css" />
+</head>
+<body>
+<div class="shell">
+
+  <!-- ===================== SIDEBAR NAV ===================== -->
+  <nav class="sidenav">
+    <div class="brand">
+      <span class="logo"><span class="dot"></span> Discovery</span>
+      <span class="sub">Design Guidance</span>
+    </div>
+
+    <div class="toc-group">
+      <div class="toc-label">Reference</div>
+      <a href="#overview"    class="toc-link"><span class="num">01</span> Overview &amp; Philosophy</a>
+      <a href="#colors"      class="toc-link"><span class="num">02</span> Color System</a>
+      <a href="#typography"  class="toc-link"><span class="num">03</span> Typography</a>
+      <a href="#components"  class="toc-link"><span class="num">04</span> Component Library</a>
+      <a href="#layout"      class="toc-link"><span class="num">05</span> Layout &amp; Navigation</a>
+      <a href="#interaction" class="toc-link"><span class="num">06</span> Interaction Patterns</a>
+      <a href="#tokens"      class="toc-link"><span class="num">07</span> Design Tokens</a>
+      <a href="#rules"       class="toc-link"><span class="num">08</span> Rules &amp; Checklists</a>
+    </div>
+  </nav>
+
+  <!-- ===================== MAIN CONTENT ===================== -->
+  <main class="content">
+
+    <!-- ==================== HERO ==================== -->
+    <div class="hero">
+      <div>
+        <div class="meta">Design System · v1.0 · 2025</div>
+        <h1>
+          <span class="accent-ab">ab</span> +
+          <span class="accent-am">am</span><br>
+          discovery
+        </h1>
+        <p class="blurb">
+          A single reference for both products — shared language, clear divergences,
+          and live component demos rendered at spec.
+        </p>
+      </div>
+      <div class="side">
+        <h4>Document scope</h4>
+        <div class="stat-row"><span>ab-discovery</span><b><span class="pill pill-ab"><span class="pill-dot"></span>AB</span></b></div>
+        <div class="stat-row"><span>am-discovery</span><b><span class="pill pill-am"><span class="pill-dot"></span>AM</span></b></div>
+        <div class="stat-row"><span>Shared rules</span><b><span class="pill pill-both"><span class="pill-dot"></span>BOTH</span></b></div>
+        <div class="stat-row"><span>Sections</span><b>8</b></div>
+      </div>
+    </div>
+
+    <!-- ==================== §1 OVERVIEW ==================== -->
+    <section id="overview">
+      <div class="sec-head">
+        <div class="sec-num">§ 01</div>
+        <div class="sec-title">
+          <span class="kicker">Foundation</span>
+          <h2>Overview &amp; Philosophy</h2>
+          <p>Two distinct products, one coherent design language. Here's how they relate.</p>
+        </div>
+      </div>
+
+      <div class="stack-lg">
+
+        <div class="callout callout-rule">
+          <span class="ico">RULE</span>
+          <div>
+            <strong>Single source of truth.</strong> This document is the authoritative reference.
+            All component decisions should trace back to a principle here.
+          </div>
+        </div>
+
+        <!-- Side-by-side identity comparison -->
+        <div>
+          <div class="panel-title">Product identity at a glance</div>
+          <div class="demo demo-split" style="padding:0; border-radius: var(--r-md); overflow:hidden;">
+            <div class="demo-pane bg-ab">
+              <div class="pane-tag"><span class="pill pill-ab"><span class="pill-dot"></span>AB</span></div>
+              <div class="demo-pane-body ab-scope" style="background:transparent;">
+                <div class="ab-nav" style="border-radius:0;">
+                  <span class="brand">ab-discovery</span>
+                  <a href="#" class="active">Library</a>
+                  <a href="#">Watchlist</a>
+                  <a href="#">Sources</a>
+                </div>
+                <div style="padding:16px 0 0;">
+                  <div class="ab-book">
+                    <div class="cover">Cover art</div>
+                    <div class="meta">
+                      <div class="title">The Pragmatic Programmer</div>
+                      <div class="by">Hunt &amp; Thomas · <span class="ts">2 days ago</span></div>
+                      <div class="chips">
+                        <span class="ab-chip ab-chip-audiobook">Audiobook</span>
+                        <span class="ab-chip ab-chip-book">eBook</span>
+                        <span class="ab-chip ab-chip-library">Library</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="demo-pane bg-am">
+              <div class="pane-tag"><span class="pill pill-am"><span class="pill-dot"></span>AM</span></div>
+              <div class="demo-pane-body am-scope" style="background:transparent;">
+                <div class="am-artist-header">
+                  <div class="avatar">T</div>
+                  <div>
+                    <div class="name">Taylor Swift</div>
+                    <div class="genre">Pop · Singer-songwriter</div>
+                    <div style="margin-top:8px;" class="row-sm">
+                      <span class="am-tag lossless">Lossless</span>
+                      <span class="am-tag future">New</span>
+                    </div>
+                  </div>
+                </div>
+                <div style="margin-top:12px;">
+                  <div class="am-filter-row">
+                    <button class="am-filter-pill active">Albums</button>
+                    <button class="am-filter-pill">Singles</button>
+                    <button class="am-filter-pill">Watched</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Philosophy comparison -->
+        <div class="panel">
+          <div class="panel-title">Core philosophy comparison</div>
+          <div class="compare-row">
+            <div class="aspect">Aesthetic</div>
+            <div class="compare-cell"><span class="pill pill-ab"><span class="pill-dot"></span>AB</span> Utilitarian, data-dense, GitHub-inspired dark</div>
+            <div class="compare-cell"><span class="pill pill-am"><span class="pill-dot"></span>AM</span> Elevated, glass/blur, editorial luxury</div>
+          </div>
+          <div class="compare-row">
+            <div class="aspect">Radius</div>
+            <div class="compare-cell"><span class="pill pill-ab"><span class="pill-dot"></span>AB</span> 4–8 px; square-ish, compact</div>
+            <div class="compare-cell"><span class="pill pill-am"><span class="pill-dot"></span>AM</span> 12–20 px; rounded, card-centric</div>
+          </div>
+          <div class="compare-row">
+            <div class="aspect">Borders</div>
+            <div class="compare-cell"><span class="pill pill-ab"><span class="pill-dot"></span>AB</span> Solid 1 px #2a3038</div>
+            <div class="compare-cell"><span class="pill pill-am"><span class="pill-dot"></span>AM</span> rgba(255,255,255,0.08) — near-invisible</div>
+          </div>
+          <div class="compare-row">
+            <div class="aspect">Motion</div>
+            <div class="compare-cell"><span class="pill pill-ab"><span class="pill-dot"></span>AB</span> Minimal; hover states only</div>
+            <div class="compare-cell"><span class="pill pill-am"><span class="pill-dot"></span>AM</span> Subtle transitions; backdrop-filter blur</div>
+          </div>
+          <div class="compare-row">
+            <div class="aspect">Typography</div>
+            <div class="compare-cell"><span class="pill pill-ab"><span class="pill-dot"></span>AB</span> System sans; tighter, denser</div>
+            <div class="compare-cell"><span class="pill pill-am"><span class="pill-dot"></span>AM</span> Inter; looser, editorial scale</div>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ==================== §2 COLORS ==================== -->
+    <section id="colors">
+      <div class="sec-head">
+        <div class="sec-num">§ 02</div>
+        <div class="sec-title">
+          <span class="kicker">Tokens</span>
+          <h2>Color System</h2>
+          <p>Each app owns its palette. The doc layer uses a neutral observer palette to avoid confusion.</p>
+        </div>
+      </div>
+
+      <div class="stack-lg">
+
+        <!-- AB palette -->
+        <div>
+          <div class="row" style="margin-bottom:12px;">
+            <div class="panel-title" style="margin-bottom:0;">AB palette</div>
+            <span class="pill pill-ab"><span class="pill-dot"></span>AB</span>
+          </div>
+          <div class="swatch-grid">
+            <div class="swatch"><div class="chip" style="background:#0e1116;"></div><div class="name">--ab-bg</div><div class="val">#0e1116</div></div>
+            <div class="swatch"><div class="chip" style="background:#161b22;"></div><div class="name">--ab-surface</div><div class="val">#161b22</div></div>
+            <div class="swatch"><div class="chip" style="background:#1f242c;"></div><div class="name">--ab-surface-2</div><div class="val">#1f242c</div></div>
+            <div class="swatch"><div class="chip" style="background:#2a3038;"></div><div class="name">--ab-border</div><div class="val">#2a3038</div></div>
+            <div class="swatch"><div class="chip" style="background:#58a6ff;"></div><div class="name">--ab-accent</div><div class="val">#58a6ff</div></div>
+            <div class="swatch"><div class="chip" style="background:#1f6feb;"></div><div class="name">--ab-accent-dim</div><div class="val">#1f6feb</div></div>
+            <div class="swatch"><div class="chip" style="background:#3fb950;"></div><div class="name">--ab-good</div><div class="val">#3fb950</div></div>
+            <div class="swatch"><div class="chip" style="background:#f85149;"></div><div class="name">--ab-bad</div><div class="val">#f85149</div></div>
+            <div class="swatch"><div class="chip" style="background:#d29922;"></div><div class="name">--ab-warn</div><div class="val">#d29922</div></div>
+          </div>
+        </div>
+
+        <!-- AM palette -->
+        <div>
+          <div class="row" style="margin-bottom:12px;">
+            <div class="panel-title" style="margin-bottom:0;">AM palette</div>
+            <span class="pill pill-am"><span class="pill-dot"></span>AM</span>
+          </div>
+          <div class="swatch-grid">
+            <div class="swatch"><div class="chip" style="background:#0a0a0f;"></div><div class="name">--am-bg-deep</div><div class="val">#0a0a0f</div></div>
+            <div class="swatch"><div class="chip" style="background:#12121a;"></div><div class="name">--am-bg-mid</div><div class="val">#12121a</div></div>
+            <div class="swatch"><div class="chip" style="background:rgba(255,255,255,0.04);"></div><div class="name">--am-bg-card</div><div class="val">rgba(255,255,255,0.04)</div></div>
+            <div class="swatch"><div class="chip" style="background:#ff3c82;"></div><div class="name">--am-accent</div><div class="val">#ff3c82</div></div>
+            <div class="swatch"><div class="chip" style="background:#a855f7;"></div><div class="name">--am-accent-2</div><div class="val">#a855f7</div></div>
+            <div class="swatch"><div class="chip" style="background:linear-gradient(135deg,#ff3c82,#a855f7);"></div><div class="name">--am-grad</div><div class="val">pink→purple</div></div>
+            <div class="swatch"><div class="chip" style="background:#f5c842;"></div><div class="name">--am-gold</div><div class="val">#f5c842</div></div>
+            <div class="swatch"><div class="chip" style="background:#f0f0f8;"></div><div class="name">--am-text</div><div class="val">#f0f0f8</div></div>
+            <div class="swatch"><div class="chip" style="background:#9999bb;"></div><div class="name">--am-text-2</div><div class="val">#9999bb</div></div>
+          </div>
+        </div>
+
+        <!-- Doc / neutral layer -->
+        <div>
+          <div class="row" style="margin-bottom:12px;">
+            <div class="panel-title" style="margin-bottom:0;">Doc layer (this document)</div>
+            <span class="pill pill-mono">DOC</span>
+          </div>
+          <div class="swatch-grid">
+            <div class="swatch"><div class="chip" style="background:#0b0c0e;"></div><div class="name">--d-bg</div><div class="val">#0b0c0e</div></div>
+            <div class="swatch"><div class="chip" style="background:#131418;"></div><div class="name">--d-panel</div><div class="val">#131418</div></div>
+            <div class="swatch"><div class="chip" style="background:#24272d;"></div><div class="name">--d-line</div><div class="val">#24272d</div></div>
+            <div class="swatch"><div class="chip" style="background:#ebebef;"></div><div class="name">--d-text</div><div class="val">#ebebef</div></div>
+            <div class="swatch"><div class="chip" style="background:#b1b4bb;"></div><div class="name">--d-text-2</div><div class="val">#b1b4bb</div></div>
+            <div class="swatch"><div class="chip" style="background:#74777e;"></div><div class="name">--d-text-dim</div><div class="val">#74777e</div></div>
+          </div>
+        </div>
+
+        <!-- Callout: why separate palettes -->
+        <div class="callout callout-note">
+          <span class="ico">NOTE</span>
+          <div>
+            <strong>Why separate palettes?</strong> Both apps share the same dark-background principle
+            but differ in surface lightness and accent hue. Keeping scoped CSS variables
+            (<code>ab-scope</code> / <code>am-scope</code>) ensures demos are pixel-accurate
+            without polluting the doc styles.
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ==================== §3 TYPOGRAPHY ==================== -->
+    <section id="typography">
+      <div class="sec-head">
+        <div class="sec-num">§ 03</div>
+        <div class="sec-title">
+          <span class="kicker">Type</span>
+          <h2>Typography</h2>
+          <p>Font stacks, scale, and the one serif exception.</p>
+        </div>
+      </div>
+
+      <div class="stack-lg">
+
+        <div class="panel">
+          <div class="panel-title">Font stacks</div>
+          <table class="tok-table">
+            <thead><tr>
+              <th class="col-key">Role</th>
+              <th class="col-val">Stack</th>
+              <th class="col-use">Usage</th>
+            </tr></thead>
+            <tbody>
+              <tr>
+                <td class="col-key">AB body<small>--sans (AB)</small></td>
+                <td class="col-val mono">-apple-system, BlinkMacSystemFont, "Segoe UI",<br>Roboto, Helvetica, Arial</td>
+                <td class="col-use">All AB UI text</td>
+              </tr>
+              <tr>
+                <td class="col-key">AM body<small>--sans (AM)</small></td>
+                <td class="col-val mono">'Inter', system-ui, sans-serif</td>
+                <td class="col-use">All AM UI text</td>
+              </tr>
+              <tr>
+                <td class="col-key">Doc serif<small>--serif</small></td>
+                <td class="col-val mono">"Instrument Serif", "Georgia"</td>
+                <td class="col-use">Doc h1, hero only</td>
+              </tr>
+              <tr>
+                <td class="col-key">Doc / AB mono<small>--mono</small></td>
+                <td class="col-val mono">"Geist Mono", "JetBrains Mono", ui-monospace</td>
+                <td class="col-use">Code, labels, pills, tokens</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Type scale demo -->
+        <div class="panel">
+          <div class="panel-title">Type scale</div>
+          <div class="stack">
+            <div>
+              <div class="eyebrow">h1 — 56px / Serif</div>
+              <h1 style="font-size:clamp(28px,4vw,56px); color:var(--d-text);">Discovery</h1>
+            </div>
+            <div>
+              <div class="eyebrow">h2 — 28px</div>
+              <h2>Section heading</h2>
+            </div>
+            <div>
+              <div class="eyebrow">h3 — 18px</div>
+              <h3>Sub-heading</h3>
+            </div>
+            <div>
+              <div class="eyebrow">h4 — 13px uppercase</div>
+              <h4>Label / eyebrow</h4>
+            </div>
+            <div>
+              <div class="eyebrow">Body — 14px</div>
+              <p>Regular body copy. Used for callout text, descriptions, and supporting prose. Max-width 70ch.</p>
+            </div>
+            <div>
+              <div class="eyebrow">Lede — 17px</div>
+              <p class="lede">Introductory paragraph. Slightly larger; color var(--d-text) not var(--d-text-2).</p>
+            </div>
+            <div>
+              <div class="eyebrow">Mono label — 11px</div>
+              <span class="mono" style="font-size:11px; letter-spacing:0.1em; text-transform:uppercase; color:var(--d-text-dim);">TOKEN · LABEL · META</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="callout callout-do">
+          <span class="ico">DO</span>
+          <div>Use <code>var(--mono)</code> for all labels, pills, token names, and numerical callouts. Reserve serif for doc h1 only.</div>
+        </div>
+        <div class="callout callout-dont">
+          <span class="ico">DON'T</span>
+          <div>Don't use serif inside <code>.ab-scope</code> or <code>.am-scope</code> demo blocks — those components use their own font stacks.</div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ==================== §4 COMPONENTS ==================== -->
+    <section id="components">
+      <div class="sec-head">
+        <div class="sec-num">§ 04</div>
+        <div class="sec-title">
+          <span class="kicker">UI Kit</span>
+          <h2>Component Library</h2>
+          <p>Live demos of every shared + app-specific component, rendered at spec.</p>
+        </div>
+      </div>
+
+      <div class="stack-lg">
+
+        <!-- 4.1 Chips / status badges -->
+        <div>
+          <h3 style="margin-bottom:16px;">4.1 Chips &amp; Status Badges</h3>
+
+          <div class="demo-split" style="border:1px solid var(--d-line); border-radius:var(--r-md); overflow:hidden;">
+            <div class="demo-pane bg-ab">
+              <div class="pane-tag"><span class="pill pill-ab"><span class="pill-dot"></span>AB</span></div>
+              <div class="demo-pane-body ab-scope" style="background:transparent;">
+                <div class="row-sm" style="flex-wrap:wrap;">
+                  <span class="ab-chip ab-chip-audiobook">Audiobook</span>
+                  <span class="ab-chip ab-chip-book">eBook</span>
+                  <span class="ab-chip ab-chip-library">Library</span>
+                  <span class="ab-chip ab-chip-plus">Plus</span>
+                  <span class="ab-chip ab-chip-missing">Missing</span>
+                  <span class="ab-chip ab-chip-language">EN</span>
+                </div>
+              </div>
+            </div>
+            <div class="demo-pane bg-am">
+              <div class="pane-tag"><span class="pill pill-am"><span class="pill-dot"></span>AM</span></div>
+              <div class="demo-pane-body am-scope" style="background:transparent;">
+                <div class="am-sf-chips">
+                  <span class="am-sf-chip hk">HK</span>
+                  <span class="am-sf-chip jp">JP</span>
+                  <span class="am-sf-chip my">MY</span>
+                  <span class="am-sf-chip tw">TW</span>
+                  <span class="am-sf-chip sg">SG</span>
+                  <span class="am-sf-chip us">US</span>
+                  <span class="am-sf-chip dim">CN</span>
+                </div>
+                <div class="row-sm" style="margin-top:10px;">
+                  <span class="am-tag lossless">Lossless</span>
+                  <span class="am-tag future">Future</span>
+                  <span class="am-tag">Album</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 4.2 Buttons -->
+        <div>
+          <h3 style="margin-bottom:16px;">4.2 Buttons</h3>
+          <div class="demo-split" style="border:1px solid var(--d-line); border-radius:var(--r-md); overflow:hidden;">
+            <div class="demo-pane bg-ab">
+              <div class="pane-tag"><span class="pill pill-ab"><span class="pill-dot"></span>AB</span></div>
+              <div class="demo-pane-body ab-scope" style="background:transparent;">
+                <div class="row-sm">
+                  <button class="ab-btn">Default</button>
+                  <button class="ab-btn ab-btn-primary">Primary</button>
+                  <button class="ab-btn ab-btn-danger">Danger</button>
+                </div>
+              </div>
+            </div>
+            <div class="demo-pane bg-am">
+              <div class="pane-tag"><span class="pill pill-am"><span class="pill-dot"></span>AM</span></div>
+              <div class="demo-pane-body am-scope" style="background:transparent;">
+                <div class="row-sm">
+                  <button class="am-btn">Default</button>
+                  <button class="am-btn am-btn-primary">Primary</button>
+                  <button class="am-btn am-btn-watch">Watch</button>
+                  <button class="am-btn am-btn-fetch">Fetch</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 4.3 Nav patterns -->
+        <div>
+          <h3 style="margin-bottom:16px;">4.3 Navigation Patterns</h3>
+          <div class="demo-split" style="border:1px solid var(--d-line); border-radius:var(--r-md); overflow:hidden;">
+            <div class="demo-pane bg-ab">
+              <div class="pane-tag"><span class="pill pill-ab"><span class="pill-dot"></span>AB</span></div>
+              <div class="demo-pane-body ab-scope" style="background:transparent; padding-top:0;">
+                <div class="ab-nav" style="border-radius:0; margin: 0 -22px;">
+                  <span class="brand">ab-discovery</span>
+                  <a href="#" class="active">Library</a>
+                  <a href="#">Watchlist</a>
+                  <a href="#">Sources</a>
+                  <a href="#">Settings</a>
+                </div>
+                <p class="tiny" style="margin-top:12px;">Horizontal tab bar. Active item gets surface-2 background.</p>
+              </div>
+            </div>
+            <div class="demo-pane bg-am">
+              <div class="pane-tag"><span class="pill pill-am"><span class="pill-dot"></span>AM</span></div>
+              <div class="demo-pane-body am-scope" style="background:transparent;">
+                <div style="display:flex; gap:0; align-items:stretch; border:1px solid var(--am-border); border-radius:8px; overflow:hidden; width:fit-content;">
+                  <div class="am-nav" style="border-radius:0; border-right:1px solid var(--am-border);">
+                    <div class="brand"><span class="icon">♪</span><span class="logo">am</span></div>
+                    <a href="#" class="active">Artists</a>
+                    <a href="#">Albums</a>
+                    <a href="#">Watchlist</a>
+                  </div>
+                  <div style="padding:14px; background:var(--am-bg-mid); min-width:120px;">
+                    <p class="tiny" style="color:var(--am-text-dim);">Vertical sidebar. Active item uses gradient overlay.</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 4.4 Cards -->
+        <div>
+          <h3 style="margin-bottom:16px;">4.4 Primary Content Cards</h3>
+          <div class="demo-split" style="border:1px solid var(--d-line); border-radius:var(--r-md); overflow:hidden;">
+            <div class="demo-pane bg-ab">
+              <div class="pane-tag"><span class="pill pill-ab"><span class="pill-dot"></span>AB</span></div>
+              <div class="demo-pane-body ab-scope" style="background:transparent;">
+                <div class="ab-book">
+                  <div class="cover">Cover<br>art</div>
+                  <div class="meta">
+                    <div class="title">Foundation</div>
+                    <div class="by">Isaac Asimov · <a href="#">Audible</a><span class="ts">Added 3 days ago</span></div>
+                    <div class="chips">
+                      <span class="ab-chip ab-chip-audiobook">Audiobook</span>
+                      <span class="ab-chip ab-chip-library">Library</span>
+                    </div>
+                    <div class="sources">
+                      <a href="#" class="ab-source-btn">audible.com</a>
+                      <a href="#" class="ab-source-btn">libro.fm</a>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="demo-pane bg-am">
+              <div class="pane-tag"><span class="pill pill-am"><span class="pill-dot"></span>AM</span></div>
+              <div class="demo-pane-body am-scope" style="background:transparent;">
+                <div class="demo-grid-180">
+                  <div class="am-album">
+                    <div class="art">♫
+                      <span class="track-count">12 tracks</span>
+                    </div>
+                    <div class="star">★</div>
+                    <div class="info">
+                      <div class="ttl">Midnights</div>
+                      <div class="artist">Taylor Swift</div>
+                      <div class="meta-row">
+                        <span class="date">Oct 2022</span>
+                        <div class="am-sf-chips"><span class="am-sf-chip hk">HK</span><span class="am-sf-chip my">MY</span></div>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="am-album">
+                    <div class="art">♫
+                    </div>
+                    <div class="info">
+                      <div class="ttl">Anti Hero (Single)</div>
+                      <div class="artist">Taylor Swift</div>
+                      <div class="meta-row">
+                        <span class="date">2022</span>
+                        <span class="am-tag lossless" style="font-size:9px; padding:2px 6px;">LL</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 4.5 Filter / search bars -->
+        <div>
+          <h3 style="margin-bottom:16px;">4.5 Filter &amp; Search Bars</h3>
+          <div class="demo-split" style="border:1px solid var(--d-line); border-radius:var(--r-md); overflow:hidden;">
+            <div class="demo-pane bg-ab">
+              <div class="pane-tag"><span class="pill pill-ab"><span class="pill-dot"></span>AB</span></div>
+              <div class="demo-pane-body ab-scope" style="background:transparent;">
+                <div class="ab-filter-bar">
+                  <label>Search
+                    <input type="text" placeholder="Title, author…" style="width:160px;" />
+                  </label>
+                  <label>Type
+                    <select><option>All</option><option>Audiobook</option><option>eBook</option></select>
+                  </label>
+                  <label>Status
+                    <select><option>Any</option><option>Library</option><option>Missing</option></select>
+                  </label>
+                  <div class="ab-sort-toggle">
+                    <button class="active">Title ↑</button>
+                    <button>Date</button>
+                    <button>Author</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="demo-pane bg-am">
+              <div class="pane-tag"><span class="pill pill-am"><span class="pill-dot"></span>AM</span></div>
+              <div class="demo-pane-body am-scope" style="background:transparent;">
+                <input class="am-input" placeholder="Search artists, albums…" style="width:100%; margin-bottom:12px;" />
+                <div class="am-filter-row">
+                  <button class="am-filter-pill active">All</button>
+                  <button class="am-filter-pill">Watched</button>
+                  <button class="am-filter-pill">New</button>
+                  <button class="am-filter-pill">Lossless</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 4.6 Status toggles (watch/track) -->
+        <div>
+          <h3 style="margin-bottom:16px;">4.6 Watch / Track Toggles</h3>
+          <div class="demo-split" style="border:1px solid var(--d-line); border-radius:var(--r-md); overflow:hidden;">
+            <div class="demo-pane bg-ab">
+              <div class="pane-tag"><span class="pill pill-ab"><span class="pill-dot"></span>AB</span></div>
+              <div class="demo-pane-body ab-scope" style="background:transparent;">
+                <div class="stack-sm">
+                  <div class="ab-watch on">
+                    <span class="track"><span class="thumb"></span></span>
+                    <span class="lbl">Watching</span>
+                  </div>
+                  <div class="ab-watch">
+                    <span class="track"><span class="thumb"></span></span>
+                    <span class="lbl">Not watching</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="demo-pane bg-am">
+              <div class="pane-tag"><span class="pill pill-am"><span class="pill-dot"></span>AM</span></div>
+              <div class="demo-pane-body am-scope" style="background:transparent;">
+                <div class="stack-sm">
+                  <div class="am-watching-star">★ Watching</div>
+                  <button class="am-btn am-btn-watch on">★ Watching</button>
+                  <button class="am-btn am-btn-watch">☆ Watch</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 4.7 Summary / stat cards -->
+        <div>
+          <h3 style="margin-bottom:16px;">4.7 Summary &amp; Stat Cards</h3>
+          <div class="demo-split" style="border:1px solid var(--d-line); border-radius:var(--r-md); overflow:hidden;">
+            <div class="demo-pane bg-ab">
+              <div class="pane-tag"><span class="pill pill-ab"><span class="pill-dot"></span>AB</span></div>
+              <div class="demo-pane-body ab-scope" style="background:transparent;">
+                <div class="ab-summary-row">
+                  <button class="ab-summary active">
+                    <div class="num">1 284</div>
+                    <div class="label">All items</div>
+                  </button>
+                  <button class="ab-summary">
+                    <div class="num">847</div>
+                    <div class="label">Audiobooks</div>
+                  </button>
+                  <button class="ab-summary">
+                    <div class="num">437</div>
+                    <div class="label">eBooks</div>
+                  </button>
+                </div>
+              </div>
+            </div>
+            <div class="demo-pane bg-am">
+              <div class="pane-tag"><span class="pill pill-am"><span class="pill-dot"></span>AM</span></div>
+              <div class="demo-pane-body am-scope" style="background:transparent;">
+                <div class="am-meta-source-card">
+                  <div class="lbl">Storefronts</div>
+                  <div class="chips">
+                    <button class="am-meta-src-btn active hk">HK</button>
+                    <button class="am-meta-src-btn active my">MY</button>
+                    <button class="am-meta-src-btn my-toggle active">SG</button>
+                    <button class="am-meta-src-btn">JP</button>
+                    <button class="am-meta-src-btn">TW</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ==================== §5 LAYOUT ==================== -->
+    <section id="layout">
+      <div class="sec-head">
+        <div class="sec-num">§ 05</div>
+        <div class="sec-title">
+          <span class="kicker">Structure</span>
+          <h2>Layout &amp; Navigation</h2>
+          <p>Grid, spacing scale, and how each app arranges its shell.</p>
+        </div>
+      </div>
+
+      <div class="stack-lg">
+
+        <div class="panel">
+          <div class="panel-title">Shell comparison</div>
+          <div class="compare-row">
+            <div class="aspect">Shell</div>
+            <div class="compare-cell"><span class="pill pill-ab"><span class="pill-dot"></span>AB</span> Single-page; top navbar + content area</div>
+            <div class="compare-cell"><span class="pill pill-am"><span class="pill-dot"></span>AM</span> Fixed left sidebar + scrollable main</div>
+          </div>
+          <div class="compare-row">
+            <div class="aspect">Max width</div>
+            <div class="compare-cell"><span class="pill pill-ab"><span class="pill-dot"></span>AB</span> Full-width with internal padding</div>
+            <div class="compare-cell"><span class="pill pill-am"><span class="pill-dot"></span>AM</span> ~1200px centered</div>
+          </div>
+          <div class="compare-row">
+            <div class="aspect">Sidebar</div>
+            <div class="compare-cell"><span class="pill pill-ab"><span class="pill-dot"></span>AB</span> None (top tabs only)</div>
+            <div class="compare-cell"><span class="pill pill-am"><span class="pill-dot"></span>AM</span> 220px fixed; icon + label links</div>
+          </div>
+          <div class="compare-row">
+            <div class="aspect">List layout</div>
+            <div class="compare-cell"><span class="pill pill-ab"><span class="pill-dot"></span>AB</span> Vertical list; 72 px thumbnail grid</div>
+            <div class="compare-cell"><span class="pill pill-am"><span class="pill-dot"></span>AM</span> Masonry / auto-fill 180 px tiles</div>
+          </div>
+        </div>
+
+        <!-- Spacing scale -->
+        <div class="panel">
+          <div class="panel-title">Spacing scale <span class="pill pill-both" style="margin-left:6px;"><span class="pill-dot"></span>BOTH</span></div>
+          <table class="tok-table">
+            <thead><tr>
+              <th>Token</th><th class="col-val">Value</th><th class="col-use">Typical use</th>
+            </tr></thead>
+            <tbody>
+              <tr><td class="col-key">4 px</td><td class="col-val">0.25rem</td><td class="col-use">Tight internal gap (chip padding, icon offset)</td></tr>
+              <tr><td class="col-key">8 px</td><td class="col-val">0.5rem</td><td class="col-use">Compact row gap, icon + label</td></tr>
+              <tr><td class="col-key">12 px</td><td class="col-val">0.75rem</td><td class="col-use">Card internal padding (small)</td></tr>
+              <tr><td class="col-key">16 px</td><td class="col-val">1rem</td><td class="col-use">Standard gap; card padding</td></tr>
+              <tr><td class="col-key">24 px</td><td class="col-val">1.5rem</td><td class="col-use">Section internal spacing</td></tr>
+              <tr><td class="col-key">32 px</td><td class="col-val">2rem</td><td class="col-use">Between major groups</td></tr>
+              <tr><td class="col-key">48 px</td><td class="col-val">3rem</td><td class="col-use">Hero / section top padding</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ==================== §6 INTERACTION ==================== -->
+    <section id="interaction">
+      <div class="sec-head">
+        <div class="sec-num">§ 06</div>
+        <div class="sec-title">
+          <span class="kicker">Behaviour</span>
+          <h2>Interaction Patterns</h2>
+          <p>Motion, hover, focus, and loading states.</p>
+        </div>
+      </div>
+
+      <div class="stack-lg">
+
+        <div class="panel">
+          <div class="panel-title">Motion &amp; transitions</div>
+          <table class="tok-table">
+            <thead><tr><th>Context</th><th class="col-val">Duration / easing</th><th class="col-use">Notes</th></tr></thead>
+            <tbody>
+              <tr><td class="col-key">AB hover bg</td><td class="col-val mono">instant / none</td><td class="col-use">Snap — no transition on simple hovers</td></tr>
+              <tr><td class="col-key">AB toggle (switch)</td><td class="col-val mono">0.15s ease</td><td class="col-use">Thumb slide only</td></tr>
+              <tr><td class="col-key">AM hover bg</td><td class="col-val mono">0.15s ease</td><td class="col-use">Background opacity fade</td></tr>
+              <tr><td class="col-key">AM modal open</td><td class="col-val mono">0.2s ease-out</td><td class="col-use">Translate Y + opacity</td></tr>
+              <tr><td class="col-key">AM backdrop blur</td><td class="col-val mono">CSS backdrop-filter</td><td class="col-use">Applied statically; no animate</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="do-dont">
+          <div class="dd-card do">
+            <div class="dd-head"><span>✓</span> Do</div>
+            <div class="dd-body">
+              <div class="stack-sm">
+                <p>Use <code>transition: background 0.15s ease</code> for AM interactive elements.</p>
+                <p>Keep AB transitions at zero or minimal — it's a utility-first app.</p>
+                <p>Use CSS <code>backdrop-filter: blur()</code> for AM glass surfaces.</p>
+              </div>
+            </div>
+          </div>
+          <div class="dd-card dont">
+            <div class="dd-head"><span>✗</span> Don't</div>
+            <div class="dd-body">
+              <div class="stack-sm">
+                <p>Don't animate colour changes on AB — it feels sluggish on data-dense views.</p>
+                <p>Don't skip focus rings — both apps must be keyboard accessible.</p>
+                <p>Don't use <code>backdrop-filter</code> on AB — it's not part of the aesthetic.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ==================== §7 TOKENS ==================== -->
+    <section id="tokens">
+      <div class="sec-head">
+        <div class="sec-num">§ 07</div>
+        <div class="sec-title">
+          <span class="kicker">Variables</span>
+          <h2>Design Tokens</h2>
+          <p>Full token parity table. AB uses CSS custom properties scoped inside <code>.ab-scope</code>; AM inside <code>.am-scope</code>.</p>
+        </div>
+      </div>
+
+      <div class="stack-lg">
+
+        <div class="panel panel-flush">
+          <table class="tok-table" style="padding:0;">
+            <thead style="position:sticky; top:0; background:var(--d-panel); z-index:1;">
+              <tr style="">
+                <th style="padding: 12px 18px 10px;">Token role</th>
+                <th class="col-val" style="padding: 12px 18px 10px;"><span class="pill pill-ab"><span class="pill-dot"></span>AB</span> value</th>
+                <th class="col-val" style="padding: 12px 18px 10px;"><span class="pill pill-am"><span class="pill-dot"></span>AM</span> value</th>
+                <th class="col-use" style="padding: 12px 18px 10px;">Use</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td class="col-key" style="padding-left:18px;">Page background<small>deepest layer</small></td>
+                <td class="col-val" style="padding-left:18px;">
+                  <span class="swatch-inline"><span class="sw" style="background:#0e1116;"></span>#0e1116</span>
+                </td>
+                <td class="col-val" style="padding-left:18px;">
+                  <span class="swatch-inline"><span class="sw" style="background:#0a0a0f;"></span>#0a0a0f</span>
+                </td>
+                <td class="col-use" style="padding-left:18px; padding-right:18px;">Body / shell bg</td>
+              </tr>
+              <tr>
+                <td class="col-key" style="padding-left:18px;">Surface 1<small>cards, panels</small></td>
+                <td class="col-val" style="padding-left:18px;">
+                  <span class="swatch-inline"><span class="sw" style="background:#161b22;"></span>#161b22</span>
+                </td>
+                <td class="col-val" style="padding-left:18px;">
+                  <span class="swatch-inline"><span class="sw" style="background:rgba(255,255,255,0.04); border:1px solid #333;"></span>rgba(255,255,255,0.04)</span>
+                </td>
+                <td class="col-use" style="padding-left:18px; padding-right:18px;">Card / panel backgrounds</td>
+              </tr>
+              <tr>
+                <td class="col-key" style="padding-left:18px;">Border<small>default divider</small></td>
+                <td class="col-val" style="padding-left:18px;">
+                  <span class="swatch-inline"><span class="sw" style="background:#2a3038;"></span>#2a3038</span>
+                </td>
+                <td class="col-val" style="padding-left:18px;">
+                  <span class="swatch-inline"><span class="sw" style="background:rgba(255,255,255,0.08); border:1px solid #333;"></span>rgba(255,255,255,0.08)</span>
+                </td>
+                <td class="col-use" style="padding-left:18px; padding-right:18px;">All borders &amp; dividers</td>
+              </tr>
+              <tr>
+                <td class="col-key" style="padding-left:18px;">Primary text<small>headings, labels</small></td>
+                <td class="col-val" style="padding-left:18px;">
+                  <span class="swatch-inline"><span class="sw" style="background:#e6edf3;"></span>#e6edf3</span>
+                </td>
+                <td class="col-val" style="padding-left:18px;">
+                  <span class="swatch-inline"><span class="sw" style="background:#f0f0f8;"></span>#f0f0f8</span>
+                </td>
+                <td class="col-use" style="padding-left:18px; padding-right:18px;">Primary readable text</td>
+              </tr>
+              <tr>
+                <td class="col-key" style="padding-left:18px;">Secondary text<small>sub-labels, meta</small></td>
+                <td class="col-val" style="padding-left:18px;">
+                  <span class="swatch-inline"><span class="sw" style="background:#9ba7b4;"></span>#9ba7b4</span>
+                </td>
+                <td class="col-val" style="padding-left:18px;">
+                  <span class="swatch-inline"><span class="sw" style="background:#9999bb;"></span>#9999bb</span>
+                </td>
+                <td class="col-use" style="padding-left:18px; padding-right:18px;">Supporting / dimmed text</td>
+              </tr>
+              <tr>
+                <td class="col-key" style="padding-left:18px;">Accent / interactive<small>links, CTAs</small></td>
+                <td class="col-val" style="padding-left:18px;">
+                  <span class="swatch-inline"><span class="sw" style="background:#58a6ff;"></span>#58a6ff</span>
+                </td>
+                <td class="col-val" style="padding-left:18px;">
+                  <span class="swatch-inline"><span class="sw" style="background:linear-gradient(135deg,#ff3c82,#a855f7);"></span>grad #ff3c82→#a855f7</span>
+                </td>
+                <td class="col-use" style="padding-left:18px; padding-right:18px;">Links, active states, primary CTAs</td>
+              </tr>
+              <tr>
+                <td class="col-key" style="padding-left:18px;">Success / good<small>library, present</small></td>
+                <td class="col-val" style="padding-left:18px;">
+                  <span class="swatch-inline"><span class="sw" style="background:#3fb950;"></span>#3fb950</span>
+                </td>
+                <td class="col-val" style="padding-left:18px;">—</td>
+                <td class="col-use" style="padding-left:18px; padding-right:18px;">In-library, available states</td>
+              </tr>
+              <tr>
+                <td class="col-key" style="padding-left:18px;">Warning<small>plus, upcoming</small></td>
+                <td class="col-val" style="padding-left:18px;">
+                  <span class="swatch-inline"><span class="sw" style="background:#d29922;"></span>#d29922</span>
+                </td>
+                <td class="col-val" style="padding-left:18px;">
+                  <span class="swatch-inline"><span class="sw" style="background:#f5c842;"></span>#f5c842 (gold)</span>
+                </td>
+                <td class="col-use" style="padding-left:18px; padding-right:18px;">Plus gating, watched/watch CTA</td>
+              </tr>
+              <tr>
+                <td class="col-key" style="padding-left:18px;">Danger / bad<small>missing, error</small></td>
+                <td class="col-val" style="padding-left:18px;">
+                  <span class="swatch-inline"><span class="sw" style="background:#f85149;"></span>#f85149</span>
+                </td>
+                <td class="col-val" style="padding-left:18px;">—</td>
+                <td class="col-use" style="padding-left:18px; padding-right:18px;">Missing items, destructive actions</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ==================== §8 RULES ==================== -->
+    <section id="rules">
+      <div class="sec-head">
+        <div class="sec-num">§ 08</div>
+        <div class="sec-title">
+          <span class="kicker">Checklist</span>
+          <h2>Rules &amp; Checklists</h2>
+          <p>The short list of hard rules every PR touching UI must pass.</p>
+        </div>
+      </div>
+
+      <div class="stack-lg">
+
+        <div class="do-dont">
+          <div class="dd-card do">
+            <div class="dd-head"><span>✓</span> Universal DOs <span class="pill pill-both" style="margin-left:auto;"><span class="pill-dot"></span>BOTH</span></div>
+            <div class="dd-body">
+              <div class="rules">
+                <ol>
+                  <li><strong>Scope variables</strong> — always use the correct <code>ab-scope</code> / <code>am-scope</code> wrapper.</li>
+                  <li><strong>Dark-only</strong> — no light-mode styles. Both apps are permanently dark.</li>
+                  <li><strong>1 px borders</strong> — never thicker unless explicitly noted (e.g. callout left-border = 2 px).</li>
+                  <li><strong>Keyboard access</strong> — every interactive element must be reachable and operable by keyboard.</li>
+                  <li><strong>Font inherit</strong> — form elements (<code>input</code>, <code>select</code>, <code>button</code>) must set <code>font: inherit</code>.</li>
+                  <li><strong>Text contrast</strong> — primary text ≥ 4.5:1, secondary ≥ 3:1 against the surface it sits on.</li>
+                </ol>
+              </div>
+            </div>
+          </div>
+          <div class="dd-card dont">
+            <div class="dd-head"><span>✗</span> Universal DON'Ts <span class="pill pill-both" style="margin-left:auto;"><span class="pill-dot"></span>BOTH</span></div>
+            <div class="dd-body">
+              <div class="rules">
+                <ol>
+                  <li><strong>No white backgrounds</strong> — ever. Even overlays should use rgba dark.</li>
+                  <li><strong>No inline colour literals</strong> — outside of demo swatches, always use CSS vars.</li>
+                  <li><strong>No !important</strong> — signals broken specificity; fix the cascade instead.</li>
+                  <li><strong>No placeholder styling as label</strong> — placeholders disappear on focus; use real labels.</li>
+                  <li><strong>No cross-app class leakage</strong> — <code>.ab-*</code> classes must not appear in AM templates and vice versa.</li>
+                </ol>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- AB-specific rules -->
+        <div class="panel">
+          <div class="panel-title"><span class="pill pill-ab" style="margin-right:8px;"><span class="pill-dot"></span>AB</span> AB-specific rules</div>
+          <div class="rules">
+            <ol>
+              <li><strong>Chip taxonomy</strong> — use the defined chip classes (<code>.ab-chip-audiobook</code>, <code>.ab-chip-book</code>, etc.). Don't invent new colours without adding a class.</li>
+              <li><strong>Table layout for lists</strong> — the book list is a grid, not flexbox soup. Use <code>.ab-book</code> grid template for all list items.</li>
+              <li><strong>Summary cards are buttons</strong> — they must be <code>&lt;button&gt;</code> elements for keyboard / screen-reader access.</li>
+              <li><strong>Sort toggle = segmented control</strong> — don't replace with a <code>&lt;select&gt;</code> on desktop; the segmented control is intentional.</li>
+            </ol>
+          </div>
+        </div>
+
+        <!-- AM-specific rules -->
+        <div class="panel">
+          <div class="panel-title"><span class="pill pill-am" style="margin-right:8px;"><span class="pill-dot"></span>AM</span> AM-specific rules</div>
+          <div class="rules">
+            <ol>
+              <li><strong>Album art is square</strong> — enforce <code>aspect-ratio: 1</code>. Never stretch or letter-box.</li>
+              <li><strong>Storefront chips are positional</strong> — their colour is hash-derived from the country code. Never manually assign colours.</li>
+              <li><strong>Gradient text is brand</strong> — only use <code>--am-grad</code> on brand/logo text and primary CTAs. Not on body copy.</li>
+              <li><strong>Watch state = gold</strong> — <code>--am-gold</code> (#f5c842) is reserved exclusively for the watch/tracking feature. Don't reuse it elsewhere.</li>
+              <li><strong>Sidebar width is fixed</strong> — 220 px. Do not make it resizable or collapsible without a deliberate UX decision.</li>
+            </ol>
+          </div>
+        </div>
+
+        <!-- Pre-merge checklist -->
+        <div class="panel">
+          <div class="panel-title">Pre-merge UI checklist <span class="pill pill-both" style="margin-left:6px;"><span class="pill-dot"></span>BOTH</span></div>
+          <div class="kbd-list">
+            <dt>☐ Scope check</dt><dd>All new classes use the correct <code>ab-</code> / <code>am-</code> prefix, or doc-layer prefix if in this file.</dd>
+            <dt>☐ Token check</dt><dd>No raw hex values outside of <code>:root</code> / <code>.ab-scope</code> / <code>.am-scope</code> token definitions.</dd>
+            <dt>☐ Dark mode</dt><dd>Checked on a display with proper black levels; no grey bleed.</dd>
+            <dt>☐ Keyboard nav</dt><dd>Tab through all interactive elements; focus ring visible.</dd>
+            <dt>☐ Responsive</dt><dd>Checked at 1280, 1024, 768 px widths.</dd>
+            <dt>☐ No leakage</dt><dd>AB styles don't affect AM views and vice versa.</dd>
+            <dt>☐ Font inherit</dt><dd>All form elements render with the correct app font.</dd>
+          </div>
+        </div>
+
+        <div class="callout callout-note">
+          <span class="ico">NOTE</span>
+          <div>
+            <strong>This file is a living document.</strong> Add new component demos as they're built;
+            update token tables when values change. The goal is zero drift between this reference
+            and what the apps actually render — if they diverge, this file exists to prevent.
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+  </main>
+</div>
+</body>
+</html>
