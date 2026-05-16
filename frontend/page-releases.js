@@ -116,7 +116,10 @@ async function renderNewReleases(main, page = 1, query = "", storefront = "", wa
   watchedToggle.addEventListener("click", () => renderNewReleases(main, 1, state.currentQuery, state.currentStorefront, !watchedOnly));
   filterBar.appendChild(watchedToggle);
 
-  filtersDiv.appendChild(filterBar);
+  const sfRow = el("div", "filter-row");
+  sfRow.appendChild(el("span", "filter-row-label", "Region"));
+  sfRow.appendChild(filterBar);
+  filtersDiv.appendChild(sfRow);
 
   // Sort bar
   const sortBar = el("div", "type-filter-bar");
@@ -128,7 +131,10 @@ async function renderNewReleases(main, page = 1, query = "", storefront = "", wa
     });
     sortBar.appendChild(btn);
   });
-  filtersDiv.appendChild(sortBar);
+  const sortRow = el("div", "filter-row");
+  sortRow.appendChild(el("span", "filter-row-label", "Sort"));
+  sortRow.appendChild(sortBar);
+  filtersDiv.appendChild(sortRow);
 
   // Fetch
   await loadWatchedIds();
@@ -211,7 +217,10 @@ async function renderAllReleases(main, page = 1, query = "", storefront = "", wa
   watchedToggle.addEventListener("click", () => renderAllReleases(main, 1, query, storefront, !watchedOnly, typeFilter));
   filterBar.appendChild(watchedToggle);
 
-  filtersDiv.appendChild(filterBar);
+  const sfRow = el("div", "filter-row");
+  sfRow.appendChild(el("span", "filter-row-label", "Region"));
+  sfRow.appendChild(filterBar);
+  filtersDiv.appendChild(sfRow);
 
   const typeFilterBar = el("div", "type-filter-bar");
   [["All", ""], ...RELEASE_TYPE_ORDER.map(k => [RELEASE_TYPE_LABELS[k], k])].forEach(([label, code]) => {
@@ -223,7 +232,10 @@ async function renderAllReleases(main, page = 1, query = "", storefront = "", wa
     });
     typeFilterBar.appendChild(btn);
   });
-  filtersDiv.appendChild(typeFilterBar);
+  const typeRow = el("div", "filter-row");
+  typeRow.appendChild(el("span", "filter-row-label", "Type"));
+  typeRow.appendChild(typeFilterBar);
+  filtersDiv.appendChild(typeRow);
 
   // Sort bar
   const sortBar = el("div", "type-filter-bar");
@@ -235,7 +247,10 @@ async function renderAllReleases(main, page = 1, query = "", storefront = "", wa
     });
     sortBar.appendChild(btn);
   });
-  filtersDiv.appendChild(sortBar);
+  const sortRow = el("div", "filter-row");
+  sortRow.appendChild(el("span", "filter-row-label", "Sort"));
+  sortRow.appendChild(sortBar);
+  filtersDiv.appendChild(sortRow);
 
   const gridWrap = el("div");
   gridWrap.appendChild(skeletonGrid(12));

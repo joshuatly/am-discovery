@@ -385,8 +385,8 @@ function _notifTruncateUrl(url, max = 40) {
 function renderNotificationEvents(container, events, eventTypesMeta, onChange) {
   container.innerHTML = "";
   if (!events.length) {
-    const empty = el("div", "", "No notification events configured.");
-    empty.style.cssText = "font-size:12px;color:var(--text-dim);";
+    const empty = el("div", "empty-state", "");
+    empty.innerHTML = `<div class="empty-title">No notification events configured</div>`;
     container.appendChild(empty);
     return;
   }
@@ -394,7 +394,7 @@ function renderNotificationEvents(container, events, eventTypesMeta, onChange) {
     const row = el("div");
     row.style.cssText =
       "display:flex;align-items:center;gap:12px;padding:10px 12px;" +
-      "background:var(--bg-card);border:1px solid var(--border);border-radius:8px;";
+      "background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-md);";
 
     const info = el("div");
     info.style.cssText = "flex:1;display:flex;flex-direction:column;gap:2px;min-width:0;";
@@ -406,7 +406,7 @@ function renderNotificationEvents(container, events, eventTypesMeta, onChange) {
     info.appendChild(urlLabel);
     if (ev.disabled_reason === "max_failures") {
       const badge = el("div", "", "auto-disabled");
-      badge.style.cssText = "font-size:10px;color:#ff6b6b;font-weight:600;";
+      badge.style.cssText = "font-size:10px;color:#f85149;font-weight:600;";
       info.appendChild(badge);
     }
     row.appendChild(info);
@@ -603,7 +603,7 @@ function openNotificationEventModal(existing, eventTypesMeta, onSaved) {
     for (const v of meta.variables || []) {
       const chip = el("code", "", `{${v}}`);
       chip.style.cssText =
-        "padding:2px 8px;background:rgba(255,255,255,0.04);border:1px solid var(--border);" +
+        "padding:2px 8px;background:var(--bg-card);border:1px solid var(--border);" +
         "border-radius:999px;font-size:11px;cursor:pointer;";
       chip.addEventListener("click", () => {
         const token = `{${v}}`;
@@ -657,14 +657,14 @@ function openNotificationEventModal(existing, eventTypesMeta, onSaved) {
     try {
       const resp = await API.post("/api/notifications/test", collect());
       if (resp.ok) {
-        feedback.style.color = "#55ff88";
+        feedback.style.color = "#34d399";
         feedback.textContent = `✓ Sent (${resp.message || "OK"})`;
       } else {
-        feedback.style.color = "#ff6b6b";
+        feedback.style.color = "#f85149";
         feedback.textContent = `✗ ${resp.message || "Error"}`;
       }
     } catch (e) {
-      feedback.style.color = "#ff6b6b";
+      feedback.style.color = "#f85149";
       feedback.textContent = `✗ ${e.message || "Error"}`;
     }
   });
@@ -682,7 +682,7 @@ function openNotificationEventModal(existing, eventTypesMeta, onSaved) {
       closeModal();
       onSaved();
     } catch (e) {
-      feedback.style.color = "#ff6b6b";
+      feedback.style.color = "#f85149";
       feedback.textContent = `✗ ${e.message || "Save failed"}`;
       saveBtn.disabled = false;
     }
