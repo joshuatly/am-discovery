@@ -240,3 +240,9 @@ Full Swagger docs at `/apidocs`.
 - Frontend — vanilla JS, no build step; split across 10 modules (see Frontend JS modules above)
 
 When in doubt, keep changes small and don't over-engineer — the codebase is moving fast.
+
+## Frontend design system
+
+Frontend visual rules live in `DESIGN.md` (repo root) and are auto-loaded via `frontend/CLAUDE.md` whenever you edit a file under `frontend/`.
+
+**Rule of thumb:** design rules apply to everything under `frontend/`. Backend code has no visual concerns — don't import `DESIGN.md` for backend work.
