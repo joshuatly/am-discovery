@@ -15,8 +15,8 @@ DISCOVERY_NAMES: dict[str, str] = {
     "mo": "新發行",
     "tw": "新發行",
     "jp": "ニューリリース",
-    "sg": "New Releases",
-    "my": "New Releases",
+    "sg": "Recent Releases",
+    "my": "Recent Releases",
     "us": "New Releases",
 }
 
