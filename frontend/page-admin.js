@@ -141,7 +141,21 @@ function pollBulkSearch(container, btn) {
 function adminArtistRow(a, onChange) {
   const row = el("div", "admin-artist-row");
 
-  // Left: identity + links
+  // Left: avatar + identity + links (avatar mirrors the watchlist card).
+  const identity = el("div", "admin-artist-identity");
+  const avatar = el("div", "admin-artist-avatar");
+  if (a.artwork_url) {
+    const img = el("img", "admin-artist-avatar-img");
+    img.src = a.artwork_url;
+    img.alt = "";
+    img.loading = "lazy";
+    img.onerror = () => { img.remove(); avatar.textContent = (a.name || "?")[0].toUpperCase(); };
+    avatar.appendChild(img);
+  } else {
+    avatar.textContent = (a.name || "?")[0].toUpperCase();
+  }
+  identity.appendChild(avatar);
+
   const left = el("div", "admin-artist-main");
   const name = el("div", "admin-artist-name", a.name || "—");
   left.appendChild(name);
@@ -157,7 +171,8 @@ function adminArtistRow(a, onChange) {
   discLink.href = a.am_discovery_url;
   links.appendChild(discLink);
   left.appendChild(links);
-  row.appendChild(left);
+  identity.appendChild(left);
+  row.appendChild(identity);
 
   // Right: suggestion / actions
   const right = el("div", "admin-artist-actions");
@@ -183,6 +198,14 @@ function adminArtistRow(a, onChange) {
     const sugName = el("span", "admin-suggestion-name", a.suggested_name || a.suggested_mbid);
     sug.appendChild(sugName);
     if (a.score != null) sug.appendChild(el("span", "admin-suggestion-score", `${a.score}%`));
+    // Type (Person / Group) and area help disambiguate same-named artists.
+    const metaParts = [];
+    if (a.suggested_type) metaParts.push(a.suggested_type);
+    if (a.suggested_area) metaParts.push(a.suggested_area);
+    if (metaParts.length) sug.appendChild(el("span", "admin-suggestion-tag", metaParts.join(" · ")));
+    if (a.suggested_disambiguation) {
+      sug.appendChild(el("span", "admin-suggestion-disambig", a.suggested_disambiguation));
+    }
     const mbLink = el("a", "admin-link", "Verify on MusicBrainz ↗");
     mbLink.href = a.mb_url;
     mbLink.target = "_blank";

@@ -47,7 +47,7 @@ class TestApiAdminArtists(ServerTestCase):
                 "suggested_mbid": "mbid-1",
                 "suggested_name": "Jay Chou",
                 "score": 99,
-                "candidates": [{"id": "mbid-1"}],
+                "candidates": [{"id": "mbid-1", "type": "Person", "area": "Taiwan", "disambiguation": "singer"}],
                 "suggestion_status": "pending",
                 "mbid_checked_at": 123,
             }
@@ -60,6 +60,10 @@ class TestApiAdminArtists(ServerTestCase):
         self.assertEqual(item["mb_url"], "https://musicbrainz.org/artist/mbid-1")
         self.assertEqual(item["am_discovery_url"], "#/artist/ART1")
         self.assertTrue(item["am_url"].endswith("/artist/ART1"))
+        # Richer descriptors are surfaced from the top candidate.
+        self.assertEqual(item["suggested_type"], "Person")
+        self.assertEqual(item["suggested_area"], "Taiwan")
+        self.assertEqual(item["suggested_disambiguation"], "singer")
 
     @patch("api_admin.db")
     def test_null_suggestion_has_no_mb_url(self, mock_db):

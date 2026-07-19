@@ -61,6 +61,9 @@ describe("Admin page", () => {
           suggested_mbid: "mbid-1",
           suggested_name: "Jay Chou",
           score: 99,
+          suggested_type: "Person",
+          suggested_area: "Taiwan",
+          suggested_disambiguation: "Taiwanese singer",
           mb_url: "https://musicbrainz.org/artist/mbid-1",
           candidates: [{ id: "mbid-1" }],
         },
@@ -73,8 +76,45 @@ describe("Admin page", () => {
     expect(approve).toBeTruthy();
     const mbLink = Array.from(main.querySelectorAll("a")).find(a => a.href.includes("musicbrainz.org/artist/mbid-1"));
     expect(mbLink).toBeTruthy();
+    // Type / area / disambiguation are shown to help identify the match.
+    expect(main.querySelector(".admin-suggestion-tag").textContent).toBe("Person · Taiwan");
+    expect(main.querySelector(".admin-suggestion-disambig").textContent).toBe("Taiwanese singer");
     // Manual entry input present
     expect(main.querySelector(".admin-mbid-input")).toBeTruthy();
+  });
+
+  test("renders the artist avatar image when artwork_url is present", async () => {
+    mockOnce({
+      total: 1,
+      items: [
+        {
+          artist_id: "ART1", name: "Jay", alt_name: null, preferred_source: "tw",
+          artwork_url: "http://img.example/a.jpg", am_url: "x", am_discovery_url: "#/artist/ART1",
+          suggestion_status: null, suggested_mbid: null, suggested_name: null, score: null,
+          mb_url: null, candidates: [],
+        },
+      ],
+    });
+    await ctx.appWindow.__test_renderAdminArtists(main);
+    const img = main.querySelector(".admin-artist-avatar-img");
+    expect(img).toBeTruthy();
+    expect(img.src).toContain("http://img.example/a.jpg");
+  });
+
+  test("falls back to the artist initial when no artwork_url", async () => {
+    mockOnce({
+      total: 1,
+      items: [
+        {
+          artist_id: "ART1", name: "Jay", alt_name: null, preferred_source: "tw",
+          artwork_url: null, am_url: "x", am_discovery_url: "#/artist/ART1",
+          suggestion_status: null, suggested_mbid: null, suggested_name: null, score: null,
+          mb_url: null, candidates: [],
+        },
+      ],
+    });
+    await ctx.appWindow.__test_renderAdminArtists(main);
+    expect(main.querySelector(".admin-artist-avatar").textContent).toBe("J");
   });
 
   test("empty artists list shows the all-linked message", async () => {

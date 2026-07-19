@@ -646,6 +646,7 @@ def get_unlinked_watchlist_artists() -> list:
         rows = conn.execute(
             """
             SELECT w.artist_id, w.name, w.alt_name, w.url, w.preferred_source,
+                   ar.artwork_url AS artwork_url,
                    s.suggested_mbid, s.suggested_name, s.score, s.candidates_json, s.status AS suggestion_status,
                    ms.mbid_checked_at
             FROM watched_artists w

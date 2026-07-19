@@ -106,6 +106,8 @@ def search_artist(name: str, limit: int = 5) -> list[dict]:
     data = _request("artist", {"query": name.strip(), "limit": limit})
     out = []
     for a in data.get("artists", []):
+        # Prefer the human-readable area name; fall back to the ISO country code.
+        area = (a.get("area") or {}).get("name") or a.get("country") or ""
         out.append(
             {
                 "id": a.get("id"),
@@ -114,6 +116,7 @@ def search_artist(name: str, limit: int = 5) -> list[dict]:
                 "disambiguation": a.get("disambiguation") or "",
                 "type": a.get("type") or "",
                 "country": a.get("country") or "",
+                "area": area,
                 "url": f"https://musicbrainz.org/artist/{a.get('id')}",
             }
         )

@@ -2036,6 +2036,7 @@ class TestMbidSuggestions(DBTestCase):
     def test_unlinked_watchlist_artists(self):
         self.db.add_to_watchlist("ART1", "Jay")
         self.db.add_to_watchlist("ART2", "Bob")
+        self.db.upsert_artist("ART1", artwork_url="http://img/a.jpg")
         self.db.upsert_artist("ART2", name="Bob", musicbrainz_id="has-mbid")
         self.db.upsert_mbid_suggestion("ART1", "mbid", "Jay Chou", 95, [{"id": "mbid"}])
         rows = self.db.get_unlinked_watchlist_artists()
@@ -2043,6 +2044,7 @@ class TestMbidSuggestions(DBTestCase):
         self.assertEqual([r["artist_id"] for r in rows], ["ART1"])
         self.assertEqual(rows[0]["suggested_mbid"], "mbid")
         self.assertEqual(rows[0]["candidates"], [{"id": "mbid"}])
+        self.assertEqual(rows[0]["artwork_url"], "http://img/a.jpg")
 
     def test_unlinked_excludes_after_approval(self):
         self.db.add_to_watchlist("ART1", "Jay")

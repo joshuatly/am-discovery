@@ -33,15 +33,27 @@ class TestSearchArtist(unittest.TestCase):
     def test_parses_candidates(self, mock_req):
         mock_req.return_value = {
             "artists": [
-                {"id": "mbid-1", "name": "Jay Chou", "score": 100, "type": "Person", "country": "TW"},
-                {"id": "mbid-2", "name": "Jay", "score": 60, "disambiguation": "other"},
+                {
+                    "id": "mbid-1",
+                    "name": "Jay Chou",
+                    "score": 100,
+                    "type": "Person",
+                    "country": "TW",
+                    "area": {"name": "Taiwan"},
+                },
+                {"id": "mbid-2", "name": "Jay", "score": 60, "disambiguation": "other", "country": "US"},
             ]
         }
         out = mb.search_artist("Jay Chou")
         self.assertEqual(len(out), 2)
         self.assertEqual(out[0]["id"], "mbid-1")
         self.assertEqual(out[0]["url"], "https://musicbrainz.org/artist/mbid-1")
+        self.assertEqual(out[0]["type"], "Person")
+        # Prefers the human-readable area name over the ISO country code.
+        self.assertEqual(out[0]["area"], "Taiwan")
         self.assertEqual(out[1]["disambiguation"], "other")
+        # Falls back to country code when no area object is present.
+        self.assertEqual(out[1]["area"], "US")
 
     def test_blank_name_returns_empty(self):
         self.assertEqual(mb.search_artist("  "), [])

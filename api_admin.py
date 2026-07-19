@@ -43,11 +43,16 @@ def api_admin_artists():
     out = []
     for r in rows:
         mbid = r.get("suggested_mbid")
+        candidates = r.get("candidates") or []
+        # The top candidate (matching the suggested MBID) carries the richer
+        # descriptors — type (Person/Group), area, and disambiguation.
+        top = next((c for c in candidates if c.get("id") == mbid), candidates[0] if candidates else {})
         out.append(
             {
                 "artist_id": r["artist_id"],
                 "name": r.get("name"),
                 "alt_name": r.get("alt_name"),
+                "artwork_url": r.get("artwork_url"),
                 "preferred_source": r.get("preferred_source"),
                 "am_url": _am_artist_url(r["artist_id"], r.get("url")),
                 "am_discovery_url": f"#/artist/{r['artist_id']}",
@@ -55,8 +60,11 @@ def api_admin_artists():
                 "suggested_mbid": mbid,
                 "suggested_name": r.get("suggested_name"),
                 "score": r.get("score"),
+                "suggested_type": top.get("type") or None,
+                "suggested_area": top.get("area") or top.get("country") or None,
+                "suggested_disambiguation": top.get("disambiguation") or None,
                 "mb_url": f"https://musicbrainz.org/artist/{mbid}" if mbid else None,
-                "candidates": r.get("candidates") or [],
+                "candidates": candidates,
                 "mbid_checked_at": r.get("mbid_checked_at"),
             }
         )
