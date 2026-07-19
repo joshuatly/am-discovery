@@ -1,0 +1,237 @@
+"""Background MusicBrainz seeding scanner.
+
+Two responsibilities, run on a timer:
+
+1. **Suggest artist MBIDs** — for watchlist artists that have no MusicBrainz id,
+   search MusicBrainz by name and queue the best candidates for the user to
+   approve in the admin UI. Nothing is auto-linked.
+2. **Find un-seeded releases** — for artists that already have an MBID, compare
+   the artist's local (Apple Music) catalogue against their MusicBrainz
+   release-groups. An album whose release-group is absent — or whose specific
+   edition (barcode) is missing from an existing group — is flagged as needing
+   seeding.
+
+The scanner works in small batches, leans entirely on data already in the DB
+(never re-querying Apple Music), and skips albums already confirmed present in
+MusicBrainz. Each artist is scanned at most once per ``mb_artist_recheck_days``.
+All MusicBrainz traffic goes through :mod:`musicbrainz`, which enforces the
+~1 req/sec rate limit and backs off on 503; a persistent rate-limit aborts the
+cycle cleanly and reschedules sooner.
+"""
+
+import logging
+import threading
+
+import db
+import musicbrainz as mb
+from config import load_config
+
+logger = logging.getLogger(__name__)
+
+_lock = threading.Lock()
+_timer: threading.Timer | None = None
+_running = False
+# When MusicBrainz rate-limits us mid-cycle, retry sooner than a full interval.
+RATE_LIMIT_RETRY_SEC = 900
+
+
+# ---------------------------------------------------------------------------
+# Per-artist scan units (pure-ish; write to DB only)
+# ---------------------------------------------------------------------------
+
+
+def suggest_mbid_for_artist(artist: dict) -> bool:
+    """Look up an artist on MusicBrainz and queue a suggestion for approval.
+
+    Returns True on success (even when no candidate was found — the artist is
+    still marked checked so it isn't retried for a week).
+    """
+    artist_id = artist["artist_id"]
+    name = artist.get("name") or artist.get("alt_name") or ""
+    candidates = mb.search_artist(name, limit=5)
+    if candidates:
+        top = candidates[0]
+        db.upsert_mbid_suggestion(
+            artist_id,
+            suggested_mbid=top.get("id"),
+            suggested_name=top.get("name"),
+            score=top.get("score"),
+            candidates=candidates,
+            status="pending",
+        )
+        logger.info("[Seeding] Suggested MBID for %s -> %s (score %s)", name, top.get("id"), top.get("score"))
+    else:
+        logger.info("[Seeding] No MusicBrainz artist match for %s", name)
+    db.mark_mbid_checked(artist_id)
+    return True
+
+
+def scan_releases_for_artist(artist: dict) -> int:
+    """Compare an artist's local catalogue against MusicBrainz; flag un-seeded albums.
+
+    Returns the number of albums newly flagged as needing seeding.
+    """
+    artist_id = artist["artist_id"]
+    mbid = artist.get("musicbrainz_id")
+    groups = mb.browse_release_groups(mbid)
+
+    # Index release-groups by normalised title (several groups may share a title).
+    by_title: dict[str, list[dict]] = {}
+    for g in groups:
+        by_title.setdefault(g["norm_title"], []).append(g)
+
+    albums = db.get_artist_albums(artist_id)
+    barcode_cache: dict[str, tuple[set[str], str | None]] = {}
+    flagged = 0
+
+    for album in albums:
+        # Singles are out of scope; skip albums already confirmed present in MB.
+        if (album.get("release_type") or "").lower() == "single":
+            continue
+        if album.get("mb_seed_status") == "known":
+            continue
+
+        norm = mb.normalize_title(album.get("title") or "")
+        matches = by_title.get(norm, [])
+
+        if not matches:
+            # No matching release-group at all -> the whole release is missing.
+            db.set_album_seed_status(album["store_adam_id"], "needs_seeding")
+            flagged += 1
+            continue
+
+        upc = (album.get("upc") or "").strip()
+        if not upc:
+            # Group exists but we can't verify the specific edition — treat as present.
+            db.set_album_seed_status(album["store_adam_id"], "known", matches[0].get("id"))
+            continue
+
+        # Group exists: check whether this exact edition (barcode) is in MusicBrainz.
+        all_barcodes: set[str] = set()
+        first_release_mbid: str | None = None
+        for g in matches:
+            rg_id = g["id"]
+            if rg_id not in barcode_cache:
+                barcode_cache[rg_id] = mb.get_release_group_barcodes(rg_id)
+            bcs, rel_mbid = barcode_cache[rg_id]
+            all_barcodes |= bcs
+            first_release_mbid = first_release_mbid or rel_mbid
+
+        if upc in all_barcodes:
+            db.set_album_seed_status(album["store_adam_id"], "known", first_release_mbid)
+        else:
+            db.set_album_seed_status(album["store_adam_id"], "needs_seeding", first_release_mbid)
+            flagged += 1
+
+    db.mark_release_checked(artist_id)
+    logger.info("[Seeding] Scanned releases for %s: %d flagged", artist.get("name") or artist_id, flagged)
+    return flagged
+
+
+# ---------------------------------------------------------------------------
+# Cycle
+# ---------------------------------------------------------------------------
+
+
+def run_seeding_cycle() -> dict:
+    """Run one scan cycle: a batch of MBID suggestions, then a batch of release scans.
+
+    Returns a summary dict. Raises :class:`musicbrainz.MusicBrainzRateLimitError`
+    if MusicBrainz stays unavailable — the caller reschedules sooner in that case.
+    """
+    cfg = load_config()
+    artist_batch = cfg.get("mb_scan_artist_batch", 3)
+    recheck_days = cfg.get("mb_artist_recheck_days", 7)
+
+    summary = {"mbid_suggested": 0, "releases_scanned": 0, "flagged": 0}
+
+    for artist in db.get_artists_for_mbid_scan(artist_batch, recheck_days):
+        if suggest_mbid_for_artist(artist):
+            summary["mbid_suggested"] += 1
+
+    for artist in db.get_artists_for_release_scan(artist_batch, recheck_days):
+        summary["flagged"] += scan_releases_for_artist(artist)
+        summary["releases_scanned"] += 1
+
+    return summary
+
+
+def _do_scan():
+    global _running
+    _running = True
+    override_delay = None
+    try:
+        summary = run_seeding_cycle()
+        logger.info(
+            "[Seeding] Cycle done: %d MBID suggestions, %d artists scanned, %d releases flagged",
+            summary["mbid_suggested"],
+            summary["releases_scanned"],
+            summary["flagged"],
+        )
+    except mb.MusicBrainzRateLimitError:
+        logger.warning("[Seeding] MusicBrainz rate-limited; rescheduling sooner")
+        override_delay = RATE_LIMIT_RETRY_SEC
+    except Exception as e:  # noqa: BLE001
+        logger.error("[Seeding] Cycle error: %s", e)
+    finally:
+        _running = False
+        _schedule_next(override_delay=override_delay)
+
+
+def _schedule_next(override_delay=None):
+    global _timer
+    cfg = load_config()
+    if not cfg.get("mb_scan_enabled", True):
+        logger.info("[Seeding] Scanner disabled; not scheduling")
+        return
+    interval_sec = cfg.get("mb_scan_interval_minutes", 60) * 60
+    delay = override_delay if override_delay is not None else interval_sec
+    with _lock:
+        if _timer:
+            _timer.cancel()
+        _timer = threading.Timer(delay, _do_scan)
+        _timer.daemon = True
+        _timer.start()
+    logger.info("[Seeding] Next scan in %.1f minutes", delay / 60)
+
+
+def trigger_scan_now():
+    """Cancel any pending timer and run one cycle immediately in a thread."""
+    global _timer
+    with _lock:
+        if _timer:
+            _timer.cancel()
+            _timer = None
+    threading.Thread(target=_do_scan, daemon=True).start()
+
+
+def init_scheduler():
+    """Start the seeding scanner timer (idempotent-ish; called from server startup)."""
+    cfg = load_config()
+    if not cfg.get("mb_scan_enabled", True):
+        logger.info("[Seeding] Scanner disabled in config")
+        return
+    interval_min = cfg.get("mb_scan_interval_minutes", 60)
+    logger.info("[Seeding] Starting MusicBrainz seeding scanner (every %d minutes)", interval_min)
+    # First cycle after a short delay so startup polling isn't competing for the
+    # MusicBrainz rate budget the instant the server boots.
+    _schedule_next(override_delay=min(interval_min * 60, 120))
+
+
+def is_running() -> bool:
+    return _running
+
+
+def status() -> dict:
+    """Lightweight status for the admin page."""
+    cfg = load_config()
+    recheck_days = cfg.get("mb_artist_recheck_days", 7)
+    return {
+        "enabled": cfg.get("mb_scan_enabled", True),
+        "running": _running,
+        "interval_minutes": cfg.get("mb_scan_interval_minutes", 60),
+        "artist_batch": cfg.get("mb_scan_artist_batch", 3),
+        "recheck_days": recheck_days,
+        "pending_mbid_scan": db.count_artists_pending_mbid_scan(recheck_days),
+        "seeding_release_count": db.count_seeding_releases(),
+    }

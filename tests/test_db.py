@@ -1915,5 +1915,140 @@ class TestGetAlbumsFirstSeenAfter(DBTestCase):
         self.assertEqual([r["store_adam_id"] for r in rows], ["B", "A"])
 
 
+# ---------------------------------------------------------------------------
+# MusicBrainz seeding — album seed state
+# ---------------------------------------------------------------------------
+
+
+class TestAlbumSeedStatus(DBTestCase):
+    def _album(self, aid, **kw):
+        self.db.upsert_album({"store_adam_id": aid, "title": kw.pop("title", "T"), "info_fetched": 1, **kw})
+
+    def test_set_and_read_seed_status(self):
+        self._album("A1", artist_id="ART1")
+        self.db.set_album_seed_status("A1", "needs_seeding", "rel-mbid")
+        row = self.db.get_album("A1")
+        self.assertEqual(row["mb_seed_status"], "needs_seeding")
+        self.assertEqual(row["mb_release_mbid"], "rel-mbid")
+        self.assertIsNotNone(row["mb_checked_at"])
+
+    def test_get_seeding_releases_only_needs_seeding(self):
+        self._album("A1", artist_id="ART1", title="Needs")
+        self._album("A2", artist_id="ART1", title="Known")
+        self.db.set_album_seed_status("A1", "needs_seeding")
+        self.db.set_album_seed_status("A2", "known")
+        rows = self.db.get_seeding_releases()
+        self.assertEqual([r["store_adam_id"] for r in rows], ["A1"])
+
+    def test_get_seeding_releases_joins_preferred_source_and_mbid(self):
+        self._album("A1", artist_id="ART1", title="Needs")
+        self.db.add_to_watchlist("ART1", "Jay", preferred_source="tw")
+        self.db.upsert_artist("ART1", name="Jay", musicbrainz_id="artist-mbid")
+        self.db.set_album_seed_status("A1", "needs_seeding")
+        rows = self.db.get_seeding_releases()
+        self.assertEqual(rows[0]["preferred_source"], "tw")
+        self.assertEqual(rows[0]["artist_musicbrainz_id"], "artist-mbid")
+        self.assertEqual(rows[0]["artist_name"], "Jay")
+
+    def test_hide_excludes_from_list(self):
+        self._album("A1", artist_id="ART1")
+        self.db.set_album_seed_status("A1", "needs_seeding")
+        self.db.set_album_hidden_from_seeding("A1", True)
+        self.assertEqual(self.db.get_seeding_releases(), [])
+        self.assertEqual(self.db.count_seeding_releases(), 0)
+        # include_hidden brings it back
+        self.assertEqual(len(self.db.get_seeding_releases(include_hidden=True)), 1)
+
+    def test_unhide_restores(self):
+        self._album("A1", artist_id="ART1")
+        self.db.set_album_seed_status("A1", "needs_seeding")
+        self.db.set_album_hidden_from_seeding("A1", True)
+        self.db.set_album_hidden_from_seeding("A1", False)
+        self.assertEqual(len(self.db.get_seeding_releases()), 1)
+
+    def test_sort_by_release_type(self):
+        self._album("A1", artist_id="ART1", title="Z", release_type="EP", release_date="2020-01-01")
+        self._album("A2", artist_id="ART1", title="A", release_type="Album", release_date="2021-01-01")
+        self.db.set_album_seed_status("A1", "needs_seeding")
+        self.db.set_album_seed_status("A2", "needs_seeding")
+        rows = self.db.get_seeding_releases(sort="release_type")
+        self.assertEqual([r["release_type"] for r in rows], ["Album", "EP"])
+
+
+# ---------------------------------------------------------------------------
+# MusicBrainz seeding — scan state and batches
+# ---------------------------------------------------------------------------
+
+
+class TestMbScanState(DBTestCase):
+    def test_mbid_scan_batch_and_guard(self):
+        self.db.add_to_watchlist("ART1", "Jay", preferred_source="tw")
+        # Eligible: no mbid, no suggestion, never checked
+        self.assertEqual([a["artist_id"] for a in self.db.get_artists_for_mbid_scan()], ["ART1"])
+        # After marking checked, guarded out within recheck window
+        self.db.mark_mbid_checked("ART1")
+        self.assertEqual(self.db.get_artists_for_mbid_scan(recheck_days=7), [])
+
+    def test_mbid_scan_excludes_artists_with_mbid(self):
+        self.db.add_to_watchlist("ART1", "Jay")
+        self.db.upsert_artist("ART1", name="Jay", musicbrainz_id="mbid")
+        self.assertEqual(self.db.get_artists_for_mbid_scan(), [])
+
+    def test_mbid_scan_excludes_artists_with_suggestion(self):
+        self.db.add_to_watchlist("ART1", "Jay")
+        self.db.upsert_mbid_suggestion("ART1", "mbid", "Jay", 99, [])
+        self.assertEqual(self.db.get_artists_for_mbid_scan(), [])
+
+    def test_release_scan_batch_and_guard(self):
+        self.db.upsert_artist("ART1", name="Jay", musicbrainz_id="mbid")
+        self.assertEqual([a["artist_id"] for a in self.db.get_artists_for_release_scan()], ["ART1"])
+        self.db.mark_release_checked("ART1")
+        self.assertEqual(self.db.get_artists_for_release_scan(recheck_days=7), [])
+
+    def test_release_scan_requires_mbid(self):
+        self.db.upsert_artist("ART1", name="Jay")  # no mbid
+        self.assertEqual(self.db.get_artists_for_release_scan(), [])
+
+    def test_count_artists_pending_mbid_scan(self):
+        self.db.add_to_watchlist("ART1", "Jay")
+        self.db.add_to_watchlist("ART2", "Bob")
+        self.assertEqual(self.db.count_artists_pending_mbid_scan(), 2)
+
+
+# ---------------------------------------------------------------------------
+# MusicBrainz seeding — suggestion queue
+# ---------------------------------------------------------------------------
+
+
+class TestMbidSuggestions(DBTestCase):
+    def test_upsert_and_get(self):
+        self.db.upsert_mbid_suggestion("ART1", "mbid", "Jay Chou", 95, [{"id": "mbid", "name": "Jay Chou"}])
+        s = self.db.get_mbid_suggestion("ART1")
+        self.assertEqual(s["suggested_mbid"], "mbid")
+        self.assertEqual(s["status"], "pending")
+        self.assertEqual(s["candidates"], [{"id": "mbid", "name": "Jay Chou"}])
+
+    def test_set_status(self):
+        self.db.upsert_mbid_suggestion("ART1", "mbid", "Jay", 95, [])
+        self.db.set_suggestion_status("ART1", "denied")
+        self.assertEqual(self.db.get_mbid_suggestion("ART1")["status"], "denied")
+
+    def test_unlinked_watchlist_artists(self):
+        self.db.add_to_watchlist("ART1", "Jay")
+        self.db.add_to_watchlist("ART2", "Bob")
+        self.db.upsert_artist("ART2", name="Bob", musicbrainz_id="has-mbid")
+        self.db.upsert_mbid_suggestion("ART1", "mbid", "Jay Chou", 95, [{"id": "mbid"}])
+        rows = self.db.get_unlinked_watchlist_artists()
+        # Only ART1 (ART2 has an mbid)
+        self.assertEqual([r["artist_id"] for r in rows], ["ART1"])
+        self.assertEqual(rows[0]["suggested_mbid"], "mbid")
+        self.assertEqual(rows[0]["candidates"], [{"id": "mbid"}])
+
+    def test_unlinked_excludes_after_approval(self):
+        self.db.add_to_watchlist("ART1", "Jay")
+        self.db.upsert_artist("ART1", musicbrainz_id="mbid")
+        self.assertEqual(self.db.get_unlinked_watchlist_artists(), [])
+
+
 if __name__ == "__main__":
     unittest.main()

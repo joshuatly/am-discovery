@@ -1,0 +1,205 @@
+"use strict";
+
+const ctx = require("./setup-jsdom");
+
+// ---------------------------------------------------------------------------
+// Admin page — Artists and Releases tabs
+// ---------------------------------------------------------------------------
+
+describe("Admin page", () => {
+  let main;
+
+  beforeEach(() => {
+    main = ctx.appWindow.document.createElement("div");
+    ctx.appWindow.document.body.appendChild(main);
+    ctx.appWindow.fetch.mockClear();
+    // Pre-seed config state so ensureAdminConfig skips the config fetch,
+    // keeping the fetch sequence deterministic for each test.
+    ctx.appWindow.__test_state.configuredStorefronts = ["tw", "hk"];
+    ctx.appWindow.__test_state.discoveryStorefronts = ["tw", "hk"];
+    ctx.appWindow.__test_state.homeStorefront = "my";
+    ctx.appWindow.__test_state.adminGroupByArtist = false;
+    ctx.appWindow.__test_state.adminReleaseSort = "release_date";
+  });
+
+  afterEach(() => {
+    main.remove();
+  });
+
+  function mockOnce(payload, ok = true) {
+    ctx.appWindow.fetch.mockResolvedValueOnce({ ok, json: () => Promise.resolve(payload) });
+  }
+
+  // --- buildHarmonyUrl -----------------------------------------------------
+  test("buildHarmonyUrl produces a Harmony release URL with all params", () => {
+    const url = ctx.appWindow.__test_buildHarmonyUrl("A1", "tw", "12345", ["tw", "hk"]);
+    expect(url).toContain("https://harmony.pulsewidth.org.uk/release?");
+    expect(url).toContain(encodeURIComponent("https://music.apple.com/tw/album/A1"));
+    expect(url).toContain("gtin=12345");
+    expect(url).toContain("region=TW%2CHK");
+    expect(url).toContain("musicbrainz=");
+  });
+
+  test("buildHarmonyUrl tolerates a missing UPC", () => {
+    const url = ctx.appWindow.__test_buildHarmonyUrl("A1", "tw", null, []);
+    expect(url).toContain("gtin=");
+  });
+
+  // --- Artists tab ---------------------------------------------------------
+  test("renders unlinked artist with a suggestion and action buttons", async () => {
+    mockOnce({
+      total: 1,
+      items: [
+        {
+          artist_id: "ART1",
+          name: "Jay Chou",
+          alt_name: null,
+          preferred_source: "tw",
+          am_url: "https://music.apple.com/tw/artist/ART1",
+          am_discovery_url: "#/artist/ART1",
+          suggestion_status: "pending",
+          suggested_mbid: "mbid-1",
+          suggested_name: "Jay Chou",
+          score: 99,
+          mb_url: "https://musicbrainz.org/artist/mbid-1",
+          candidates: [{ id: "mbid-1" }],
+        },
+      ],
+    });
+    await ctx.appWindow.__test_renderAdminArtists(main);
+
+    expect(main.textContent).toContain("Jay Chou");
+    const approve = Array.from(main.querySelectorAll("button")).find(b => b.textContent === "Approve");
+    expect(approve).toBeTruthy();
+    const mbLink = Array.from(main.querySelectorAll("a")).find(a => a.href.includes("musicbrainz.org/artist/mbid-1"));
+    expect(mbLink).toBeTruthy();
+    // Manual entry input present
+    expect(main.querySelector(".admin-mbid-input")).toBeTruthy();
+  });
+
+  test("empty artists list shows the all-linked message", async () => {
+    mockOnce({ total: 0, items: [] });
+    await ctx.appWindow.__test_renderAdminArtists(main);
+    expect(main.textContent).toContain("Every watched artist is linked");
+  });
+
+  test("Approve posts to the approve endpoint with the suggested MBID", async () => {
+    mockOnce({
+      total: 1,
+      items: [
+        {
+          artist_id: "ART1", name: "Jay", alt_name: null, preferred_source: "tw",
+          am_url: "x", am_discovery_url: "#/artist/ART1", suggestion_status: "pending",
+          suggested_mbid: "mbid-1", suggested_name: "Jay", score: 99,
+          mb_url: "https://musicbrainz.org/artist/mbid-1", candidates: [],
+        },
+      ],
+    });
+    await ctx.appWindow.__test_renderAdminArtists(main);
+
+    mockOnce({ ok: true });      // approve POST
+    mockOnce({ total: 0, items: [] }); // re-render GET
+    const approve = Array.from(main.querySelectorAll("button")).find(b => b.textContent === "Approve");
+    approve.click();
+    await new Promise(r => setTimeout(r, 0));
+
+    const approveCall = ctx.appWindow.fetch.mock.calls.find(c => String(c[0]).includes("/approve"));
+    expect(approveCall).toBeTruthy();
+    expect(JSON.parse(approveCall[1].body)).toEqual({ musicbrainz_id: "mbid-1" });
+  });
+
+  test("artist without suggestion shows a Look up button", async () => {
+    mockOnce({
+      total: 1,
+      items: [
+        {
+          artist_id: "ART1", name: "Jay", alt_name: null, preferred_source: null,
+          am_url: "x", am_discovery_url: "#/artist/ART1", suggestion_status: null,
+          suggested_mbid: null, suggested_name: null, score: null, mb_url: null, candidates: [],
+        },
+      ],
+    });
+    await ctx.appWindow.__test_renderAdminArtists(main);
+    const lookup = Array.from(main.querySelectorAll("button")).find(b => b.textContent.includes("Look up"));
+    expect(lookup).toBeTruthy();
+  });
+
+  // --- Releases tab --------------------------------------------------------
+  test("renders a release card with cover, Harmony link, and Hide button", async () => {
+    mockOnce({
+      total: 1,
+      items: [
+        {
+          store_adam_id: "A1", title: "Greatest Works", artist_name: "Jay Chou",
+          release_date: "2020-01-01", release_type: "Album", preferred_source: "tw",
+          artist_musicbrainz_id: "artist-mbid", upc: "111", artwork_url: "http://img/x.jpg",
+          storefronts: ["tw"],
+        },
+      ],
+    });
+    await ctx.appWindow.__test_renderAdminReleases(main);
+
+    expect(main.textContent).toContain("Greatest Works");
+    const harmony = Array.from(main.querySelectorAll("a")).find(a => a.href.includes("harmony.pulsewidth.org.uk"));
+    expect(harmony).toBeTruthy();
+    expect(harmony.href).toContain(encodeURIComponent("https://music.apple.com/tw/album/A1"));
+    const hide = Array.from(main.querySelectorAll("button")).find(b => b.textContent === "Hide");
+    expect(hide).toBeTruthy();
+  });
+
+  test("Hide posts to the hide endpoint", async () => {
+    mockOnce({
+      total: 1,
+      items: [
+        {
+          store_adam_id: "A1", title: "Album", artist_name: "Jay", release_date: "2020-01-01",
+          release_type: "Album", preferred_source: "tw", artist_musicbrainz_id: null, upc: "111",
+          artwork_url: null, storefronts: ["tw"],
+        },
+      ],
+    });
+    await ctx.appWindow.__test_renderAdminReleases(main);
+
+    mockOnce({ ok: true });            // hide POST
+    mockOnce({ total: 0, items: [] }); // re-render GET
+    const hide = Array.from(main.querySelectorAll("button")).find(b => b.textContent === "Hide");
+    hide.click();
+    await new Promise(r => setTimeout(r, 0));
+
+    const hideCall = ctx.appWindow.fetch.mock.calls.find(c => String(c[0]).includes("/A1/hide"));
+    expect(hideCall).toBeTruthy();
+    expect(hideCall[1].method).toBe("POST");
+  });
+
+  test("empty releases list shows the nothing-pending message", async () => {
+    mockOnce({ total: 0, items: [] });
+    await ctx.appWindow.__test_renderAdminReleases(main);
+    expect(main.textContent).toContain("No releases pending");
+  });
+
+  test("release count is shown above the grid", async () => {
+    mockOnce({
+      total: 2,
+      items: [
+        { store_adam_id: "A1", title: "One", artist_name: "Jay", release_date: "2020-01-01", release_type: "Album", preferred_source: "tw", artist_musicbrainz_id: null, upc: "1", artwork_url: null, storefronts: ["tw"] },
+        { store_adam_id: "A2", title: "Two", artist_name: "Jay", release_date: "2021-01-01", release_type: "EP", preferred_source: "tw", artist_musicbrainz_id: null, upc: "2", artwork_url: null, storefronts: ["tw"] },
+      ],
+    });
+    await ctx.appWindow.__test_renderAdminReleases(main);
+    expect(main.textContent).toContain("2 releases missing from MusicBrainz");
+  });
+
+  test("group-by-artist renders a group header with the artist name", async () => {
+    ctx.appWindow.__test_state.adminGroupByArtist = true;
+    mockOnce({
+      total: 1,
+      items: [
+        { store_adam_id: "A1", title: "One", artist_name: "Jay Chou", release_date: "2020-01-01", release_type: "Album", preferred_source: "tw", artist_musicbrainz_id: "m", upc: "1", artwork_url: null, storefronts: ["tw"] },
+      ],
+    });
+    await ctx.appWindow.__test_renderAdminReleases(main);
+    expect(main.querySelector(".admin-group-header")).toBeTruthy();
+    expect(main.querySelector(".admin-group-name").textContent).toBe("Jay Chou");
+    ctx.appWindow.__test_state.adminGroupByArtist = false;
+  });
+});

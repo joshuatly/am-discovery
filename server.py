@@ -15,6 +15,8 @@ from flask import Flask
 
 import db
 import notifications
+import seeding
+from api_admin import admin_bp
 from api_artists import artists_bp
 from api_debug import debug_bp
 from api_notifications import notifications_bp
@@ -44,6 +46,7 @@ app.register_blueprint(system_bp)
 app.register_blueprint(watchlist_bp)
 app.register_blueprint(notifications_bp)
 app.register_blueprint(debug_bp)
+app.register_blueprint(admin_bp)
 
 # ---------------------------------------------------------------------------
 # Polling logic
@@ -486,6 +489,8 @@ def init_scheduler():
     watchlist_interval = cfg.get("watchlist_poll_interval_minutes", 10) * 60
     logger.info("Starting watchlist polling (every %.1f minutes)...", watchlist_interval / 60)
     _schedule_watchlist_next()
+
+    seeding.init_scheduler()
 
 
 def main():

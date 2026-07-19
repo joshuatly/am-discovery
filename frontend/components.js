@@ -92,6 +92,21 @@ function sfChipHtml(sf, extraStyle = "") {
   return `<span class="sf-chip ${sf.toLowerCase()}"${styleAttr}>${sf.toUpperCase()}</span>`;
 }
 
+// Build a Harmony seed URL for an album in a given storefront.
+// Mirrors the modal's Harmony button so the admin page produces identical links.
+function buildHarmonyUrl(storeAdamId, storefront, upc, regions) {
+  const amUrl = `https://music.apple.com/${storefront}/album/${storeAdamId}`;
+  const params = new URLSearchParams({ url: amUrl });
+  params.set("gtin", upc || "");
+  params.set("region", (regions || []).map(s => s.toUpperCase()).join(","));
+  params.set("musicbrainz", "");
+  params.set("deezer", "");
+  params.set("itunes", "");
+  params.set("spotify", "");
+  params.set("tidal", "");
+  return `https://harmony.pulsewidth.org.uk/release?${params.toString()}`;
+}
+
 function sfChips(storefronts) {
   const div = el("div", "sf-chips");
   (storefronts || []).forEach(sf => {

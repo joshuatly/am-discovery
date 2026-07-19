@@ -27,7 +27,7 @@ def get_conn():
         conn.close()
 
 
-SCHEMA_VERSION = 17
+SCHEMA_VERSION = 18
 
 # Valid collection_status values and allowed transitions
 COLLECTION_STATUSES = {"new", "complete", "new_release", "in_progress"}
@@ -73,7 +73,11 @@ def init_db():
                     first_seen     INTEGER,
                     last_seen      INTEGER,
                     source         TEXT,
-                    upc            TEXT
+                    upc            TEXT,
+                    mb_seed_status TEXT,
+                    mb_release_mbid TEXT,
+                    mb_checked_at  INTEGER,
+                    hidden_from_seeding INTEGER DEFAULT 0
                 );
 
                 CREATE TABLE IF NOT EXISTS watched_artists (
@@ -99,6 +103,22 @@ def init_db():
                     is_group       INTEGER,
                     updated_at     INTEGER,
                     musicbrainz_id TEXT
+                );
+
+                CREATE TABLE IF NOT EXISTS mb_scan_state (
+                    artist_id          TEXT PRIMARY KEY,
+                    mbid_checked_at    INTEGER,
+                    release_checked_at INTEGER
+                );
+
+                CREATE TABLE IF NOT EXISTS artist_mbid_suggestions (
+                    artist_id       TEXT PRIMARY KEY,
+                    suggested_mbid  TEXT,
+                    suggested_name  TEXT,
+                    score           INTEGER,
+                    candidates_json TEXT,
+                    suggested_at    INTEGER,
+                    status          TEXT DEFAULT 'pending'
                 );
 
                 CREATE TABLE IF NOT EXISTS discovery_runs (
@@ -400,6 +420,249 @@ def get_artist_info(artist_id: str):
 def update_artist_musicbrainz_id(artist_id: str, musicbrainz_id: str | None):
     with get_conn() as conn:
         conn.execute("UPDATE artists SET musicbrainz_id = ? WHERE artist_id = ?", (musicbrainz_id, artist_id))
+
+
+# ---------------------------------------------------------------------------
+# MusicBrainz seeding: per-album seed state
+# ---------------------------------------------------------------------------
+
+MB_SEED_STATUSES = {"known", "needs_seeding"}
+
+
+def set_album_seed_status(store_adam_id: str, status: str | None, mb_release_mbid: str | None = None):
+    """Record the outcome of a MusicBrainz check for a single album.
+
+    ``status`` is one of ``known`` (a matching MB release exists), ``needs_seeding``
+    (no matching MB release/edition found), or ``None`` to reset. ``mb_checked_at``
+    is always stamped so the scanner can skip recently-checked albums.
+    """
+    now = int(time.time())
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE albums SET mb_seed_status = ?, mb_release_mbid = ?, mb_checked_at = ? WHERE store_adam_id = ?",
+            (status, mb_release_mbid, now, store_adam_id),
+        )
+
+
+def set_album_hidden_from_seeding(store_adam_id: str, hidden: bool = True):
+    """Hide (or unhide) an album from the admin seeding list."""
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE albums SET hidden_from_seeding = ? WHERE store_adam_id = ?",
+            (1 if hidden else 0, store_adam_id),
+        )
+
+
+def get_seeding_releases(sort: str = "release_date", include_hidden: bool = False):
+    """Return albums the scanner flagged as needing MusicBrainz seeding.
+
+    Each row is joined with the artist's preferred storefront (from the watchlist)
+    and MusicBrainz artist id so the admin UI can build Harmony links and group by
+    artist without extra queries.
+    """
+    order_by = {
+        "release_date": "a.release_date DESC, a.title ASC",
+        "release_type": "a.release_type ASC, a.release_date DESC",
+        "artist": "artist_name COLLATE NOCASE ASC, a.release_date DESC",
+    }.get(sort, "a.release_date DESC, a.title ASC")
+    hidden_clause = "" if include_hidden else "AND a.hidden_from_seeding = 0"
+    with get_conn() as conn:
+        rows = conn.execute(
+            f"""
+            SELECT a.*,
+                   COALESCE(w.name, ar.name, a.artist) AS artist_name,
+                   w.preferred_source                  AS preferred_source,
+                   ar.musicbrainz_id                   AS artist_musicbrainz_id
+            FROM albums a
+            LEFT JOIN watched_artists w ON w.artist_id = a.artist_id
+            LEFT JOIN artists ar        ON ar.artist_id = a.artist_id
+            WHERE a.mb_seed_status = 'needs_seeding' {hidden_clause}
+            ORDER BY {order_by}
+            """,
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def count_seeding_releases() -> int:
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT COUNT(*) FROM albums WHERE mb_seed_status = 'needs_seeding' AND hidden_from_seeding = 0",
+        ).fetchone()
+        return row[0] if row else 0
+
+
+# ---------------------------------------------------------------------------
+# MusicBrainz seeding: per-artist scan state
+# ---------------------------------------------------------------------------
+
+
+def mark_mbid_checked(artist_id: str):
+    now = int(time.time())
+    with get_conn() as conn:
+        conn.execute(
+            """INSERT INTO mb_scan_state (artist_id, mbid_checked_at)
+               VALUES (?, ?)
+               ON CONFLICT(artist_id) DO UPDATE SET mbid_checked_at = excluded.mbid_checked_at""",
+            (artist_id, now),
+        )
+
+
+def mark_release_checked(artist_id: str):
+    now = int(time.time())
+    with get_conn() as conn:
+        conn.execute(
+            """INSERT INTO mb_scan_state (artist_id, release_checked_at)
+               VALUES (?, ?)
+               ON CONFLICT(artist_id) DO UPDATE SET release_checked_at = excluded.release_checked_at""",
+            (artist_id, now),
+        )
+
+
+def get_artists_for_mbid_scan(batch_size: int = 3, recheck_days: int = 7) -> list:
+    """Watchlist artists with no MusicBrainz id and no outstanding suggestion.
+
+    Skips artists already carrying a suggestion (pending, or previously denied /
+    approved) and those looked up within ``recheck_days``.
+    """
+    cutoff = int(time.time()) - (recheck_days * 86400)
+    with get_conn() as conn:
+        rows = conn.execute(
+            """
+            SELECT w.artist_id, w.name, w.alt_name
+            FROM watched_artists w
+            LEFT JOIN artists ar               ON ar.artist_id = w.artist_id
+            LEFT JOIN artist_mbid_suggestions s ON s.artist_id = w.artist_id
+            LEFT JOIN mb_scan_state ms          ON ms.artist_id = w.artist_id
+            WHERE (ar.musicbrainz_id IS NULL OR ar.musicbrainz_id = '')
+              AND s.artist_id IS NULL
+              AND (ms.mbid_checked_at IS NULL OR ms.mbid_checked_at < ?)
+            ORDER BY ms.mbid_checked_at ASC NULLS FIRST
+            LIMIT ?
+            """,
+            (cutoff, batch_size),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def get_artists_for_release_scan(batch_size: int = 3, recheck_days: int = 7) -> list:
+    """Artists that have a MusicBrainz id and are due a release-seeding scan."""
+    cutoff = int(time.time()) - (recheck_days * 86400)
+    with get_conn() as conn:
+        rows = conn.execute(
+            """
+            SELECT ar.artist_id, ar.name, ar.musicbrainz_id
+            FROM artists ar
+            LEFT JOIN mb_scan_state ms ON ms.artist_id = ar.artist_id
+            WHERE ar.musicbrainz_id IS NOT NULL AND ar.musicbrainz_id != ''
+              AND (ms.release_checked_at IS NULL OR ms.release_checked_at < ?)
+            ORDER BY ms.release_checked_at ASC NULLS FIRST
+            LIMIT ?
+            """,
+            (cutoff, batch_size),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def count_artists_pending_mbid_scan(recheck_days: int = 7) -> int:
+    cutoff = int(time.time()) - (recheck_days * 86400)
+    with get_conn() as conn:
+        row = conn.execute(
+            """
+            SELECT COUNT(*)
+            FROM watched_artists w
+            LEFT JOIN artists ar               ON ar.artist_id = w.artist_id
+            LEFT JOIN artist_mbid_suggestions s ON s.artist_id = w.artist_id
+            LEFT JOIN mb_scan_state ms          ON ms.artist_id = w.artist_id
+            WHERE (ar.musicbrainz_id IS NULL OR ar.musicbrainz_id = '')
+              AND s.artist_id IS NULL
+              AND (ms.mbid_checked_at IS NULL OR ms.mbid_checked_at < ?)
+            """,
+            (cutoff,),
+        ).fetchone()
+        return row[0] if row else 0
+
+
+# ---------------------------------------------------------------------------
+# MusicBrainz seeding: artist MBID suggestion queue
+# ---------------------------------------------------------------------------
+
+
+def upsert_mbid_suggestion(
+    artist_id: str,
+    suggested_mbid: str | None,
+    suggested_name: str | None,
+    score: int | None,
+    candidates: list | None,
+    status: str = "pending",
+):
+    """Store (or replace) a suggested MusicBrainz artist id awaiting approval."""
+    now = int(time.time())
+    candidates_json = json.dumps(candidates) if candidates is not None else None
+    with get_conn() as conn:
+        conn.execute(
+            """INSERT INTO artist_mbid_suggestions
+                 (artist_id, suggested_mbid, suggested_name, score, candidates_json, suggested_at, status)
+               VALUES (?, ?, ?, ?, ?, ?, ?)
+               ON CONFLICT(artist_id) DO UPDATE SET
+                   suggested_mbid  = excluded.suggested_mbid,
+                   suggested_name  = excluded.suggested_name,
+                   score           = excluded.score,
+                   candidates_json = excluded.candidates_json,
+                   suggested_at    = excluded.suggested_at,
+                   status          = excluded.status""",
+            (artist_id, suggested_mbid, suggested_name, score, candidates_json, now, status),
+        )
+
+
+def get_mbid_suggestion(artist_id: str) -> dict | None:
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT * FROM artist_mbid_suggestions WHERE artist_id = ?",
+            (artist_id,),
+        ).fetchone()
+        if not row:
+            return None
+        d = dict(row)
+        d["candidates"] = json.loads(d["candidates_json"]) if d.get("candidates_json") else []
+        return d
+
+
+def set_suggestion_status(artist_id: str, status: str):
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE artist_mbid_suggestions SET status = ? WHERE artist_id = ?",
+            (status, artist_id),
+        )
+
+
+def get_unlinked_watchlist_artists() -> list:
+    """Watchlist artists with no MusicBrainz id, joined with any pending suggestion.
+
+    Powers the admin Artists tab. Approved artists (which now carry an mbid) drop
+    off automatically; denied suggestions stay visible so the user can still enter
+    an id manually.
+    """
+    with get_conn() as conn:
+        rows = conn.execute(
+            """
+            SELECT w.artist_id, w.name, w.alt_name, w.url, w.preferred_source,
+                   s.suggested_mbid, s.suggested_name, s.score, s.candidates_json, s.status AS suggestion_status,
+                   ms.mbid_checked_at
+            FROM watched_artists w
+            LEFT JOIN artists ar               ON ar.artist_id = w.artist_id
+            LEFT JOIN artist_mbid_suggestions s ON s.artist_id = w.artist_id
+            LEFT JOIN mb_scan_state ms          ON ms.artist_id = w.artist_id
+            WHERE (ar.musicbrainz_id IS NULL OR ar.musicbrainz_id = '')
+            ORDER BY w.name COLLATE NOCASE ASC
+            """,
+        ).fetchall()
+        result = []
+        for r in rows:
+            d = dict(r)
+            d["candidates"] = json.loads(d["candidates_json"]) if d.get("candidates_json") else []
+            d.pop("candidates_json", None)
+            result.append(d)
+        return result
 
 
 def get_watched_artist_ids() -> set:

@@ -1847,3 +1847,192 @@ a.sf-chip:hover { opacity: 0.75; }
 .format-badge.atmos           { color: #ff7832; }
 .format-badge.spatial         { color: #00c8a0; }
 .format-badge.adm             { color: #ffc83c; }
+
+/* =========================================================
+   Admin (MusicBrainz seeding) page
+   ========================================================= */
+.admin-tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 20px;
+}
+.admin-tab {
+  padding: 8px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  border-radius: 999px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: var(--transition);
+}
+.admin-tab:hover { background: var(--bg-card-hover); color: var(--text-primary); }
+.admin-tab.active {
+  background: var(--accent-grad);
+  border-color: transparent;
+  color: #fff;
+}
+.admin-count {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-dim);
+  margin-bottom: 14px;
+}
+
+/* --- Artists tab --- */
+.admin-artist-list { display: flex; flex-direction: column; gap: 12px; }
+.admin-artist-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  backdrop-filter: blur(24px);
+  flex-wrap: wrap;
+}
+.admin-artist-main { display: flex; flex-direction: column; gap: 4px; min-width: 180px; }
+.admin-artist-name { font-size: 15px; font-weight: 600; color: var(--text-primary); }
+.admin-artist-alt { font-size: 12px; color: var(--text-secondary); }
+.admin-artist-links { display: flex; gap: 12px; margin-top: 4px; }
+.admin-link {
+  font-size: 12px;
+  color: var(--accent);
+  text-decoration: none;
+}
+.admin-link:hover { text-decoration: underline; }
+.admin-artist-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-end;
+  min-width: 240px;
+}
+.admin-suggestion {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.admin-suggestion-name { font-size: 13px; font-weight: 600; color: var(--text-primary); }
+.admin-suggestion-score {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--gold);
+  border: 1px solid var(--gold);
+  border-radius: 999px;
+  padding: 1px 7px;
+}
+.admin-btn-row { display: flex; gap: 8px; }
+.btn-mb-approve {
+  padding: 6px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  border-radius: 999px;
+  border: none;
+  background: var(--accent-grad);
+  color: #fff;
+  cursor: pointer;
+  transition: var(--transition);
+}
+.btn-mb-approve:hover { opacity: 0.9; }
+.btn-mb-deny {
+  padding: 6px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  border-radius: 999px;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: var(--transition);
+}
+.btn-mb-deny:hover { background: var(--bg-card-hover); color: var(--text-primary); }
+.admin-manual { display: flex; gap: 6px; }
+.admin-mbid-input { max-width: 200px; font-size: 12px; padding: 6px 10px; }
+.admin-feedback { font-size: 12px; color: var(--text-secondary); min-height: 14px; }
+
+/* --- Releases tab --- */
+.admin-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+.admin-control-label {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-dim);
+}
+.admin-pill {
+  padding: 6px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 999px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: var(--transition);
+}
+.admin-pill:hover { background: var(--bg-card-hover); color: var(--text-primary); }
+.admin-pill.active {
+  background: var(--accent-grad);
+  border-color: transparent;
+  color: #fff;
+}
+.admin-scan-btn { margin-left: auto; }
+.admin-group-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 20px 0 10px;
+}
+.admin-group-name { font-size: 18px; font-weight: 700; color: var(--text-primary); }
+.admin-group-count {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 1px 8px;
+}
+.admin-release-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 16px;
+  margin-bottom: 8px;
+}
+.admin-release-card {
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  backdrop-filter: blur(24px);
+  transition: var(--transition);
+}
+.admin-release-card:hover { background: var(--bg-card-hover); }
+.admin-release-art { width: 100%; aspect-ratio: 1 / 1; object-fit: cover; display: block; }
+.admin-release-info { padding: 12px; display: flex; flex-direction: column; gap: 6px; }
+.admin-release-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.admin-release-artist { font-size: 12px; font-weight: 500; color: var(--accent); }
+.admin-release-meta { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.admin-release-actions { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px; }
+.admin-release-actions .btn-secondary { padding: 5px 12px; font-size: 12px; }
+.admin-hide-btn { margin-left: auto; }

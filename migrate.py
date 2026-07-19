@@ -142,6 +142,28 @@ MIGRATIONS = {
         -- Version 17: track music video count separately from song track count.
         ALTER TABLE albums ADD COLUMN music_video_count INTEGER DEFAULT 0;
     """,
+    18: """
+        -- Version 18: MusicBrainz seeding admin — per-album seed state, per-artist
+        -- scan timestamps, and an artist-MBID suggestion approval queue.
+        ALTER TABLE albums ADD COLUMN mb_seed_status TEXT;
+        ALTER TABLE albums ADD COLUMN mb_release_mbid TEXT;
+        ALTER TABLE albums ADD COLUMN mb_checked_at INTEGER;
+        ALTER TABLE albums ADD COLUMN hidden_from_seeding INTEGER DEFAULT 0;
+        CREATE TABLE IF NOT EXISTS mb_scan_state (
+            artist_id          TEXT PRIMARY KEY,
+            mbid_checked_at    INTEGER,
+            release_checked_at INTEGER
+        );
+        CREATE TABLE IF NOT EXISTS artist_mbid_suggestions (
+            artist_id       TEXT PRIMARY KEY,
+            suggested_mbid  TEXT,
+            suggested_name  TEXT,
+            score           INTEGER,
+            candidates_json TEXT,
+            suggested_at    INTEGER,
+            status          TEXT DEFAULT 'pending'
+        );
+    """,
 }
 
 

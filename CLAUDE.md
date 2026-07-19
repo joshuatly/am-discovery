@@ -17,12 +17,21 @@ config.py        — load_config() / save_config() + CONFIG_PATH (imported by se
 server.py        — Flask app creation, background polling scheduler, init_scheduler(), main()
 api.py           — Flask Blueprint: releases, artists, search, config/status, frontend routes
 api_watchlist.py — Flask Blueprint: all watchlist routes (GET/POST/PATCH/DELETE/export/import)
+api_admin.py     — Flask Blueprint: MusicBrainz seeding admin (artist MBID linking + release seeding list)
+musicbrainz.py   — MusicBrainz /ws/2 client (stdlib urllib only; rate-limit + backoff; no API key needed)
+seeding.py       — Background MusicBrainz seeding scanner (suggest artist MBIDs + flag un-seeded releases)
 wsgi.py          — Gunicorn WSGI entry point (production); imports app and starts scheduler
 gunicorn.conf.py — Gunicorn config (1 worker required — scheduler runs as in-process thread)
 migrate.py       — Standalone migration runner for schema upgrades
 main.py          — Ad-hoc CLI script for manual testing/exploration
 frontend/        — Static SPA (index.html, style.css, plus JS modules below)
 ```
+
+> Note: the API layer has since been split into per-domain blueprints —
+> `api_utility.py` (shared helpers + frontend catch-all), `api_releases.py`,
+> `api_artists.py`, `api_system.py`, `api_watchlist.py`, `api_admin.py`,
+> `api_notifications.py`, `api_debug.py` — rather than the single `api.py`
+> referenced below. The module-boundary rules still apply per domain.
 
 The server starts a background thread that polls each configured storefront's `/new` browse page on a timer, auto-discovers the new-release room URL from that page, fetches metadata for new albums concurrently, and persists everything to SQLite.
 
@@ -35,8 +44,11 @@ The server starts a background thread that polls each configured storefront's `/
 
 **Where to add new backend code:**
 - New config key or default → `config.py`
-- New release/artist/search route → `api.py`
+- New release/artist/search route → `api_releases.py` / `api_artists.py` / `api_system.py`
 - New watchlist route → `api_watchlist.py`
+- New MusicBrainz seeding admin route → `api_admin.py`
+- MusicBrainz web-service calls → `musicbrainz.py` (never call `/ws/2` directly elsewhere)
+- Seeding scan / matching logic → `seeding.py`
 - Scheduler behaviour or polling logic → `server.py`
 - All SQL → `db.py` (never scatter queries elsewhere)
 
@@ -62,6 +74,7 @@ page-releases.js  — renderArtistReleaseGrid, renderNewReleases, renderAllRelea
 page-artist.js    — renderArtist
 page-watchlist.js — paginateList, WATCHLIST_PAGE_SIZE, renderWatchlist
 page-settings.js  — renderSettings
+page-admin.js     — renderAdmin (MusicBrainz seeding: Artists + Releases tabs)
 app.js            — route(), DOMContentLoaded bootstrap
 ```
 
@@ -75,6 +88,7 @@ app.js            — route(), DOMContentLoaded bootstrap
 - Changes to Artist Detail page → `page-artist.js`
 - Changes to Artist Watchlist page → `page-watchlist.js`
 - Changes to Settings page → `page-settings.js`
+- Changes to the Admin (MusicBrainz seeding) page → `page-admin.js`
 - Changes to routing or app-level bootstrap → `app.js`
 
 Each source file must stay under 800 lines. Tests live in `frontend/__tests__/app.test.js` (no line limit).
@@ -127,7 +141,10 @@ The frontend has Jest tests in `frontend/__tests__/app.test.js`. **All new front
 Python tests are split by module:
 - `tests/test_api.py` — routes in `api.py` (releases, artists, search, config, status, frontend)
 - `tests/test_api_watchlist.py` — routes in `api_watchlist.py`
+- `tests/test_api_admin.py` — routes in `api_admin.py`
 - `tests/test_server.py` — config helpers (`config.py`) and polling logic (`server.py`)
+- `tests/test_musicbrainz.py` — MusicBrainz client (`musicbrainz.py`); network is always mocked
+- `tests/test_seeding.py` — seeding scanner (`seeding.py`); MusicBrainz mocked, real temp DB
 
 **Lint and format (Python):**
 ```bash
@@ -149,7 +166,7 @@ AM_DB_PATH=/path/to/custom.db uv run python server.py
 ## Database
 
 - Engine: SQLite with WAL mode and foreign keys enabled
-- Schema version: tracked via `PRAGMA user_version` (currently v5)
+- Schema version: tracked via `PRAGMA user_version` (currently v18)
 - **All SQL lives in `db.py`** — do not scatter queries elsewhere
 - `storefronts` and `audio_formats` columns are stored as JSON strings in SQLite; always serialize/deserialize them explicitly
 
@@ -174,6 +191,17 @@ AM_DB_PATH=/path/to/custom.db uv run python server.py
 
 ---
 
+## MusicBrainz seeding
+
+The admin page (`/#/admin`, `page-admin.js`) and background scanner (`seeding.py`) help seed missing releases into MusicBrainz.
+
+- **No API key required.** The MusicBrainz `/ws/2` web service is open for reads; it only needs a descriptive `User-Agent` (already set in `musicbrainz.py`) and a ~1 req/sec rate limit. Seeding itself happens in the browser via **Harmony** (`harmony.pulsewidth.org.uk`) using the user's own MusicBrainz login — the server never submits edits.
+- **`musicbrainz.py`** is the only place that calls `/ws/2`. A module-level lock enforces the rate limit across the scanner thread and on-demand Flask requests; 503s back off exponentially and eventually raise `MusicBrainzRateLimitError`.
+- **Scanner (`seeding.py`)** runs two phases per cycle, in small batches, at most once per `mb_artist_recheck_days` per artist: (1) suggest artist MBIDs for watchlist artists missing one (queued for approval — never auto-linked); (2) for artists with an MBID, compare their local catalogue to MusicBrainz release-groups (title match, then barcode/edition check) and flag albums that need seeding. It reads only local DB data — never re-queries Apple Music — and skips albums already confirmed present in MusicBrainz.
+- **Seed state** lives on `albums` (`mb_seed_status`, `mb_release_mbid`, `mb_checked_at`, `hidden_from_seeding`); per-artist scan timestamps in `mb_scan_state`; the MBID approval queue in `artist_mbid_suggestions`.
+
+---
+
 ## Configuration (`config.json`)
 
 | Key | Type | Description |
@@ -184,6 +212,10 @@ AM_DB_PATH=/path/to/custom.db uv run python server.py
 | `watchlist_poll_interval_minutes` | integer | How often to check watchlist artists for new releases (default: 10) |
 | `watchlist_poll_batch_size` | integer | Artists refreshed per watchlist poll cycle (default: 5) |
 | `watchlist_refresh_interval_days` | integer | Days before a watchlist artist's catalog is considered stale (default: 7) |
+| `mb_scan_enabled` | boolean | Enable the background MusicBrainz seeding scanner (default: true) |
+| `mb_scan_interval_minutes` | integer | How often the seeding scanner runs a cycle (default: 60) |
+| `mb_scan_artist_batch` | integer | Artists processed per seeding-scan phase (default: 3) — keep small; MusicBrainz allows ~1 req/sec |
+| `mb_artist_recheck_days` | integer | Minimum days before re-scanning an artist for MBID/releases (default: 7) |
 | `cors_proxy` | string | Optional URL prefix for proxying requests |
 
 The config is live-reloaded on every poll, so changes take effect on the next cycle without restarting.
@@ -208,6 +240,14 @@ The config is live-reloaded on every poll, so changes take effect on the next cy
 | PUT | `/api/config` | Update config |
 | POST | `/api/refresh` | Manually trigger a poll |
 | GET | `/api/status` | Server/poll status |
+| GET | `/api/admin/artists` | Watchlist artists with no MusicBrainz MBID, plus any suggestion |
+| POST | `/api/admin/artists/<id>/lookup` | Search MusicBrainz for an artist; store candidates as a suggestion |
+| POST | `/api/admin/artists/<id>/approve` | Link an MBID (approve suggestion or manual entry) |
+| POST | `/api/admin/artists/<id>/deny` | Dismiss a suggestion so the scanner won't re-suggest it |
+| GET | `/api/admin/releases` | Releases flagged as missing from MusicBrainz (sortable; `include_hidden`) |
+| POST | `/api/admin/releases/<id>/hide` | Hide / unhide a release from the seeding list (`/unhide`) |
+| GET | `/api/admin/status` | Seeding scanner status + pending counts |
+| POST | `/api/admin/scan` | Trigger a seeding scan cycle immediately |
 
 Full Swagger docs at `/apidocs`.
 
