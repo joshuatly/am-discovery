@@ -336,11 +336,15 @@ def api_admin_status():
 @admin_bp.route("/api/admin/scan", methods=["POST"])
 def api_admin_scan():
     """Trigger a MusicBrainz seeding scan cycle immediately.
+
+    A manual scan forces a re-check, ignoring the per-artist weekly recheck
+    window, so recently-scanned artists are re-verified (e.g. to clear flags
+    after a matching-logic change). Already-confirmed albums are still skipped.
     ---
     responses:
       202:
         description: Scan started
 
     """
-    seeding.trigger_scan_now()
+    seeding.trigger_scan_now(force=True)
     return jsonify({"ok": True, "async": True}), 202

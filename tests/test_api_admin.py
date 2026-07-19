@@ -234,7 +234,7 @@ class TestApiAdminScanStatus(ServerTestCase):
     def test_scan_now(self, mock_seeding):
         resp = self.client.post("/api/admin/scan", json={})
         self.assertEqual(resp.status_code, 202)
-        mock_seeding.trigger_scan_now.assert_called_once()
+        mock_seeding.trigger_scan_now.assert_called_once_with(force=True)
 
 
 if __name__ == "__main__":

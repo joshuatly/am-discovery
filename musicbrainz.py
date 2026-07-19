@@ -182,6 +182,25 @@ def lookup_barcode(upc: str) -> list[dict]:
     return data.get("releases", [])
 
 
+def _lucene_phrase(s: str) -> str:
+    return '"' + s.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+def search_release(title: str, artist: str = "", limit: int = 5) -> list[dict]:
+    """Search MusicBrainz releases by title (and artist, if given).
+
+    Mirrors the on-demand album-card lookup: a fuzzy title+artist search across
+    all of MusicBrainz, independent of which artist the release is credited to.
+    """
+    if not title or not title.strip():
+        return []
+    query = f"release:{_lucene_phrase(title.strip())}"
+    if artist and artist.strip():
+        query += f" AND artist:{_lucene_phrase(artist.strip())}"
+    data = _request("release", {"query": query, "limit": limit})
+    return data.get("releases", [])
+
+
 # ---------------------------------------------------------------------------
 # Title matching
 # ---------------------------------------------------------------------------

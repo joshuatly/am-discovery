@@ -300,6 +300,7 @@ async function renderAdminReleases(container) {
   controls.appendChild(groupBtn);
 
   const scanBtn = el("button", "btn-secondary admin-scan-btn", "Scan now");
+  scanBtn.title = "Re-verify releases against MusicBrainz now (ignores the weekly per-artist limit)";
   scanBtn.addEventListener("click", async () => {
     scanBtn.disabled = true;
     scanBtn.textContent = "Scanning…";

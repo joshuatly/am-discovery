@@ -37,7 +37,9 @@ class SeedingDBTestCase(unittest.TestCase):
 
 
 class TestScanReleasesForArtist(SeedingDBTestCase):
-    def _run(self, groups, barcodes_map=None):
+    def _run(self, groups, barcodes_map=None, global_barcode=None, global_title=None):
+        # global_barcode / global_title mock the authoritative fallback (the same
+        # global lookups the album card does); both default to "not found".
         barcodes_map = barcodes_map or {}
         with (
             patch.object(self.seeding.mb, "browse_release_groups", return_value=groups),
@@ -46,6 +48,8 @@ class TestScanReleasesForArtist(SeedingDBTestCase):
                 "get_release_group_barcodes",
                 side_effect=lambda rg: (barcodes_map.get(rg, set()), "rel-" + rg),
             ),
+            patch.object(self.seeding.mb, "lookup_barcode", return_value=(global_barcode or [])),
+            patch.object(self.seeding.mb, "search_release", return_value=(global_title or [])),
         ):
             return self.seeding.scan_releases_for_artist({"artist_id": "ART1", "musicbrainz_id": "mbid", "name": "Jay"})
 
@@ -93,6 +97,41 @@ class TestScanReleasesForArtist(SeedingDBTestCase):
         flagged = self._run(self._groups("Real Album"), {"rg0": {"111"}})
         self.assertEqual(flagged, 1)
         self.assertEqual(self.db.get_album("A1")["mb_seed_status"], "needs_seeding")
+
+    def test_global_barcode_rescues_false_positive(self):
+        # No matching release-group under the linked artist, but a global barcode
+        # lookup finds the release (credited to a different entity) -> not flagged.
+        self._album("A1", "在這裡停一下", artist_id="ART1", release_type="Album", upc="4712345678900")
+        flagged = self._run(
+            self._groups("Some Other Album"),
+            global_barcode=[{"id": "3d3e3681-1092-4012-8ceb-0e99db2ede90"}],
+        )
+        self.assertEqual(flagged, 0)
+        row = self.db.get_album("A1")
+        self.assertEqual(row["mb_seed_status"], "known")
+        self.assertEqual(row["mb_release_mbid"], "3d3e3681-1092-4012-8ceb-0e99db2ede90")
+
+    def test_global_title_search_rescues_when_no_upc(self):
+        # No release-group match and no UPC, but a global title+artist search hits.
+        self._album("A1", "Real Album", artist="Jay", artist_id="ART1", release_type="Album")
+        flagged = self._run(self._groups("Other"), global_title=[{"id": "rel-xyz"}])
+        self.assertEqual(flagged, 0)
+        self.assertEqual(self.db.get_album("A1")["mb_seed_status"], "known")
+
+    def test_flagged_only_when_global_check_also_empty(self):
+        # Genuinely missing: no RG match and both global lookups come up empty.
+        self._album("A1", "Truly Missing", artist="Jay", artist_id="ART1", release_type="Album", upc="999")
+        flagged = self._run(self._groups("Other"))
+        self.assertEqual(flagged, 1)
+        self.assertEqual(self.db.get_album("A1")["mb_seed_status"], "needs_seeding")
+
+    def test_upc_missing_from_group_rescued_by_global_barcode(self):
+        # Edition's barcode isn't in the matched release-group, but exists elsewhere
+        # in MusicBrainz -> confirmed present via the global fallback.
+        self._album("A1", "Real Album", artist_id="ART1", release_type="Album", upc="999")
+        flagged = self._run(self._groups("Real Album"), {"rg0": {"111"}}, global_barcode=[{"id": "rel-999"}])
+        self.assertEqual(flagged, 0)
+        self.assertEqual(self.db.get_album("A1")["mb_seed_status"], "known")
 
     def test_known_album_not_requeried(self):
         self._album("A1", "Real Album", artist_id="ART1", release_type="Album", upc="111")
@@ -188,6 +227,18 @@ class TestRunSeedingCycle(unittest.TestCase):
         sug.assert_called_once()
         scan.assert_called_once()
         self.assertEqual(summary, {"mbid_suggested": 1, "releases_scanned": 1, "flagged": 3})
+
+    @patch("seeding.load_config", return_value={"mb_scan_artist_batch": 2, "mb_artist_recheck_days": 7})
+    @patch("seeding.db")
+    def test_force_ignores_recheck_window(self, mock_db, _cfg):
+        import seeding
+
+        mock_db.get_artists_for_mbid_scan.return_value = []
+        mock_db.get_artists_for_release_scan.return_value = []
+        seeding.run_seeding_cycle(force=True)
+        # recheck_days is passed as 0 so recently-checked artists are re-included.
+        self.assertEqual(mock_db.get_artists_for_release_scan.call_args[0][1], 0)
+        self.assertEqual(mock_db.get_artists_for_mbid_scan.call_args[0][1], 0)
 
     @patch("seeding.load_config", return_value={"mb_scan_artist_batch": 2, "mb_artist_recheck_days": 7})
     @patch("seeding.db")

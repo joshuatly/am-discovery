@@ -67,8 +67,31 @@ def suggest_mbid_for_artist(artist: dict) -> int:
     return len(candidates)
 
 
+def _global_confirm_release(title: str, artist_name: str, upc: str) -> str | None:
+    """Authoritative "is this release on MusicBrainz?" check across all of MB.
+
+    Mirrors the on-demand album-card lookup — barcode first (most precise), then
+    a fuzzy title+artist search — and is independent of which artist the release
+    is credited to. Returns a matching MB release MBID, or None if nothing found.
+    """
+    if upc:
+        rels = mb.lookup_barcode(upc)
+        if rels:
+            return rels[0].get("id")
+    rels = mb.search_release(title, artist_name)
+    if rels:
+        return rels[0].get("id")
+    return None
+
+
 def scan_releases_for_artist(artist: dict) -> int:
     """Compare an artist's local catalogue against MusicBrainz; flag un-seeded albums.
+
+    A cheap artist-scoped release-group match handles the common "clearly
+    present" case without extra queries. Anything it can't confirm falls through
+    to a global barcode/title check (the same one the album card uses) before an
+    album is flagged — so releases credited to a different artist entity, typed
+    outside album/EP, or titled slightly differently aren't wrongly flagged.
 
     Returns the number of albums newly flagged as needing seeding.
     """
@@ -97,36 +120,36 @@ def scan_releases_for_artist(artist: dict) -> int:
         if album.get("mb_seed_status") == "known":
             continue
 
-        norm = mb.normalize_title(title)
-        matches = by_title.get(norm, [])
-
-        if not matches:
-            # No matching release-group at all -> the whole release is missing.
-            db.set_album_seed_status(album["store_adam_id"], "needs_seeding")
-            flagged += 1
-            continue
-
         upc = (album.get("upc") or "").strip()
-        if not upc:
-            # Group exists but we can't verify the specific edition — treat as present.
-            db.set_album_seed_status(album["store_adam_id"], "known", matches[0].get("id"))
-            continue
+        matches = by_title.get(mb.normalize_title(title), [])
 
-        # Group exists: check whether this exact edition (barcode) is in MusicBrainz.
-        all_barcodes: set[str] = set()
-        first_release_mbid: str | None = None
-        for g in matches:
-            rg_id = g["id"]
-            if rg_id not in barcode_cache:
-                barcode_cache[rg_id] = mb.get_release_group_barcodes(rg_id)
-            bcs, rel_mbid = barcode_cache[rg_id]
-            all_barcodes |= bcs
-            first_release_mbid = first_release_mbid or rel_mbid
+        # Fast path: the linked artist's own release-groups confirm presence.
+        known_mbid: str | None = None
+        present = False
+        if matches:
+            if not upc:
+                present, known_mbid = True, matches[0].get("id")
+            else:
+                all_barcodes: set[str] = set()
+                for g in matches:
+                    rg_id = g["id"]
+                    if rg_id not in barcode_cache:
+                        barcode_cache[rg_id] = mb.get_release_group_barcodes(rg_id)
+                    bcs, rel_mbid = barcode_cache[rg_id]
+                    all_barcodes |= bcs
+                    known_mbid = known_mbid or rel_mbid
+                present = upc in all_barcodes
 
-        if upc in all_barcodes:
-            db.set_album_seed_status(album["store_adam_id"], "known", first_release_mbid)
+        # Authoritative fallback before flagging — matches the album-card check.
+        if not present:
+            confirmed = _global_confirm_release(title, album.get("artist") or "", upc)
+            if confirmed:
+                present, known_mbid = True, confirmed
+
+        if present:
+            db.set_album_seed_status(album["store_adam_id"], "known", known_mbid)
         else:
-            db.set_album_seed_status(album["store_adam_id"], "needs_seeding", first_release_mbid)
+            db.set_album_seed_status(album["store_adam_id"], "needs_seeding")
             flagged += 1
 
     db.mark_release_checked(artist_id)
@@ -139,15 +162,18 @@ def scan_releases_for_artist(artist: dict) -> int:
 # ---------------------------------------------------------------------------
 
 
-def run_seeding_cycle() -> dict:
+def run_seeding_cycle(force: bool = False) -> dict:
     """Run one scan cycle: a batch of MBID suggestions, then a batch of release scans.
 
-    Returns a summary dict. Raises :class:`musicbrainz.MusicBrainzRateLimitError`
-    if MusicBrainz stays unavailable — the caller reschedules sooner in that case.
+    When ``force`` is set the per-artist recheck window is ignored, so a manual
+    scan re-verifies artists that were checked recently (used to clear stale
+    flags after a matching-logic change). Returns a summary dict. Raises
+    :class:`musicbrainz.MusicBrainzRateLimitError` if MusicBrainz stays
+    unavailable — the caller reschedules sooner in that case.
     """
     cfg = load_config()
     artist_batch = cfg.get("mb_scan_artist_batch", 3)
-    recheck_days = cfg.get("mb_artist_recheck_days", 7)
+    recheck_days = 0 if force else cfg.get("mb_artist_recheck_days", 7)
 
     summary = {"mbid_suggested": 0, "releases_scanned": 0, "flagged": 0}
 
@@ -162,12 +188,12 @@ def run_seeding_cycle() -> dict:
     return summary
 
 
-def _do_scan():
+def _do_scan(force: bool = False):
     global _running
     _running = True
     override_delay = None
     try:
-        summary = run_seeding_cycle()
+        summary = run_seeding_cycle(force=force)
         logger.info(
             "[Seeding] Cycle done: %d MBID suggestions, %d artists scanned, %d releases flagged",
             summary["mbid_suggested"],
@@ -201,14 +227,18 @@ def _schedule_next(override_delay=None):
     logger.info("[Seeding] Next scan in %.1f minutes", delay / 60)
 
 
-def trigger_scan_now():
-    """Cancel any pending timer and run one cycle immediately in a thread."""
+def trigger_scan_now(force: bool = False):
+    """Cancel any pending timer and run one cycle immediately in a thread.
+
+    ``force`` ignores the per-artist weekly recheck window so a manual scan
+    re-verifies recently-checked artists.
+    """
     global _timer
     with _lock:
         if _timer:
             _timer.cancel()
             _timer = None
-    threading.Thread(target=_do_scan, daemon=True).start()
+    threading.Thread(target=_do_scan, kwargs={"force": force}, daemon=True).start()
 
 
 # ---------------------------------------------------------------------------

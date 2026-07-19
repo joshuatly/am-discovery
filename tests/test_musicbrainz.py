@@ -108,6 +108,28 @@ class TestReleaseGroupBarcodes(unittest.TestCase):
         self.assertEqual(first, "rel1")
 
 
+class TestSearchRelease(unittest.TestCase):
+    @patch("musicbrainz._request")
+    def test_builds_title_and_artist_query(self, mock_req):
+        mock_req.return_value = {"releases": [{"id": "rel-1", "title": "Album"}]}
+        out = mb.search_release("Album", "Jay Chou")
+        self.assertEqual(out[0]["id"], "rel-1")
+        query = mock_req.call_args[0][1]["query"]
+        self.assertIn('release:"Album"', query)
+        self.assertIn('artist:"Jay Chou"', query)
+
+    @patch("musicbrainz._request")
+    def test_title_only_when_no_artist(self, mock_req):
+        mock_req.return_value = {"releases": []}
+        mb.search_release("Album")
+        query = mock_req.call_args[0][1]["query"]
+        self.assertIn("release:", query)
+        self.assertNotIn("artist:", query)
+
+    def test_blank_title_returns_empty(self):
+        self.assertEqual(mb.search_release("  "), [])
+
+
 class TestRequestRetry(unittest.TestCase):
     @patch("musicbrainz.time.sleep", return_value=None)
     @patch("musicbrainz.urllib.request.urlopen")
