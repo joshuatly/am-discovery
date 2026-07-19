@@ -110,11 +110,15 @@ def scan_releases_for_artist(artist: dict) -> int:
 
     for album in albums:
         title = album.get("title") or ""
-        # Singles are out of scope — by release_type, and by Apple Music's
-        # "<Track> - Single" title convention (the type field is sometimes absent).
+        # Apple Music lumps singles and EPs into a single release_type
+        # ("singles-eps"), so the type field alone can't exclude singles. The
+        # reliable signal is Apple Music's "<Name> - Single" title convention —
+        # matched as a suffix so titles like "... - Singles Collection" aren't
+        # caught. EPs ("<Name> - EP", or just the name) are kept. The explicit
+        # "single" type check is a harmless guard for any non-AM source.
         if (album.get("release_type") or "").lower() == "single":
             continue
-        if " - single" in title.lower():
+        if title.strip().lower().endswith(" - single"):
             continue
         # Skip albums already confirmed present in MusicBrainz.
         if album.get("mb_seed_status") == "known":

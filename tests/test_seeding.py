@@ -74,11 +74,26 @@ class TestScanReleasesForArtist(SeedingDBTestCase):
         self.assertIsNone(self.db.get_album("A1")["mb_seed_status"])
 
     def test_single_by_title_is_skipped(self):
-        # Apple Music names singles "<Track> - Single"; skip regardless of release_type.
-        self._album("A1", "Blinding Lights - Single", artist_id="ART1", release_type="Album")
+        # Apple Music groups singles + EPs as one type ("singles-eps"); the only
+        # reliable single signal is the "<Track> - Single" title suffix.
+        self._album("A1", "Blinding Lights - Single", artist_id="ART1", release_type="singles-eps")
         flagged = self._run(self._groups())
         self.assertEqual(flagged, 0)
         self.assertIsNone(self.db.get_album("A1")["mb_seed_status"])
+
+    def test_ep_is_not_skipped(self):
+        # An EP shares the "singles-eps" type but must still be scanned.
+        self._album("A1", "Midnight - EP", artist_id="ART1", release_type="singles-eps")
+        flagged = self._run(self._groups())  # no MB match, no global hit -> flagged
+        self.assertEqual(flagged, 1)
+        self.assertEqual(self.db.get_album("A1")["mb_seed_status"], "needs_seeding")
+
+    def test_singles_substring_not_over_matched(self):
+        # "- Singles Collection" contains " - single" but is not a single; keep it.
+        self._album("A1", "Live - Singles Collection", artist_id="ART1", release_type="singles-eps")
+        flagged = self._run(self._groups())
+        self.assertEqual(flagged, 1)
+        self.assertEqual(self.db.get_album("A1")["mb_seed_status"], "needs_seeding")
 
     def test_group_exists_no_upc_marked_known(self):
         self._album("A1", "Real Album", artist_id="ART1", release_type="Album")
