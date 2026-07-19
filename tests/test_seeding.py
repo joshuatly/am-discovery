@@ -69,6 +69,13 @@ class TestScanReleasesForArtist(SeedingDBTestCase):
         self.assertEqual(flagged, 0)
         self.assertIsNone(self.db.get_album("A1")["mb_seed_status"])
 
+    def test_single_by_title_is_skipped(self):
+        # Apple Music names singles "<Track> - Single"; skip regardless of release_type.
+        self._album("A1", "Blinding Lights - Single", artist_id="ART1", release_type="Album")
+        flagged = self._run(self._groups())
+        self.assertEqual(flagged, 0)
+        self.assertIsNone(self.db.get_album("A1")["mb_seed_status"])
+
     def test_group_exists_no_upc_marked_known(self):
         self._album("A1", "Real Album", artist_id="ART1", release_type="Album")
         flagged = self._run(self._groups("Real Album"))
@@ -121,6 +128,46 @@ class TestSuggestMbidForArtist(SeedingDBTestCase):
             self.seeding.suggest_mbid_for_artist({"artist_id": "ART1", "name": "Nobody"})
         self.assertIsNone(self.db.get_mbid_suggestion("ART1"))
         self.assertEqual(self.db.get_artists_for_mbid_scan(recheck_days=7), [])
+
+
+class TestBulkMbidSearch(SeedingDBTestCase):
+    def test_bulk_worker_stores_suggestions_and_marks_checked(self):
+        self.db.add_to_watchlist("ART1", "Jay Chou")
+        self.db.add_to_watchlist("ART2", "Nobody Here")
+
+        def fake_search(name, limit=5):
+            return [{"id": "mbid-1", "name": "Jay Chou", "score": 100}] if name == "Jay Chou" else []
+
+        with patch.object(self.seeding.mb, "search_artist", side_effect=fake_search):
+            self.seeding._bulk_state.update(running=True, total=0, done=0, found=0, rate_limited=False)
+            self.seeding._bulk_worker()
+
+        self.assertFalse(self.seeding._bulk_state["running"])
+        self.assertEqual(self.seeding._bulk_state["done"], 2)
+        self.assertEqual(self.seeding._bulk_state["found"], 1)
+        self.assertEqual(self.db.get_mbid_suggestion("ART1")["suggested_mbid"], "mbid-1")
+        # ART2 searched but had no match — no suggestion, yet marked checked.
+        self.assertIsNone(self.db.get_mbid_suggestion("ART2"))
+
+    def test_bulk_worker_stops_on_rate_limit(self):
+        import musicbrainz as mbmod
+
+        self.db.add_to_watchlist("ART1", "A")
+        self.db.add_to_watchlist("ART2", "B")
+        with patch.object(self.seeding.mb, "search_artist", side_effect=mbmod.MusicBrainzRateLimitError("busy")):
+            self.seeding._bulk_state.update(running=True, total=0, done=0, found=0, rate_limited=False)
+            self.seeding._bulk_worker()
+
+        self.assertTrue(self.seeding._bulk_state["rate_limited"])
+        self.assertFalse(self.seeding._bulk_state["running"])
+
+    def test_trigger_is_idempotent_while_running(self):
+        self.seeding._bulk_state.update(running=True, total=5, done=2)
+        snapshot = self.seeding.trigger_bulk_mbid_search()
+        self.assertTrue(snapshot["running"])
+        self.assertEqual(snapshot["done"], 2)
+        # Reset so other tests aren't affected by the shared module state.
+        self.seeding._bulk_state.update(running=False)
 
 
 class TestRunSeedingCycle(unittest.TestCase):

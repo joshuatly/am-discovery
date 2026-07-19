@@ -128,6 +128,39 @@ def api_admin_artist_lookup(artist_id):
 
 
 # ---------------------------------------------------------------------------
+# POST /api/admin/artists/search-all  — bulk MBID search  ·  GET status
+# ---------------------------------------------------------------------------
+
+
+@admin_bp.route("/api/admin/artists/search-all", methods=["POST"])
+def api_admin_artists_search_all():
+    """Search MusicBrainz for every watchlist artist without a suggestion yet.
+
+    Runs in the background (rate-limited to ~1 req/sec), storing a suggestion per
+    artist for later approval. Returns immediately with a progress snapshot; poll
+    the status endpoint to follow along.
+    ---
+    responses:
+      202:
+        description: Bulk search started (or already running)
+
+    """
+    return jsonify(seeding.trigger_bulk_mbid_search()), 202
+
+
+@admin_bp.route("/api/admin/artists/search-all/status")
+def api_admin_artists_search_all_status():
+    """Return progress of the bulk MBID search.
+    ---
+    responses:
+      200:
+        description: Progress snapshot (running, total, done, found)
+
+    """
+    return jsonify(seeding.bulk_mbid_search_status())
+
+
+# ---------------------------------------------------------------------------
 # POST /api/admin/artists/<artist_id>/approve  — link an MBID
 # ---------------------------------------------------------------------------
 

@@ -241,6 +241,7 @@ The config is live-reloaded on every poll, so changes take effect on the next cy
 | POST | `/api/refresh` | Manually trigger a poll |
 | GET | `/api/status` | Server/poll status |
 | GET | `/api/admin/artists` | Watchlist artists with no MusicBrainz MBID, plus any suggestion |
+| POST | `/api/admin/artists/search-all` | Bulk-search MusicBrainz for all un-suggested artists (background; poll `/search-all/status`) |
 | POST | `/api/admin/artists/<id>/lookup` | Search MusicBrainz for an artist; store candidates as a suggestion |
 | POST | `/api/admin/artists/<id>/approve` | Link an MBID (approve suggestion or manual entry) |
 | POST | `/api/admin/artists/<id>/deny` | Dismiss a suggestion so the scanner won't re-suggest it |

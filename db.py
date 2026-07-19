@@ -665,6 +665,29 @@ def get_unlinked_watchlist_artists() -> list:
         return result
 
 
+def get_unlinked_artists_without_suggestion() -> list:
+    """Watchlist artists with no MusicBrainz id and no suggestion row yet.
+
+    Used by the on-demand bulk search — unlike the scanner's batch query this
+    ignores the per-artist recheck window (a manual "search all" should cover
+    everyone who has never been looked up), but it still skips artists that
+    already carry a suggestion (pending, denied, or approved).
+    """
+    with get_conn() as conn:
+        rows = conn.execute(
+            """
+            SELECT w.artist_id, w.name, w.alt_name
+            FROM watched_artists w
+            LEFT JOIN artists ar               ON ar.artist_id = w.artist_id
+            LEFT JOIN artist_mbid_suggestions s ON s.artist_id = w.artist_id
+            WHERE (ar.musicbrainz_id IS NULL OR ar.musicbrainz_id = '')
+              AND s.artist_id IS NULL
+            ORDER BY w.name COLLATE NOCASE ASC
+            """,
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
 def get_watched_artist_ids() -> set:
     with get_conn() as conn:
         rows = conn.execute("SELECT artist_id FROM watched_artists").fetchall()

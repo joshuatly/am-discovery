@@ -2049,6 +2049,16 @@ class TestMbidSuggestions(DBTestCase):
         self.db.upsert_artist("ART1", musicbrainz_id="mbid")
         self.assertEqual(self.db.get_unlinked_watchlist_artists(), [])
 
+    def test_unlinked_without_suggestion(self):
+        self.db.add_to_watchlist("ART1", "A")
+        self.db.add_to_watchlist("ART2", "B")
+        self.db.add_to_watchlist("ART3", "C")
+        # ART2 already has a suggestion; ART3 already has an mbid.
+        self.db.upsert_mbid_suggestion("ART2", "m", "B", 90, [])
+        self.db.upsert_artist("ART3", musicbrainz_id="mbid")
+        rows = self.db.get_unlinked_artists_without_suggestion()
+        self.assertEqual([r["artist_id"] for r in rows], ["ART1"])
+
 
 if __name__ == "__main__":
     unittest.main()

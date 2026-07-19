@@ -119,6 +119,22 @@ class TestApiAdminLookup(ServerTestCase):
         self.assertEqual(resp.status_code, 400)
 
 
+class TestApiAdminSearchAll(ServerTestCase):
+    @patch("api_admin.seeding")
+    def test_search_all_triggers(self, mock_seeding):
+        mock_seeding.trigger_bulk_mbid_search.return_value = {"running": True, "total": 0, "done": 0}
+        resp = self.client.post("/api/admin/artists/search-all", json={})
+        self.assertEqual(resp.status_code, 202)
+        mock_seeding.trigger_bulk_mbid_search.assert_called_once()
+
+    @patch("api_admin.seeding")
+    def test_search_all_status(self, mock_seeding):
+        mock_seeding.bulk_mbid_search_status.return_value = {"running": False, "done": 3, "total": 3, "found": 2}
+        resp = self.client.get("/api/admin/artists/search-all/status")
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.get_json()["found"], 2)
+
+
 class TestApiAdminApprove(ServerTestCase):
     @patch("api_admin.db")
     def test_approve_with_explicit_mbid(self, mock_db):

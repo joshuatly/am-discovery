@@ -1882,6 +1882,16 @@ a.sf-chip:hover { opacity: 0.75; }
 }
 
 /* --- Artists tab --- */
+.admin-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+.admin-toolbar .admin-count { margin-bottom: 0; }
+.admin-search-all-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 .admin-artist-list { display: flex; flex-direction: column; gap: 12px; }
 .admin-artist-row {
   display: flex;

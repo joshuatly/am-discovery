@@ -21,6 +21,7 @@ cycle cleanly and reschedules sooner.
 
 import logging
 import threading
+import time
 
 import db
 import musicbrainz as mb
@@ -40,11 +41,11 @@ RATE_LIMIT_RETRY_SEC = 900
 # ---------------------------------------------------------------------------
 
 
-def suggest_mbid_for_artist(artist: dict) -> bool:
+def suggest_mbid_for_artist(artist: dict) -> int:
     """Look up an artist on MusicBrainz and queue a suggestion for approval.
 
-    Returns True on success (even when no candidate was found — the artist is
-    still marked checked so it isn't retried for a week).
+    Returns the number of candidates found. The artist is always marked checked
+    (even when nothing matched) so it isn't retried within the recheck window.
     """
     artist_id = artist["artist_id"]
     name = artist.get("name") or artist.get("alt_name") or ""
@@ -63,7 +64,7 @@ def suggest_mbid_for_artist(artist: dict) -> bool:
     else:
         logger.info("[Seeding] No MusicBrainz artist match for %s", name)
     db.mark_mbid_checked(artist_id)
-    return True
+    return len(candidates)
 
 
 def scan_releases_for_artist(artist: dict) -> int:
@@ -85,13 +86,18 @@ def scan_releases_for_artist(artist: dict) -> int:
     flagged = 0
 
     for album in albums:
-        # Singles are out of scope; skip albums already confirmed present in MB.
+        title = album.get("title") or ""
+        # Singles are out of scope — by release_type, and by Apple Music's
+        # "<Track> - Single" title convention (the type field is sometimes absent).
         if (album.get("release_type") or "").lower() == "single":
             continue
+        if " - single" in title.lower():
+            continue
+        # Skip albums already confirmed present in MusicBrainz.
         if album.get("mb_seed_status") == "known":
             continue
 
-        norm = mb.normalize_title(album.get("title") or "")
+        norm = mb.normalize_title(title)
         matches = by_title.get(norm, [])
 
         if not matches:
@@ -146,8 +152,8 @@ def run_seeding_cycle() -> dict:
     summary = {"mbid_suggested": 0, "releases_scanned": 0, "flagged": 0}
 
     for artist in db.get_artists_for_mbid_scan(artist_batch, recheck_days):
-        if suggest_mbid_for_artist(artist):
-            summary["mbid_suggested"] += 1
+        suggest_mbid_for_artist(artist)
+        summary["mbid_suggested"] += 1
 
     for artist in db.get_artists_for_release_scan(artist_batch, recheck_days):
         summary["flagged"] += scan_releases_for_artist(artist)
@@ -203,6 +209,77 @@ def trigger_scan_now():
             _timer.cancel()
             _timer = None
     threading.Thread(target=_do_scan, daemon=True).start()
+
+
+# ---------------------------------------------------------------------------
+# On-demand bulk MBID search
+# ---------------------------------------------------------------------------
+
+_bulk_lock = threading.Lock()
+_bulk_state = {
+    "running": False,
+    "total": 0,
+    "done": 0,
+    "found": 0,
+    "rate_limited": False,
+    "started_at": None,
+    "finished_at": None,
+}
+
+
+def _bulk_worker():
+    global _bulk_state
+    try:
+        artists = db.get_unlinked_artists_without_suggestion()
+        with _bulk_lock:
+            _bulk_state.update(total=len(artists), done=0, found=0)
+        for artist in artists:
+            try:
+                found = suggest_mbid_for_artist(artist)
+            except mb.MusicBrainzRateLimitError:
+                logger.warning("[Seeding] Bulk search hit MusicBrainz rate limit; stopping early")
+                with _bulk_lock:
+                    _bulk_state["rate_limited"] = True
+                break
+            with _bulk_lock:
+                _bulk_state["done"] += 1
+                if found:
+                    _bulk_state["found"] += 1
+        logger.info("[Seeding] Bulk MBID search done: %d/%d processed", _bulk_state["done"], _bulk_state["total"])
+    except Exception as e:  # noqa: BLE001
+        logger.error("[Seeding] Bulk search error: %s", e)
+    finally:
+        with _bulk_lock:
+            _bulk_state["running"] = False
+            _bulk_state["finished_at"] = time.time()
+
+
+def trigger_bulk_mbid_search() -> dict:
+    """Start a background bulk MBID search over all un-suggested artists.
+
+    Idempotent while running — a second call just returns the live progress
+    snapshot instead of starting a competing search.
+    """
+    with _bulk_lock:
+        if _bulk_state["running"]:
+            return dict(_bulk_state)
+        _bulk_state.update(
+            running=True,
+            total=0,
+            done=0,
+            found=0,
+            rate_limited=False,
+            started_at=time.time(),
+            finished_at=None,
+        )
+        snapshot = dict(_bulk_state)
+    threading.Thread(target=_bulk_worker, daemon=True).start()
+    return snapshot
+
+
+def bulk_mbid_search_status() -> dict:
+    with _bulk_lock:
+        return dict(_bulk_state)
 
 
 def init_scheduler():

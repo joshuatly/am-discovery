@@ -78,8 +78,24 @@ async function renderAdminArtists(container) {
   }
 
   container.innerHTML = "";
+
+  // Toolbar — bulk "search all" across un-suggested artists.
+  const toolbar = el("div", "admin-toolbar");
   const count = el("div", "admin-count", `${data.total} watchlist artist${data.total === 1 ? "" : "s"} without a MusicBrainz link`);
-  container.appendChild(count);
+  toolbar.appendChild(count);
+  const unsuggested = data.items.filter(a => !a.suggested_mbid && a.suggestion_status !== "denied").length;
+  const searchAllBtn = el("button", "btn-secondary admin-search-all-btn", "Search all on MusicBrainz");
+  if (!unsuggested) searchAllBtn.disabled = true;
+  searchAllBtn.title = "Look up MusicBrainz for every artist that has no suggestion yet (≈1/sec)";
+  searchAllBtn.addEventListener("click", async () => {
+    searchAllBtn.disabled = true;
+    try {
+      await API.post("/api/admin/artists/search-all", {});
+    } catch { /* fall through to polling */ }
+    pollBulkSearch(container, searchAllBtn);
+  });
+  toolbar.appendChild(searchAllBtn);
+  container.appendChild(toolbar);
 
   if (!data.items.length) {
     container.appendChild(adminEmpty("✓", "Every watched artist is linked to MusicBrainz"));
@@ -89,6 +105,37 @@ async function renderAdminArtists(container) {
   const list = el("div", "admin-artist-list");
   data.items.forEach(a => list.appendChild(adminArtistRow(a, () => renderAdminArtists(container))));
   container.appendChild(list);
+
+  // If a bulk search is already in flight (e.g. started before navigating away
+  // and back), resume showing its progress.
+  try {
+    const st = await API.get("/api/admin/artists/search-all/status");
+    if (st.running) pollBulkSearch(container, searchAllBtn);
+  } catch { /* ignore */ }
+}
+
+// Poll bulk-search progress, updating the button label, then re-render the tab.
+function pollBulkSearch(container, btn) {
+  btn.disabled = true;
+  const tick = async () => {
+    if (!container.isConnected) return; // user navigated away
+    let st;
+    try {
+      st = await API.get("/api/admin/artists/search-all/status");
+    } catch {
+      btn.disabled = false;
+      return;
+    }
+    if (st.running) {
+      const total = st.total || "…";
+      btn.textContent = `Searching ${st.done}/${total}…`;
+      setTimeout(tick, 1500);
+    } else {
+      // Finished — reload the list so freshly-found suggestions appear.
+      renderAdminArtists(container);
+    }
+  };
+  tick();
 }
 
 function adminArtistRow(a, onChange) {

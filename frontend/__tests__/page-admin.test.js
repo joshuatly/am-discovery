@@ -108,6 +108,51 @@ describe("Admin page", () => {
     expect(JSON.parse(approveCall[1].body)).toEqual({ musicbrainz_id: "mbid-1" });
   });
 
+  test("Search all button triggers the bulk search endpoint", async () => {
+    mockOnce({
+      total: 1,
+      items: [
+        {
+          artist_id: "ART1", name: "Jay", alt_name: null, preferred_source: null,
+          am_url: "x", am_discovery_url: "#/artist/ART1", suggestion_status: null,
+          suggested_mbid: null, suggested_name: null, score: null, mb_url: null, candidates: [],
+        },
+      ],
+    });
+    await ctx.appWindow.__test_renderAdminArtists(main);
+
+    // Queue: POST search-all, then first status poll (not running -> re-render), then re-render GET.
+    mockOnce({ running: true, total: 1, done: 0 });
+    mockOnce({ running: false, total: 1, done: 1, found: 1 });
+    mockOnce({ total: 0, items: [] });
+    const btn = Array.from(main.querySelectorAll("button")).find(b => b.textContent.includes("Search all"));
+    expect(btn).toBeTruthy();
+    btn.click();
+    await new Promise(r => setTimeout(r, 0));
+
+    const postCall = ctx.appWindow.fetch.mock.calls.find(
+      c => String(c[0]).includes("/search-all") && c[1] && c[1].method === "POST"
+    );
+    expect(postCall).toBeTruthy();
+  });
+
+  test("Search all is disabled when every artist already has a suggestion", async () => {
+    mockOnce({
+      total: 1,
+      items: [
+        {
+          artist_id: "ART1", name: "Jay", alt_name: null, preferred_source: "tw",
+          am_url: "x", am_discovery_url: "#/artist/ART1", suggestion_status: "pending",
+          suggested_mbid: "mbid-1", suggested_name: "Jay", score: 99,
+          mb_url: "https://musicbrainz.org/artist/mbid-1", candidates: [],
+        },
+      ],
+    });
+    await ctx.appWindow.__test_renderAdminArtists(main);
+    const btn = Array.from(main.querySelectorAll("button")).find(b => b.textContent.includes("Search all"));
+    expect(btn.disabled).toBe(true);
+  });
+
   test("artist without suggestion shows a Look up button", async () => {
     mockOnce({
       total: 1,
