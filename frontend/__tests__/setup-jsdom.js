@@ -56,8 +56,9 @@ beforeAll(() => {
 
   ctx.appWindow = dom.window;
 
-  // jsdom doesn't implement scrollIntoView (requires real layout engine).
+  // jsdom doesn't implement scrollIntoView / scrollTo (need a real layout engine).
   ctx.appWindow.HTMLElement.prototype.scrollIntoView = jest.fn();
+  ctx.appWindow.scrollTo = jest.fn();
 
   // Provide a fetch stub so module-level code doesn't throw on init.
   ctx.appWindow.fetch = jest.fn(() =>

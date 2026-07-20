@@ -64,9 +64,20 @@ async function renderAdmin(main, tab) {
 // ---------------------------------------------------------------------------
 // Artists tab
 // ---------------------------------------------------------------------------
-async function renderAdminArtists(container) {
-  container.innerHTML = "";
-  container.appendChild(skeletonGrid(4));
+async function renderAdminArtists(container, opts = {}) {
+  // On an in-place reload (after approve/deny/lookup) keep the current scroll
+  // position and leave existing content on screen during the fetch, so the page
+  // doesn't jump to the top.
+  const scrollY = opts.preserveScroll ? window.scrollY : null;
+  const restoreScroll = () => {
+    if (scrollY !== null) window.scrollTo(0, scrollY);
+  };
+  const reload = () => renderAdminArtists(container, { preserveScroll: true });
+
+  if (!opts.preserveScroll) {
+    container.innerHTML = "";
+    container.appendChild(skeletonGrid(4));
+  }
 
   let data;
   try {
@@ -99,12 +110,14 @@ async function renderAdminArtists(container) {
 
   if (!data.items.length) {
     container.appendChild(adminEmpty("✓", "Every watched artist is linked to MusicBrainz"));
+    restoreScroll();
     return;
   }
 
   const list = el("div", "admin-artist-list");
-  data.items.forEach(a => list.appendChild(adminArtistRow(a, () => renderAdminArtists(container))));
+  data.items.forEach(a => list.appendChild(adminArtistRow(a, reload)));
   container.appendChild(list);
+  restoreScroll();
 
   // If a bulk search is already in flight (e.g. started before navigating away
   // and back), resume showing its progress.
@@ -359,12 +372,12 @@ async function renderAdminReleases(container) {
         header.appendChild(mbLink);
       }
       listWrap.appendChild(header);
-      const grid = el("div", "admin-release-grid");
+      const grid = el("div", "album-grid admin-release-grid");
       g.forEach(r => grid.appendChild(adminReleaseCard(r, rerender)));
       listWrap.appendChild(grid);
     });
   } else {
-    const grid = el("div", "admin-release-grid");
+    const grid = el("div", "album-grid admin-release-grid");
     data.items.forEach(r => grid.appendChild(adminReleaseCard(r, rerender)));
     listWrap.appendChild(grid);
   }
@@ -373,10 +386,19 @@ async function renderAdminReleases(container) {
 function adminReleaseCard(r, onChange) {
   const card = el("div", "admin-release-card");
 
+  const artWrap = el("div", "admin-release-art-wrap");
   const art = artworkEl(r.artwork_url, "admin-release-art");
   art.style.cursor = "pointer";
   art.addEventListener("click", () => openModal(r.store_adam_id));
-  card.appendChild(art);
+  artWrap.appendChild(art);
+  // Track-count chip, same convention as the album tile (songs+music-videos).
+  if (r.track_count) {
+    const mvCount = r.music_video_count || 0;
+    const songCount = r.track_count - mvCount;
+    const chipLabel = mvCount > 0 ? `${songCount}+${mvCount}` : `${r.track_count}`;
+    artWrap.appendChild(el("span", "track-count-chip", chipLabel));
+  }
+  card.appendChild(artWrap);
 
   const info = el("div", "admin-release-info");
   const title = el("div", "admin-release-title", r.title || "—");

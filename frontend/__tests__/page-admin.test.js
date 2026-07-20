@@ -193,6 +193,30 @@ describe("Admin page", () => {
     expect(btn.disabled).toBe(true);
   });
 
+  test("approving reloads in place and restores scroll instead of jumping to top", async () => {
+    mockOnce({
+      total: 1,
+      items: [
+        {
+          artist_id: "ART1", name: "Jay", alt_name: null, preferred_source: "tw",
+          am_url: "x", am_discovery_url: "#/artist/ART1", suggestion_status: "pending",
+          suggested_mbid: "mbid-1", suggested_name: "Jay", score: 99,
+          mb_url: "https://musicbrainz.org/artist/mbid-1", candidates: [],
+        },
+      ],
+    });
+    await ctx.appWindow.__test_renderAdminArtists(main);
+    ctx.appWindow.scrollTo.mockClear();
+
+    mockOnce({ ok: true });            // approve POST
+    mockOnce({ total: 0, items: [] }); // in-place reload GET
+    Array.from(main.querySelectorAll("button")).find(b => b.textContent === "Approve").click();
+    await new Promise(r => setTimeout(r, 20));
+
+    // restoreScroll() runs on the preserveScroll reload path.
+    expect(ctx.appWindow.scrollTo).toHaveBeenCalled();
+  });
+
   test("artist without suggestion shows a Look up button", async () => {
     mockOnce({
       total: 1,
@@ -254,6 +278,53 @@ describe("Admin page", () => {
     const hideCall = ctx.appWindow.fetch.mock.calls.find(c => String(c[0]).includes("/A1/hide"));
     expect(hideCall).toBeTruthy();
     expect(hideCall[1].method).toBe("POST");
+  });
+
+  test("release card shows a track-count chip", async () => {
+    mockOnce({
+      total: 1,
+      items: [
+        {
+          store_adam_id: "A1", title: "Album", artist_name: "Jay", release_date: "2020-01-01",
+          release_type: "Album", preferred_source: "tw", artist_musicbrainz_id: null, upc: "1",
+          artwork_url: null, storefronts: ["tw"], track_count: 12,
+        },
+      ],
+    });
+    await ctx.appWindow.__test_renderAdminReleases(main);
+    const chip = main.querySelector(".track-count-chip");
+    expect(chip).toBeTruthy();
+    expect(chip.textContent).toBe("12");
+  });
+
+  test("track-count chip splits songs and music videos", async () => {
+    mockOnce({
+      total: 1,
+      items: [
+        {
+          store_adam_id: "A1", title: "Album", artist_name: "Jay", release_date: "2020-01-01",
+          release_type: "Album", preferred_source: "tw", artist_musicbrainz_id: null, upc: "1",
+          artwork_url: null, storefronts: ["tw"], track_count: 12, music_video_count: 2,
+        },
+      ],
+    });
+    await ctx.appWindow.__test_renderAdminReleases(main);
+    expect(main.querySelector(".track-count-chip").textContent).toBe("10+2");
+  });
+
+  test("release grid reuses .album-grid for size parity with other pages", async () => {
+    mockOnce({
+      total: 1,
+      items: [
+        {
+          store_adam_id: "A1", title: "Album", artist_name: "Jay", release_date: "2020-01-01",
+          release_type: "Album", preferred_source: "tw", artist_musicbrainz_id: null, upc: "1",
+          artwork_url: null, storefronts: ["tw"], track_count: 5,
+        },
+      ],
+    });
+    await ctx.appWindow.__test_renderAdminReleases(main);
+    expect(main.querySelector(".album-grid.admin-release-grid")).toBeTruthy();
   });
 
   test("empty releases list shows the nothing-pending message", async () => {

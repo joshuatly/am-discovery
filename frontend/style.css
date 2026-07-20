@@ -2041,10 +2041,8 @@ a.sf-chip:hover { opacity: 0.75; }
   border-radius: 999px;
   padding: 1px 8px;
 }
+/* Reuses .album-grid for identical (and responsive) tile sizing across pages. */
 .admin-release-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  gap: 16px;
   margin-bottom: 8px;
 }
 .admin-release-card {
@@ -2058,6 +2056,7 @@ a.sf-chip:hover { opacity: 0.75; }
   transition: var(--transition);
 }
 .admin-release-card:hover { background: var(--bg-card-hover); }
+.admin-release-art-wrap { position: relative; }
 .admin-release-art { width: 100%; aspect-ratio: 1 / 1; object-fit: cover; display: block; }
 .admin-release-info { padding: 12px; display: flex; flex-direction: column; gap: 6px; }
 .admin-release-title {
