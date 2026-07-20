@@ -232,7 +232,7 @@ The admin page (`/#/admin`, `page-admin.js`) and background scanner (`seeding.py
 
 ## Watchlist curation & CLI Scheduler
 
-- **Collection status:** each watched artist carries a `collection_status` (`db.COLLECTION_STATUSES` = `new`, `in_progress`, `complete`, `new_release`), settable via `PATCH /api/watchlist/<id>` and used to filter/sort the watchlist. Frontend labels + allowed transitions live in `utils.js` (`COLLECTION_STATUS_LABELS`, `COLLECTION_TRANSITIONS`); the chip palette is in `DESIGN.md` §11.
+- **Collection status:** each watched artist carries a `collection_status` (`db.COLLECTION_STATUSES` = `new`, `in_progress`, `complete`, `new_release`), settable via `PATCH /api/watchlist/<id>` and used to filter/sort the watchlist. Frontend labels + allowed transitions live in `utils.js` (`COLLECTION_STATUS_LABELS`, `COLLECTION_TRANSITIONS`); the chip palette is in `DESIGN.md` §10.
 - **CLI Scheduler:** `POST /api/system/cli-scheduler/submit` proxies an album URL to an optional external downloader configured by `cli_scheduler_url` / `cli_scheduler_preset`. The frontend helper is `submitCliSchedulerJob` in `state.js`; the "Send to scheduler" UI only appears when `cli_scheduler_url` is set.
 
 ---
