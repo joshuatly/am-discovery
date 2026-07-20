@@ -11,42 +11,52 @@ AM Discovery is an Apple Music new-release discovery tool. It monitors regional 
 ## Architecture
 
 ```
-client.py        — AppleMusicClient: scrapes music.apple.com + amp-api.music.apple.com
-db.py            — SQLite database layer (all SQL lives here, nowhere else)
-config.py        — load_config() / save_config() + CONFIG_PATH (imported by server + API layers)
-server.py        — Flask app creation, background polling scheduler, init_scheduler(), main()
-api.py           — Flask Blueprint: releases, artists, search, config/status, frontend routes
-api_watchlist.py — Flask Blueprint: all watchlist routes (GET/POST/PATCH/DELETE/export/import)
-api_admin.py     — Flask Blueprint: MusicBrainz seeding admin (artist MBID linking + release seeding list)
-musicbrainz.py   — MusicBrainz /ws/2 client (stdlib urllib only; rate-limit + backoff; no API key needed)
-seeding.py       — Background MusicBrainz seeding scanner (suggest artist MBIDs + flag un-seeded releases)
-wsgi.py          — Gunicorn WSGI entry point (production); imports app and starts scheduler
-gunicorn.conf.py — Gunicorn config (1 worker required — scheduler runs as in-process thread)
-migrate.py       — Standalone migration runner for schema upgrades
-main.py          — Ad-hoc CLI script for manual testing/exploration
-frontend/        — Static SPA (index.html, style.css, plus JS modules below)
+client.py          — AppleMusicClient: scrapes music.apple.com + amp-api.music.apple.com
+db.py              — SQLite database layer (all SQL lives here, nowhere else)
+config.py          — load_config() / save_config() + CONFIG_PATH + timezone/date helpers
+server.py          — Flask app creation, polling schedulers, init_scheduler(), main(); registers all blueprints
+storefronts.py     — Per-storefront discovery constants (localized room titles)
+storefront_locales.py — Storefront → locale map used when querying Apple Music
+
+# API layer — one Flask Blueprint per domain
+api_utility.py     — shared helpers (_serialize, _is_watched, _validate_storefront) + frontend catch-all routes
+api_releases.py    — release routes (list, detail, check_storefronts, lookup, musicbrainz, you-might-also-like)
+api_artists.py     — artist routes (releases, fetch, PATCH, similar, catalog + local search)
+api_watchlist.py   — watchlist routes (GET/POST/PATCH/DELETE/ids/export/import)
+api_system.py      — config/status/refresh, db + discovery + watchlist logs, CLI Scheduler proxy
+api_admin.py       — MusicBrainz seeding admin (artist MBID linking + release seeding list)
+api_notifications.py — Apprise notification event CRUD + test routes
+api_debug.py       — raw Apple Music catalog debug endpoints
+
+# Subsystems
+notifications.py   — Apprise dispatch: event templates, send worker thread, watched-artist scanner
+musicbrainz.py     — MusicBrainz /ws/2 client (stdlib urllib only; rate-limit + backoff; no API key needed)
+seeding.py         — Background MusicBrainz seeding scanner (suggest artist MBIDs + flag un-seeded releases)
+
+wsgi.py            — Gunicorn WSGI entry point (production); imports app and starts scheduler
+gunicorn.conf.py   — Gunicorn config (1 worker required — scheduler runs as in-process thread)
+migrate.py         — Standalone migration runner for schema upgrades
+main.py            — Ad-hoc CLI script for manual testing/exploration
+scripts/           — Dev helpers (dev_server.py launcher, backfill_alt_names.py)
+frontend/          — Static SPA (index.html, style.css, plus JS modules below)
 ```
 
-> Note: the API layer has since been split into per-domain blueprints —
-> `api_utility.py` (shared helpers + frontend catch-all), `api_releases.py`,
-> `api_artists.py`, `api_system.py`, `api_watchlist.py`, `api_admin.py`,
-> `api_notifications.py`, `api_debug.py` — rather than the single `api.py`
-> referenced below. The module-boundary rules still apply per domain.
-
-The server starts a background thread that polls each configured storefront's `/new` browse page on a timer, auto-discovers the new-release room URL from that page, fetches metadata for new albums concurrently, and persists everything to SQLite.
+The server starts a background thread that polls each configured storefront's `/new` browse page on a timer, auto-discovers the new-release room URL from that page, fetches metadata for new albums concurrently, and persists everything to SQLite. Two more background threads run alongside it: the MusicBrainz seeding scanner (`seeding.py`) and the notification scanner + Apprise send worker (`notifications.py`).
 
 ### Backend module boundaries
 
-- **`config.py`** — the only place that reads/writes `config.json`. Both `server.py` and the API blueprints import from here directly. No circular dependencies.
-- **`server.py`** — owns the Flask `app` object, both polling schedulers, `init_scheduler()`, and `main()`. Registers the two API blueprints.
-- **`api.py`** — a Flask Blueprint (`api_bp`). Contains all non-watchlist routes plus the `_serialize`, `_is_watched`, and `_validate_storefront` helpers. Uses a `_server()` lazy import for the three routes that need live scheduler state (`/api/refresh`, `/api/status`, `/api/config` PUT).
-- **`api_watchlist.py`** — a Flask Blueprint (`watchlist_bp`). Self-contained watchlist routes; imports `_validate_storefront` from `api.py`.
+- **`config.py`** — the only place that reads/writes `config.json`. Both `server.py` and the API blueprints import from here directly. Also owns `CONFIG_LOCK` and the timezone-aware `format_local_time` / `format_local_date` helpers. No circular dependencies.
+- **`server.py`** — owns the Flask `app` object, the polling schedulers, `init_scheduler()`, and `main()`. Registers every API blueprint and starts the notification worker + scanner.
+- **API blueprints** — one Blueprint per domain (see the tree above). Shared helpers (`_serialize`, `_is_watched`, `_validate_storefront`) live in `api_utility.py`; other blueprints import from it. Routes needing live scheduler state use a `_server()` lazy import.
 
 **Where to add new backend code:**
 - New config key or default → `config.py`
 - New release/artist/search route → `api_releases.py` / `api_artists.py` / `api_system.py`
 - New watchlist route → `api_watchlist.py`
 - New MusicBrainz seeding admin route → `api_admin.py`
+- New notification event route → `api_notifications.py`; dispatch/template/scanner logic → `notifications.py`
+- New Apple Music debug endpoint → `api_debug.py`
+- Storefront discovery constants / locales → `storefronts.py` / `storefront_locales.py`
 - MusicBrainz web-service calls → `musicbrainz.py` (never call `/ws/2` directly elsewhere)
 - Seeding scan / matching logic → `seeding.py`
 - Scheduler behaviour or polling logic → `server.py`
@@ -139,12 +149,19 @@ cd frontend && npm test
 The frontend has Jest tests in `frontend/__tests__/app.test.js`. **All new frontend code must have corresponding Jest test cases.** All new Python code must have corresponding pytest cases in `tests/`.
 
 Python tests are split by module:
-- `tests/test_api.py` — routes in `api.py` (releases, artists, search, config, status, frontend)
+- `tests/test_api.py` — core routes (releases, artists, search, config, status, frontend)
 - `tests/test_api_watchlist.py` — routes in `api_watchlist.py`
 - `tests/test_api_admin.py` — routes in `api_admin.py`
+- `tests/test_api_notifications.py` — routes in `api_notifications.py`
+- `tests/test_api_debug.py` — routes in `api_debug.py`
+- `tests/test_notifications.py` — notification dispatch, templating, scanner (`notifications.py`)
 - `tests/test_server.py` — config helpers (`config.py`) and polling logic (`server.py`)
+- `tests/test_db.py` — database layer (`db.py`); real temp DB
+- `tests/test_client.py` — `AppleMusicClient` parsing (`client.py`); network mocked
 - `tests/test_musicbrainz.py` — MusicBrainz client (`musicbrainz.py`); network is always mocked
 - `tests/test_seeding.py` — seeding scanner (`seeding.py`); MusicBrainz mocked, real temp DB
+- `tests/test_storefronts.py` — storefront discovery constants / locale mapping
+- `tests/test_migrate.py` — schema migrations (`migrate.py`)
 
 **Lint and format (Python):**
 ```bash
@@ -202,23 +219,47 @@ The admin page (`/#/admin`, `page-admin.js`) and background scanner (`seeding.py
 
 ---
 
+## Notifications (Apprise)
+
+`notifications.py` dispatches events to a self-hosted [Apprise](https://github.com/caronc/apprise) API (e.g. `http://host:8100/notify/apprise`). All routes live in `api_notifications.py`; the Settings page is the UI. **There is no DB table** — every event and the global queue settings persist in `config.json` under the `notifications` key.
+
+- **Event types** (`notifications.EVENT_TYPES`): `onDiscoveryComplete`, `onDiscoveryFailed`, `onArtistNewRelease`, `onArtistNewSingle`, `onWatchlistBatchComplete`. Each type has default title/body templates and a documented set of `{variable}` names (`EVENT_VARIABLES`) surfaced to the UI via `GET /api/notifications/event-types`.
+- **Dispatch:** `enqueue()` renders every enabled event of a type and puts it on a bounded queue; a single daemon worker thread (`init()`) sends at `rate_limit_per_sec`. Each event tracks `consecutive_failures` and auto-disables after `max_failures`. Templates use `str.format_map` with a `_SafeDict` so unknown/missing `{vars}` render empty instead of raising.
+- **Scanner:** `init_scanner()` starts a separate timer thread that every `notification_scan_interval_minutes` finds watched-artist albums first-seen in the last window (and released within `notification_max_release_age_days`) and fires `onArtistNewRelease`/`onArtistNewSingle`. Discovery/watchlist-batch events fire directly from `server.py`.
+- **Where to add code:** new event route → `api_notifications.py`; new event type, template, variable, or send/scan logic → `notifications.py`. Server wiring (`notifications.init()` / `init_scanner()`, and the discovery/batch `enqueue` calls) lives in `server.py`.
+
+---
+
+## Watchlist curation & CLI Scheduler
+
+- **Collection status:** each watched artist carries a `collection_status` (`db.COLLECTION_STATUSES` = `new`, `in_progress`, `complete`, `new_release`), settable via `PATCH /api/watchlist/<id>` and used to filter/sort the watchlist. Frontend labels + allowed transitions live in `utils.js` (`COLLECTION_STATUS_LABELS`, `COLLECTION_TRANSITIONS`); the chip palette is in `DESIGN.md` §11.
+- **CLI Scheduler:** `POST /api/system/cli-scheduler/submit` proxies an album URL to an optional external downloader configured by `cli_scheduler_url` / `cli_scheduler_preset`. The frontend helper is `submitCliSchedulerJob` in `state.js`; the "Send to scheduler" UI only appears when `cli_scheduler_url` is set.
+
+---
+
 ## Configuration (`config.json`)
 
 | Key | Type | Description |
 |-----|------|-------------|
 | `check_storefronts` | array | Storefronts to poll for new releases and check availability. The app auto-discovers the new-release room URL from each storefront's `/new` page. |
 | `home_storefront` | string | Default storefront for metadata lookups |
+| `timezone` | string | IANA zone (e.g. `Asia/Hong_Kong`) for all displayed timestamps; falls back to `UTC`. Used by `config.format_local_time`/`format_local_date` |
 | `newrelease_poll_interval_days` | integer | How often to poll storefronts for new releases (default: 1) |
 | `watchlist_poll_interval_minutes` | integer | How often to check watchlist artists for new releases (default: 10) |
 | `watchlist_poll_batch_size` | integer | Artists refreshed per watchlist poll cycle (default: 5) |
 | `watchlist_refresh_interval_days` | integer | Days before a watchlist artist's catalog is considered stale (default: 7) |
+| `notification_scan_interval_minutes` | integer | How often the notification scanner looks for new watched-artist releases (default: 10) |
+| `notification_max_release_age_days` | integer | Ignore releases older than this (by release date) when firing new-release notifications (default: 7) |
 | `mb_scan_enabled` | boolean | Enable the background MusicBrainz seeding scanner (default: true) |
 | `mb_scan_interval_minutes` | integer | How often the seeding scanner runs a cycle (default: 60) |
 | `mb_scan_artist_batch` | integer | Artists processed per seeding-scan phase (default: 3) — keep small; MusicBrainz allows ~1 req/sec |
 | `mb_artist_recheck_days` | integer | Minimum days before re-scanning an artist for MBID/releases (default: 7) |
+| `cli_scheduler_url` | string | Base URL of an optional self-hosted CLI Scheduler; empty disables the integration |
+| `cli_scheduler_preset` | string | Preset name sent with each CLI Scheduler job |
+| `notifications` | object | Apprise notification block: `queue_max_size`, `max_failures`, `rate_limit_per_sec`, and the list of `events`. Managed via the notifications API / Settings page — see below |
 | `cors_proxy` | string | Optional URL prefix for proxying requests |
 
-The config is live-reloaded on every poll, so changes take effect on the next cycle without restarting.
+The config is live-reloaded on every poll, so changes take effect on the next cycle without restarting. Every key has a default in `config._DEFAULTS`, so a partial `config.json` is valid.
 
 ---
 
@@ -229,17 +270,35 @@ The config is live-reloaded on every poll, so changes take effect on the next cy
 | GET | `/api/releases` | Paginated list; supports `q`, `page`, `per_page`, `storefront`, `view=new` (discovered only), `watched=true`, `release_type` |
 | GET | `/api/releases/<id>` | Single release detail |
 | GET | `/api/releases/<id>/check_storefronts` | Availability across configured storefronts |
-| GET | `/api/lookup/<id>` | Fresh metadata fetch (bypasses cache) |
+| GET | `/api/releases/<id>/lookup` | Fresh metadata fetch (bypasses cache) |
+| GET | `/api/releases/<id>/musicbrainz` | MusicBrainz lookup for the release (barcode → search) |
+| GET | `/api/releases/<id>/you-might-also-like` | Apple Music recommendations for the release |
 | GET | `/api/artists/<id>/releases` | All releases for an artist |
 | POST | `/api/artists/<id>/fetch` | Fetch and store full artist catalog |
-| GET | `/api/search/artists` | Search Apple Music catalog for artists |
-| GET | `/api/watchlist` | Get watched artists |
+| PATCH | `/api/artists/<id>` | Update editable artist fields (alt names, MBID, …) |
+| GET | `/api/artists/<id>/similar` | Similar artists from Apple Music |
+| GET | `/api/artists/search` | Search Apple Music catalog for artists |
+| GET | `/api/artists/search/local` | Search locally stored artists |
+| GET | `/api/watchlist` | Get watched artists (`preferred_source`, `collection_status`, `sort`) |
+| GET | `/api/watchlist/ids` | Set of watched artist IDs |
 | POST | `/api/watchlist` | Add artist to watchlist |
+| PATCH | `/api/watchlist/<id>` | Update watched artist (e.g. `collection_status`) |
 | DELETE | `/api/watchlist/<id>` | Remove from watchlist |
-| GET | `/api/config` | Get current config |
-| PUT | `/api/config` | Update config |
-| POST | `/api/refresh` | Manually trigger a poll |
-| GET | `/api/status` | Server/poll status |
+| GET | `/api/watchlist/export` | Export watchlist as JSON |
+| POST | `/api/watchlist/import` | Import watchlist JSON |
+| GET | `/api/system/config` | Get current config |
+| PUT | `/api/system/config` | Update config |
+| POST | `/api/system/refresh` | Manually trigger a poll |
+| GET | `/api/system/status` | Server/poll status |
+| GET | `/api/system/db` | SQLite size + per-table stats |
+| GET | `/api/system/discovery` | Recent discovery run records |
+| GET | `/api/system/watchlist_log` | Recent watchlist batch records |
+| POST | `/api/system/cli-scheduler/submit` | Proxy an album to the CLI Scheduler |
+| GET/POST | `/api/notifications` | List / create notification events |
+| PUT/DELETE | `/api/notifications/<id>` | Update / delete a notification event |
+| POST | `/api/notifications/<id>/test`, `/api/notifications/test` | Send a test (saved / unsaved) |
+| GET | `/api/notifications/event-types` | Event-type metadata (variables + defaults) |
+| GET | `/api/debug/apple-music/artist`, `/album` | Raw Apple Music catalog responses |
 | GET | `/api/admin/artists` | Watchlist artists with no MusicBrainz MBID, plus any suggestion |
 | POST | `/api/admin/artists/search-all` | Bulk-search MusicBrainz for all un-suggested artists (background; poll `/search-all/status`) |
 | POST | `/api/admin/artists/<id>/lookup` | Search MusicBrainz for an artist; store candidates as a suggestion |

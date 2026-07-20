@@ -225,6 +225,19 @@ const SF_PALETTE = [/* 12 entries — see components.js */];
 
 **Rule:** A chip's color *is* its meaning. If you reach for amber to mean "user-uploaded" or green to mean "japanese," stop. Find or extend a chip type. Don't reuse a semantic color for new semantics.
 
+### [AM] Watchlist collection status
+
+AM's watchlist tags each followed artist with a **collection status** — a curation state distinct from the watching flag (a watched artist always has a status). Rendered as a tint-20% chip (`.collection-status-badge`) on the artist row and as filter pills (`.cs-filter-btn`) above the list. Four states, defined in `utils.js` (`COLLECTION_STATUS_LABELS`, `COLLECTION_TRANSITIONS`) and `db.COLLECTION_STATUSES`:
+
+| Status | Meaning | Chip color |
+|---|---|---|
+| `new` | Just added, not started | neutral grey `#a0a0aa` |
+| `in_progress` | Actively collecting | blue `#508cff` |
+| `complete` | Fully collected | green `#3cc864` |
+| `new_release` | Complete but has a fresh drop to grab | amber `#ffaa28` |
+
+This reuses the app's status semantics (grey = idle, blue = info/active, green = done, amber = act-now) rather than inventing hues. It is **not** the watching signal — that stays gold (§17). When adding a new collection state, extend both `utils.js` and `db.COLLECTION_STATUSES`, add a `.status-<code>` color, and update this table.
+
 ---
 
 ## 12 · Chips
