@@ -18,6 +18,7 @@ function route(hash) {
       (page === "releases"  && (hash === "#/" || hash.startsWith("#/releases"))) ||
       (page === "all"       && hash === "#/all") ||
       (page === "watchlist" && hash === "#/watchlist") ||
+      (page === "admin"     && hash.startsWith("#/admin")) ||
       (page === "settings"  && hash === "#/settings");
     a.classList.toggle("active", active);
   });
@@ -32,6 +33,10 @@ function route(hash) {
   } else if (hash === "#/settings") {
     document.title = "Settings — AM Discovery";
     renderSettings(main);
+  } else if (hash.startsWith("#/admin")) {
+    document.title = "Admin — AM Discovery";
+    const tab = hash.slice("#/admin".length).replace(/^\//, "") || "";
+    renderAdmin(main, tab || null);
   } else if (hash.startsWith("#/artist/")) {
     document.title = "Artist — AM Discovery";
     const artistId = hash.slice("#/artist/".length);

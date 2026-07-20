@@ -56,8 +56,9 @@ beforeAll(() => {
 
   ctx.appWindow = dom.window;
 
-  // jsdom doesn't implement scrollIntoView (requires real layout engine).
+  // jsdom doesn't implement scrollIntoView / scrollTo (need a real layout engine).
   ctx.appWindow.HTMLElement.prototype.scrollIntoView = jest.fn();
+  ctx.appWindow.scrollTo = jest.fn();
 
   // Provide a fetch stub so module-level code doesn't throw on init.
   ctx.appWindow.fetch = jest.fn(() =>
@@ -75,6 +76,7 @@ beforeAll(() => {
     "page-artist.js",
     "page-watchlist.js",
     "page-settings.js",
+    "page-admin.js",
     "app.js",
   ];
   for (const file of jsFiles) {
@@ -115,6 +117,10 @@ beforeAll(() => {
     window.__test_sanitizeHtml             = sanitizeHtml;
     window.__test_renderNotificationEvents = renderNotificationEvents;
     window.__test_openNotificationEventModal = openNotificationEventModal;
+    window.__test_renderAdmin              = renderAdmin;
+    window.__test_renderAdminArtists       = renderAdminArtists;
+    window.__test_renderAdminReleases      = renderAdminReleases;
+    window.__test_buildHarmonyUrl          = buildHarmonyUrl;
   `;
   ctx.appWindow.document.head.appendChild(exposeScript);
 });
