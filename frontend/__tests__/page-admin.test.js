@@ -360,6 +360,22 @@ describe("Admin page", () => {
     ctx.appWindow.__test_state.adminGroupByArtist = false;
   });
 
+  test("group-by-artist header links to the AM Discovery artist page", async () => {
+    ctx.appWindow.__test_state.adminGroupByArtist = true;
+    mockOnce({
+      total: 1,
+      items: [
+        { store_adam_id: "A1", artist_id: "artist-1", title: "One", artist_name: "Jay Chou", release_date: "2020-01-01", release_type: "Album", preferred_source: "tw", artist_musicbrainz_id: "m", upc: "1", artwork_url: null, storefronts: ["tw"] },
+      ],
+    });
+    await ctx.appWindow.__test_renderAdminReleases(main);
+    const header = main.querySelector(".admin-group-header");
+    const discLink = Array.from(header.querySelectorAll("a.admin-link")).find(a => a.getAttribute("href") === "#/artist/artist-1");
+    expect(discLink).toBeTruthy();
+    expect(discLink.textContent).toContain("AM Discovery");
+    ctx.appWindow.__test_state.adminGroupByArtist = false;
+  });
+
   // --- Default tab ---------------------------------------------------------
   test("Admin page opens on the Releases tab by default", async () => {
     ctx.appWindow.__test_state.adminTab = "releases";

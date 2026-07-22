@@ -414,6 +414,12 @@ async function renderAdminReleases(container) {
       if (!(letter in letterToHeader)) letterToHeader[letter] = header;
       header.appendChild(el("span", "admin-group-name", artistName));
       header.appendChild(el("span", "admin-group-count", `${g.length}`));
+      const artistId = g[0].artist_id;
+      if (artistId) {
+        const discLink = el("a", "admin-link", "AM Discovery →");
+        discLink.href = `#/artist/${artistId}`;
+        header.appendChild(discLink);
+      }
       const mbid = g[0].artist_musicbrainz_id;
       if (mbid) {
         const mbLink = el("a", "admin-link", "MusicBrainz ↗");
