@@ -1558,6 +1558,13 @@ a.sf-chip:hover { opacity: 0.75; }
   margin-bottom: 20px;
 }
 
+.artist-toolbar-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
 .view-toggle-bar {
   display: flex;
   gap: 3px;

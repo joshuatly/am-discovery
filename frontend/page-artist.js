@@ -407,7 +407,8 @@ async function renderArtist(main, artistId) {
   const toolbar = el("div", "artist-releases-toolbar");
   const gridContainer = el("div", "artist-grid-container");
 
-  // View mode toggle
+  // Top row: view mode toggle + (optional) seed filter, side by side
+  const topRow = el("div", "artist-toolbar-row");
   const viewToggle = el("div", "view-toggle-bar");
   [["Chronological", "chrono"], ["By Type", "grouped"]].forEach(([label, mode]) => {
     const btn = el("button", `view-toggle-btn${state.artistViewMode === mode ? " active" : ""}`, label);
@@ -420,7 +421,26 @@ async function renderArtist(main, artistId) {
     });
     viewToggle.appendChild(btn);
   });
-  toolbar.appendChild(viewToggle);
+  topRow.appendChild(viewToggle);
+
+  // Seed filter — only when this artist has releases flagged for seeding.
+  // Sits on the same row as the view toggle.
+  if (seedCount) {
+    const seedBtn = el(
+      "button",
+      `type-filter-btn seed-filter-btn${state.artistSeedFilter ? " active" : ""}`,
+      `🌱 Needs seeding (${seedCount})`
+    );
+    seedBtn.title = "Show only releases missing from MusicBrainz";
+    seedBtn.addEventListener("click", () => {
+      state.artistSeedFilter = !state.artistSeedFilter;
+      seedBtn.classList.toggle("active", state.artistSeedFilter);
+      renderArtistReleaseGrid(data.releases, gridContainer);
+    });
+    topRow.appendChild(seedBtn);
+  }
+
+  toolbar.appendChild(topRow);
 
   // Type filter — shown whenever at least one type is present
   const typeSet = new Set(data.releases.map(r => r.release_type).filter(Boolean));
@@ -441,24 +461,6 @@ async function renderArtist(main, artistId) {
       typeFilter.appendChild(btn);
     });
     toolbar.appendChild(typeFilter);
-  }
-
-  // Seed filter — only when this artist has releases flagged for seeding
-  if (seedCount) {
-    const seedFilter = el("div", "type-filter-bar");
-    const seedBtn = el(
-      "button",
-      `type-filter-btn seed-filter-btn${state.artistSeedFilter ? " active" : ""}`,
-      `🌱 Needs seeding (${seedCount})`
-    );
-    seedBtn.title = "Show only releases missing from MusicBrainz";
-    seedBtn.addEventListener("click", () => {
-      state.artistSeedFilter = !state.artistSeedFilter;
-      seedBtn.classList.toggle("active", state.artistSeedFilter);
-      renderArtistReleaseGrid(data.releases, gridContainer);
-    });
-    seedFilter.appendChild(seedBtn);
-    toolbar.appendChild(seedFilter);
   }
 
   wrap.appendChild(toolbar);
