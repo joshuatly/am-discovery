@@ -423,6 +423,25 @@ body {
   filter: drop-shadow(0 1px 4px rgba(0,0,0,0.6));
 }
 
+.seed-badge {
+  position: absolute;
+  top: 8px; left: 8px;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  font-size: 13px;
+  line-height: 1;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(6px) saturate(1.2);
+  -webkit-backdrop-filter: blur(6px) saturate(1.2);
+  border: 1px solid rgba(255, 170, 40, 0.6);
+  border-radius: 50%;
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.5);
+}
+
 .album-artwork {
   width: 100%;
   aspect-ratio: 1;
@@ -1537,6 +1556,13 @@ a.sf-chip:hover { opacity: 0.75; }
   flex-direction: column;
   gap: 10px;
   margin-bottom: 20px;
+}
+
+.artist-toolbar-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
 }
 
 .view-toggle-bar {

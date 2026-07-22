@@ -422,6 +422,133 @@ describe("renderArtist type filter bar", () => {
 });
 
 // ---------------------------------------------------------------------------
+// renderArtist — seed (needs-seeding) filter toggle
+// ---------------------------------------------------------------------------
+
+describe("renderArtist seed filter", () => {
+  let main;
+
+  beforeEach(() => {
+    main = ctx.appWindow.document.createElement("div");
+    ctx.appWindow.document.getElementById("main-content").appendChild(main);
+    ctx.appWindow.__test_state.artistTypeFilter = "";
+    ctx.appWindow.__test_state.artistSeedFilter = false;
+    ctx.appWindow.__test_state.artistViewMode = "chrono";
+  });
+
+  afterEach(() => {
+    main.remove();
+    ctx.appWindow.fetch.mockClear();
+  });
+
+  function mixedSeedArtist(id) {
+    makeArtistFetchMock({
+      artist_id: id,
+      artist_name: "Seed Artist",
+      artist_artwork_url: null,
+      artist_genre: null,
+      artist_born_or_formed: null,
+      artist_origin: null,
+      artist_bio: null,
+      artist_is_group: false,
+      watched: false,
+      releases: [
+        { id: "1", title: "Needs A", release_type: "main-albums", artist_name: "Seed Artist", mb_seed_status: "needs_seeding" },
+        { id: "2", title: "Needs B", release_type: "main-albums", artist_name: "Seed Artist", mb_seed_status: "needs_seeding" },
+        { id: "3", title: "Present C", release_type: "main-albums", artist_name: "Seed Artist", mb_seed_status: "present" },
+      ],
+    });
+  }
+
+  test("shows seed filter toggle with count when releases need seeding", async () => {
+    mixedSeedArtist("70");
+    await ctx.appWindow.__test_renderArtist(main, "70");
+    const seedBtn = main.querySelector(".seed-filter-btn");
+    expect(seedBtn).not.toBeNull();
+    expect(seedBtn.textContent).toContain("2");
+  });
+
+  test("does not show seed filter toggle when no releases need seeding", async () => {
+    makeArtistFetchMock({
+      artist_id: "71",
+      artist_name: "Clean Artist",
+      artist_artwork_url: null,
+      artist_genre: null,
+      artist_born_or_formed: null,
+      artist_origin: null,
+      artist_bio: null,
+      artist_is_group: false,
+      watched: false,
+      releases: [
+        { id: "1", title: "Present A", release_type: "main-albums", artist_name: "Clean Artist", mb_seed_status: "present" },
+      ],
+    });
+    await ctx.appWindow.__test_renderArtist(main, "71");
+    expect(main.querySelector(".seed-filter-btn")).toBeNull();
+  });
+
+  test("hides releases already seeded / hidden from seeding was not counted", async () => {
+    makeArtistFetchMock({
+      artist_id: "72",
+      artist_name: "Hidden Artist",
+      artist_artwork_url: null,
+      artist_genre: null,
+      artist_born_or_formed: null,
+      artist_origin: null,
+      artist_bio: null,
+      artist_is_group: false,
+      watched: false,
+      releases: [
+        { id: "1", title: "Needs A", release_type: "main-albums", artist_name: "Hidden Artist", mb_seed_status: "needs_seeding" },
+        { id: "2", title: "Hidden B", release_type: "main-albums", artist_name: "Hidden Artist", mb_seed_status: "needs_seeding", hidden_from_seeding: 1 },
+      ],
+    });
+    await ctx.appWindow.__test_renderArtist(main, "72");
+    const seedBtn = main.querySelector(".seed-filter-btn");
+    expect(seedBtn).not.toBeNull();
+    // Only 1 counts — the hidden one is excluded
+    expect(seedBtn.textContent).toContain("1");
+  });
+
+  test("toggling seed filter narrows the grid to needs-seeding releases", async () => {
+    mixedSeedArtist("73");
+    await ctx.appWindow.__test_renderArtist(main, "73");
+    const gridContainer = main.querySelector(".artist-grid-container");
+    // All 3 releases shown initially
+    expect(gridContainer.querySelectorAll(".album-card").length).toBe(3);
+    const seedBtn = main.querySelector(".seed-filter-btn");
+    seedBtn.click();
+    expect(ctx.appWindow.__test_state.artistSeedFilter).toBe(true);
+    expect(seedBtn.classList.contains("active")).toBe(true);
+    // Only the 2 needs-seeding cards remain
+    expect(gridContainer.querySelectorAll(".album-card").length).toBe(2);
+  });
+
+  test("stale seed filter is cleared for an artist with nothing to seed", async () => {
+    ctx.appWindow.__test_state.artistSeedFilter = true;
+    makeArtistFetchMock({
+      artist_id: "74",
+      artist_name: "Clean Artist 2",
+      artist_artwork_url: null,
+      artist_genre: null,
+      artist_born_or_formed: null,
+      artist_origin: null,
+      artist_bio: null,
+      artist_is_group: false,
+      watched: false,
+      releases: [
+        { id: "1", title: "Present A", release_type: "main-albums", artist_name: "Clean Artist 2", mb_seed_status: "present" },
+      ],
+    });
+    await ctx.appWindow.__test_renderArtist(main, "74");
+    // Flag reset so the release still renders
+    expect(ctx.appWindow.__test_state.artistSeedFilter).toBe(false);
+    const gridContainer = main.querySelector(".artist-grid-container");
+    expect(gridContainer.querySelectorAll(".album-card").length).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // MusicBrainz link on artist page
 // ---------------------------------------------------------------------------
 

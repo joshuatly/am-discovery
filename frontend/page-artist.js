@@ -396,11 +396,19 @@ async function renderArtist(main, artistId) {
     if (data.artist_name) album.artist = data.artist_name;
   });
 
+  // Releases flagged as missing from MusicBrainz. If this artist has none,
+  // clear the (globally persisted) seed filter so its releases still show.
+  const seedCount = data.releases.filter(
+    r => r.mb_seed_status === "needs_seeding" && !r.hidden_from_seeding
+  ).length;
+  if (!seedCount) state.artistSeedFilter = false;
+
   // Toolbar: view toggle + type filter
   const toolbar = el("div", "artist-releases-toolbar");
   const gridContainer = el("div", "artist-grid-container");
 
-  // View mode toggle
+  // Top row: view mode toggle + (optional) seed filter, side by side
+  const topRow = el("div", "artist-toolbar-row");
   const viewToggle = el("div", "view-toggle-bar");
   [["Chronological", "chrono"], ["By Type", "grouped"]].forEach(([label, mode]) => {
     const btn = el("button", `view-toggle-btn${state.artistViewMode === mode ? " active" : ""}`, label);
@@ -413,7 +421,26 @@ async function renderArtist(main, artistId) {
     });
     viewToggle.appendChild(btn);
   });
-  toolbar.appendChild(viewToggle);
+  topRow.appendChild(viewToggle);
+
+  // Seed filter — only when this artist has releases flagged for seeding.
+  // Sits on the same row as the view toggle.
+  if (seedCount) {
+    const seedBtn = el(
+      "button",
+      `type-filter-btn seed-filter-btn${state.artistSeedFilter ? " active" : ""}`,
+      `🌱 Needs seeding (${seedCount})`
+    );
+    seedBtn.title = "Show only releases missing from MusicBrainz";
+    seedBtn.addEventListener("click", () => {
+      state.artistSeedFilter = !state.artistSeedFilter;
+      seedBtn.classList.toggle("active", state.artistSeedFilter);
+      renderArtistReleaseGrid(data.releases, gridContainer);
+    });
+    topRow.appendChild(seedBtn);
+  }
+
+  toolbar.appendChild(topRow);
 
   // Type filter — shown whenever at least one type is present
   const typeSet = new Set(data.releases.map(r => r.release_type).filter(Boolean));

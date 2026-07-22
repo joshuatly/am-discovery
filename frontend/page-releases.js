@@ -9,9 +9,12 @@
 // ---------------------------------------------------------------------------
 function renderArtistReleaseGrid(releases, container) {
   container.innerHTML = "";
-  const filtered = state.artistTypeFilter
+  let filtered = state.artistTypeFilter
     ? releases.filter(r => r.release_type === state.artistTypeFilter)
     : releases;
+  if (state.artistSeedFilter) {
+    filtered = filtered.filter(r => r.mb_seed_status === "needs_seeding" && !r.hidden_from_seeding);
+  }
 
   if (!filtered.length) {
     container.innerHTML = `<div class="empty-state"><div class="empty-icon">🎵</div><div class="empty-title">No releases</div></div>`;

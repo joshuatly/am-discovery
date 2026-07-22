@@ -22,6 +22,7 @@ const state = {
   homeStorefront: "",
   artistViewMode: "chrono",   // "chrono" | "grouped"
   artistTypeFilter: "",       // "" = all, else a release_type value
+  artistSeedFilter: false,    // true = only releases that need MusicBrainz seeding
   allReleasesTypeFilter: "",  // "" = all, else a release_type value
   currentSort: ReleasesPrefs.getSort(),  // "release_date" | "first_seen"
   cliSchedulerEnabled: false, // true when cli_scheduler_url is configured
