@@ -257,6 +257,53 @@ describe("Admin page", () => {
     expect(hide).toBeTruthy();
   });
 
+  test("release card artist name navigates to the in-app artist page", async () => {
+    mockOnce({
+      total: 1,
+      items: [
+        {
+          store_adam_id: "A1", title: "Album", artist_name: "Jay Chou", artist: "Jay Chou",
+          artist_id: "ART1", release_date: "2020-01-01", release_type: "Album",
+          preferred_source: "tw", artist_musicbrainz_id: null, upc: "1",
+          artwork_url: null, storefronts: ["tw"],
+        },
+      ],
+    });
+    await ctx.appWindow.__test_renderAdminReleases(main);
+
+    const artist = main.querySelector(".admin-release-artist");
+    expect(artist).toBeTruthy();
+    expect(artist.textContent).toBe("Jay Chou");
+    ctx.appWindow.location.hash = "";
+    artist.click();
+    expect(ctx.appWindow.location.hash).toBe("#/artist/ART1");
+  });
+
+  test("release card links each credited artist when multiple are present", async () => {
+    mockOnce({
+      total: 1,
+      items: [
+        {
+          store_adam_id: "A1", title: "Album", artist_name: "Jay Chou", artist: "Jay Chou",
+          artist_id: "ART1",
+          artists_json: [
+            { id: "ART1", name: "Jay Chou" },
+            { id: "ART2", name: "Lang Lang" },
+          ],
+          release_date: "2020-01-01", release_type: "Album", preferred_source: "tw",
+          artist_musicbrainz_id: null, upc: "1", artwork_url: null, storefronts: ["tw"],
+        },
+      ],
+    });
+    await ctx.appWindow.__test_renderAdminReleases(main);
+
+    const links = main.querySelectorAll(".admin-release-artist .artist-link");
+    expect(links.length).toBe(2);
+    ctx.appWindow.location.hash = "";
+    links[1].click();
+    expect(ctx.appWindow.location.hash).toBe("#/artist/ART2");
+  });
+
   test("Hide posts to the hide endpoint", async () => {
     mockOnce({
       total: 1,

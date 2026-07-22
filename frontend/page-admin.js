@@ -484,7 +484,8 @@ function adminReleaseCard(r, onChange) {
   title.title = r.title || "";
   info.appendChild(title);
   if (!state.adminGroupByArtist) {
-    info.appendChild(el("div", "admin-release-artist", r.artist_name || r.artist || "—"));
+    // Reuse the album-card artist links so the name navigates to the in-app artist page.
+    info.appendChild(makeArtistLinks({ ...r, artist: r.artist_name || r.artist }, "admin-release-artist"));
   }
 
   const meta = el("div", "admin-release-meta");
