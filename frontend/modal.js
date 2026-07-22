@@ -124,7 +124,9 @@ async function openModal(storeAdamId) {
 
     if (album.artist) {
       const mbBtn = el("a", "btn-header-action", "MusicBrainz ↗");
-      mbBtn.href = `https://musicbrainz.org/search?query=${encodeURIComponent(album.artist)}&type=artist`;
+      mbBtn.href = album.artist_musicbrainz_id
+        ? `https://musicbrainz.org/artist/${album.artist_musicbrainz_id}`
+        : `https://musicbrainz.org/search?query=${encodeURIComponent(album.artist)}&type=artist`;
       mbBtn.target = "_blank";
       mbBtn.rel = "noopener";
       headerActions.appendChild(mbBtn);

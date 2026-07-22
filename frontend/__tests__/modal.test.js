@@ -91,7 +91,7 @@ describe("openModal MusicBrainz and Harmony sections", () => {
     expect(labels).toContain("Harmony");
   });
 
-  test("renders MusicBrainz artist link in modal header", async () => {
+  test("MusicBrainz header link falls back to search when artist has no MBID", async () => {
     ctx.appWindow.fetch.mockResolvedValueOnce({
       ok: true,
       json: () => Promise.resolve(albumData),
@@ -106,6 +106,23 @@ describe("openModal MusicBrainz and Harmony sections", () => {
     expect(mbLink).not.toBeUndefined();
     expect(mbLink.href).toContain("musicbrainz.org/search");
     expect(mbLink.href).toContain("Test%20Artist");
+  });
+
+  test("MusicBrainz header link points directly at the artist when MBID is set", async () => {
+    ctx.appWindow.fetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({ ...albumData, artist_musicbrainz_id: "mbid-abc-123" }),
+    });
+    ctx.appWindow.__test_state.metadataStorefront = "us";
+
+    await ctx.appWindow.openModal("12345");
+
+    const body = ctx.appWindow.document.getElementById("modal-body");
+    const mbLink = Array.from(body.querySelectorAll(".btn-header-action"))
+      .find(el => el.textContent.includes("MusicBrainz"));
+    expect(mbLink).not.toBeUndefined();
+    expect(mbLink.href).toBe("https://musicbrainz.org/artist/mbid-abc-123");
+    expect(mbLink.href).not.toContain("/search");
   });
 
   test("Harmony buttons use correct URL structure", async () => {

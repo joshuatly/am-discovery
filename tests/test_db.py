@@ -181,6 +181,26 @@ class TestGetAlbum(DBTestCase):
         storefronts = json.loads(row["storefronts"])
         self.assertIn("us", storefronts)
 
+    def test_includes_artist_musicbrainz_id(self):
+        """get_album joins the credited artist's MusicBrainz id."""
+        self.db.upsert_album(_minimal_album())
+        self.db.upsert_artist("A1", name="Test Artist", musicbrainz_id="mbid-abc")
+        row = self.db.get_album("123456")
+        self.assertEqual(row["artist_musicbrainz_id"], "mbid-abc")
+
+    def test_artist_musicbrainz_id_none_when_artist_unlinked(self):
+        """When the artist has no MBID, the joined value is None."""
+        self.db.upsert_album(_minimal_album())
+        self.db.upsert_artist("A1", name="Test Artist")
+        row = self.db.get_album("123456")
+        self.assertIsNone(row["artist_musicbrainz_id"])
+
+    def test_artist_musicbrainz_id_none_when_no_artist_row(self):
+        """No artists row for the album's artist_id still returns the album."""
+        self.db.upsert_album(_minimal_album())
+        row = self.db.get_album("123456")
+        self.assertIsNone(row["artist_musicbrainz_id"])
+
 
 class TestUpsertAlbum(DBTestCase):
     def test_insert_new_album(self):
