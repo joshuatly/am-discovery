@@ -1994,6 +1994,7 @@ a.sf-chip:hover { opacity: 0.75; }
 .admin-feedback { font-size: 12px; color: var(--text-secondary); min-height: 14px; }
 
 /* --- Releases tab --- */
+.admin-filters { margin-bottom: 12px; }
 .admin-controls {
   display: flex;
   align-items: center;

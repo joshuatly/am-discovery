@@ -20,6 +20,7 @@ describe("Admin page", () => {
     ctx.appWindow.__test_state.homeStorefront = "my";
     ctx.appWindow.__test_state.adminGroupByArtist = false;
     ctx.appWindow.__test_state.adminReleaseSort = "release_date";
+    ctx.appWindow.__test_state.adminReleaseCountry = "";
   });
 
   afterEach(() => {
@@ -356,6 +357,60 @@ describe("Admin page", () => {
     await ctx.appWindow.__test_renderAdminReleases(main);
     expect(main.querySelector(".admin-group-header")).toBeTruthy();
     expect(main.querySelector(".admin-group-name").textContent).toBe("Jay Chou");
+    ctx.appWindow.__test_state.adminGroupByArtist = false;
+  });
+
+  // --- Default tab ---------------------------------------------------------
+  test("Admin page opens on the Releases tab by default", async () => {
+    ctx.appWindow.__test_state.adminTab = "releases";
+    mockOnce({ total: 0, items: [] }); // releases fetch for the default tab
+    await ctx.appWindow.__test_renderAdmin(main, null);
+    const tabs = Array.from(main.querySelectorAll(".admin-tab"));
+    expect(tabs[0].textContent).toBe("Releases");
+    const active = main.querySelector(".admin-tab.active");
+    expect(active.textContent).toBe("Releases");
+  });
+
+  // --- Country filter ------------------------------------------------------
+  test("country filter bar renders a pill per configured storefront", async () => {
+    mockOnce({ total: 0, items: [] });
+    await ctx.appWindow.__test_renderAdminReleases(main);
+    const labels = Array.from(main.querySelectorAll(".sf-filter-btn")).map(b => b.textContent);
+    expect(labels).toEqual(["All", "TW", "HK"]);
+  });
+
+  test("selecting a country filters releases by preferred source", async () => {
+    ctx.appWindow.__test_state.adminReleaseCountry = "hk";
+    mockOnce({
+      total: 2,
+      items: [
+        { store_adam_id: "A1", title: "TW One", artist_name: "Jay", release_date: "2020-01-01", release_type: "Album", preferred_source: "tw", artist_musicbrainz_id: null, upc: "1", artwork_url: null, storefronts: ["tw"] },
+        { store_adam_id: "A2", title: "HK Two", artist_name: "Eason", release_date: "2021-01-01", release_type: "Album", preferred_source: "hk", artist_musicbrainz_id: null, upc: "2", artwork_url: null, storefronts: ["hk"] },
+      ],
+    });
+    await ctx.appWindow.__test_renderAdminReleases(main);
+    expect(main.textContent).toContain("HK Two");
+    expect(main.textContent).not.toContain("TW One");
+    expect(main.textContent).toContain("1 release missing from MusicBrainz");
+    ctx.appWindow.__test_state.adminReleaseCountry = "";
+  });
+
+  // --- Alpha index (group by artist) ---------------------------------------
+  test("group-by-artist shows an A–Z index for multiple artists", async () => {
+    ctx.appWindow.__test_state.adminGroupByArtist = true;
+    mockOnce({
+      total: 2,
+      items: [
+        { store_adam_id: "A1", title: "One", artist_name: "Jay Chou", release_date: "2020-01-01", release_type: "Album", preferred_source: "tw", artist_musicbrainz_id: null, upc: "1", artwork_url: null, storefronts: ["tw"] },
+        { store_adam_id: "A2", title: "Two", artist_name: "Eason Chan", release_date: "2021-01-01", release_type: "Album", preferred_source: "tw", artist_musicbrainz_id: null, upc: "2", artwork_url: null, storefronts: ["tw"] },
+      ],
+    });
+    await ctx.appWindow.__test_renderAdminReleases(main);
+    const idx = main.querySelector(".alpha-index");
+    expect(idx).toBeTruthy();
+    // Letters E and J have groups; they should be clickable.
+    const active = Array.from(idx.querySelectorAll(".alpha-index-btn.has-artists")).map(b => b.textContent).sort();
+    expect(active).toEqual(["E", "J"]);
     ctx.appWindow.__test_state.adminGroupByArtist = false;
   });
 });

@@ -33,14 +33,14 @@ async function renderAdmin(main, tab) {
 
   await ensureAdminConfig();
 
-  const activeTab = tab || state.adminTab || "artists";
+  const activeTab = tab || state.adminTab || "releases";
   state.adminTab = activeTab;
 
-  // Tab bar
+  // Tab bar — Releases first (the default tab)
   const tabBar = el("div", "admin-tabs");
   const tabs = [
-    ["artists", "Artists"],
     ["releases", "Releases"],
+    ["artists", "Artists"],
   ];
   const content = el("div", "admin-content");
   tabs.forEach(([key, label]) => {
@@ -283,8 +283,36 @@ function adminArtistRow(a, onChange) {
 // ---------------------------------------------------------------------------
 // Releases tab
 // ---------------------------------------------------------------------------
+// First display letter for an artist name, "#" for anything non-alphabetic.
+function adminReleaseLetter(name) {
+  const first = ((name || "?")[0] || "?").toUpperCase();
+  return /[A-Z]/.test(first) ? first : "#";
+}
+
 async function renderAdminReleases(container) {
   container.innerHTML = "";
+
+  const country = state.adminReleaseCountry || "";
+
+  // Country filter row — mirrors the watchlist Country filter. Filters client-side
+  // by the release's effective seed source (preferred_source, else home storefront).
+  const filters = el("div", "admin-filters");
+  const sfFilterBar = el("div", "sf-filter-bar");
+  const sfButtons = [["All", ""], ...(state.configuredStorefronts || []).map(sf => [sf.toUpperCase(), sf.toLowerCase()])];
+  sfButtons.forEach(([label, code]) => {
+    const btn = el("button", "sf-filter-btn" + (code ? ` ${code}` : "") + (country === code ? " active" : ""));
+    btn.textContent = label;
+    btn.addEventListener("click", () => {
+      state.adminReleaseCountry = code;
+      renderAdminReleases(container);
+    });
+    sfFilterBar.appendChild(btn);
+  });
+  const countryRow = el("div", "filter-row");
+  countryRow.appendChild(el("span", "filter-row-label", "Country"));
+  countryRow.appendChild(sfFilterBar);
+  filters.appendChild(countryRow);
+  container.appendChild(filters);
 
   // Controls
   const controls = el("div", "admin-controls");
@@ -342,11 +370,20 @@ async function renderAdminReleases(container) {
   }
 
   listWrap.innerHTML = "";
-  const count = el("div", "admin-count", `${data.total} release${data.total === 1 ? "" : "s"} missing from MusicBrainz`);
+
+  // Apply the country filter client-side (the list is small and unpaginated).
+  const items = country
+    ? data.items.filter(r => (r.preferred_source || state.homeStorefront) === country)
+    : data.items;
+
+  const count = el("div", "admin-count", `${items.length} release${items.length === 1 ? "" : "s"} missing from MusicBrainz`);
   listWrap.appendChild(count);
 
-  if (!data.items.length) {
-    listWrap.appendChild(adminEmpty("✓", "No releases pending — everything is seeded or hidden"));
+  if (!items.length) {
+    const msg = data.total
+      ? "No releases for this country"
+      : "No releases pending — everything is seeded or hidden";
+    listWrap.appendChild(adminEmpty("✓", msg));
     return;
   }
 
@@ -354,13 +391,27 @@ async function renderAdminReleases(container) {
 
   if (state.adminGroupByArtist) {
     const groups = {};
-    data.items.forEach(r => {
+    items.forEach(r => {
       const key = r.artist_name || "—";
       (groups[key] = groups[key] || []).push(r);
     });
-    Object.keys(groups).sort((a, b) => a.localeCompare(b)).forEach(artistName => {
+    const sortedNames = Object.keys(groups).sort((a, b) => a.localeCompare(b));
+
+    // Layout: groups on the left, sticky A–Z index on the right (mirrors the
+    // watchlist page when sorted by name).
+    const pageLayout = el("div", "watchlist-page-layout");
+    const groupsWrap = el("div", "watchlist-grid-wrap");
+    const alphaIndexContainer = el("div", "alpha-index-container");
+    pageLayout.appendChild(groupsWrap);
+    pageLayout.appendChild(alphaIndexContainer);
+
+    const letterToHeader = {}; // first group header element per display letter
+    sortedNames.forEach(artistName => {
       const g = groups[artistName];
       const header = el("div", "admin-group-header");
+      const letter = adminReleaseLetter(artistName);
+      header.dataset.letter = letter;
+      if (!(letter in letterToHeader)) letterToHeader[letter] = header;
       header.appendChild(el("span", "admin-group-name", artistName));
       header.appendChild(el("span", "admin-group-count", `${g.length}`));
       const mbid = g[0].artist_musicbrainz_id;
@@ -371,14 +422,36 @@ async function renderAdminReleases(container) {
         mbLink.rel = "noopener";
         header.appendChild(mbLink);
       }
-      listWrap.appendChild(header);
+      groupsWrap.appendChild(header);
       const grid = el("div", "album-grid admin-release-grid");
       g.forEach(r => grid.appendChild(adminReleaseCard(r, rerender)));
-      listWrap.appendChild(grid);
+      groupsWrap.appendChild(grid);
     });
+
+    // A–Z index — enabled letters jump to that artist group.
+    if (sortedNames.length > 1) {
+      const alphaIndex = el("div", "alpha-index");
+      const letters = ["#", ..."ABCDEFGHIJKLMNOPQRSTUVWXYZ"];
+      letters.forEach(letter => {
+        const btn = el("button", "alpha-index-btn");
+        btn.textContent = letter;
+        if (letter in letterToHeader) {
+          btn.classList.add("has-artists");
+          btn.addEventListener("click", () => {
+            letterToHeader[letter].scrollIntoView({ behavior: "smooth", block: "start" });
+          });
+        } else {
+          btn.disabled = true;
+        }
+        alphaIndex.appendChild(btn);
+      });
+      alphaIndexContainer.appendChild(alphaIndex);
+    }
+
+    listWrap.appendChild(pageLayout);
   } else {
     const grid = el("div", "album-grid admin-release-grid");
-    data.items.forEach(r => grid.appendChild(adminReleaseCard(r, rerender)));
+    items.forEach(r => grid.appendChild(adminReleaseCard(r, rerender)));
     listWrap.appendChild(grid);
   }
 }
