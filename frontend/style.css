@@ -2094,7 +2094,19 @@ a.sf-chip:hover { opacity: 0.75; }
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.admin-release-artist { font-size: 12px; font-weight: 500; color: var(--accent); }
+.admin-release-artist {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--accent);
+  cursor: pointer;
+  display: block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.admin-release-artist:hover { text-decoration: underline; }
+.admin-release-artist.multi { color: var(--text-dim); cursor: default; font-weight: normal; }
+.admin-release-artist.multi:hover { text-decoration: none; }
 .admin-release-meta { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .admin-release-actions { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px; }
 .admin-release-actions .btn-secondary { padding: 5px 12px; font-size: 12px; }
