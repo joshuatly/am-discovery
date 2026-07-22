@@ -238,7 +238,7 @@ The app over-indexes on counts: "67 releases in database", result counts above e
 
 **Album tile · 180–200px wide.** Full-bleed square artwork on top (`object-fit: contain` on a 1:1 slot — never crop, letterbox, or go portrait). 12px info pad. Title 13/600 (truncate). Artist 12/500 in `--accent`. Meta-row: date (11/dim) + `sf-chips`. Star top-right (`.watched-badge`) when watched. Track-count chip bottom-right of the artwork. Seed sprout `🌱` top-left (`.seed-badge`) when the release is flagged as missing from MusicBrainz (`mb_seed_status === "needs_seeding"` and not hidden). When artwork is missing/blocked, `placeholderEl` renders a `♫` glass tile.
 
-**Artwork-corner glyphs** are emoji indicators (like the `★` watch flag), not color chips — their intrinsic emoji color carries the meaning through the recognizable shape, so they sit outside the §10 color grammar. Each corner is reserved: `★` watched (top-right), `🌱` needs-seeding (top-left), track-count chip (bottom-right). One glyph per corner; don't stack.
+**Artwork-corner glyphs** are emoji indicators, one per reserved corner — `★` watched (top-right), `🌱` needs-seeding (top-left), track-count chip (bottom-right). One glyph per corner; don't stack. The emoji shape carries the meaning, so the glyph itself sits outside the §10 color grammar. For legibility over busy artwork they get a chip backing: the star is a bare drop-shadowed glyph, while `.seed-badge` and `.track-count-chip` sit on a dark glass disc/pill (`rgba(0,0,0,0.6)` + blur). `.seed-badge` adds an amber ring (`rgba(255,170,40,0.6)`) — amber = actionable (§10), because a needs-seeding release is an act-now item; it is **not** gold (that stays the watch flag, §16).
 
 **Artist card · circular artwork.** Round avatar + name + genre, navigates to the in-app artist page.
 
@@ -284,7 +284,7 @@ Examples: New Releases, All Albums.
 Hero subject + child list.
 - **Hero header** — 56–72px round avatar · name · genre · region · action pills (Open in AM, MusicBrainz, Watching, Fetch).
 - **Optional artist-note block** — "In the artist's words."
-- **Filter bar** scoped to the artist.
+- **Filter bar** scoped to the artist — view toggle, release-type pills, and a `🌱 Needs seeding` toggle pill (only shown when the artist has releases flagged for MusicBrainz seeding).
 - **Child grid** — same album tile as the list page.
 
 ### C · Watchlist page

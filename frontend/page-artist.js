@@ -396,6 +396,13 @@ async function renderArtist(main, artistId) {
     if (data.artist_name) album.artist = data.artist_name;
   });
 
+  // Releases flagged as missing from MusicBrainz. If this artist has none,
+  // clear the (globally persisted) seed filter so its releases still show.
+  const seedCount = data.releases.filter(
+    r => r.mb_seed_status === "needs_seeding" && !r.hidden_from_seeding
+  ).length;
+  if (!seedCount) state.artistSeedFilter = false;
+
   // Toolbar: view toggle + type filter
   const toolbar = el("div", "artist-releases-toolbar");
   const gridContainer = el("div", "artist-grid-container");
@@ -434,6 +441,24 @@ async function renderArtist(main, artistId) {
       typeFilter.appendChild(btn);
     });
     toolbar.appendChild(typeFilter);
+  }
+
+  // Seed filter — only when this artist has releases flagged for seeding
+  if (seedCount) {
+    const seedFilter = el("div", "type-filter-bar");
+    const seedBtn = el(
+      "button",
+      `type-filter-btn seed-filter-btn${state.artistSeedFilter ? " active" : ""}`,
+      `🌱 Needs seeding (${seedCount})`
+    );
+    seedBtn.title = "Show only releases missing from MusicBrainz";
+    seedBtn.addEventListener("click", () => {
+      state.artistSeedFilter = !state.artistSeedFilter;
+      seedBtn.classList.toggle("active", state.artistSeedFilter);
+      renderArtistReleaseGrid(data.releases, gridContainer);
+    });
+    seedFilter.appendChild(seedBtn);
+    toolbar.appendChild(seedFilter);
   }
 
   wrap.appendChild(toolbar);
