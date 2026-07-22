@@ -222,6 +222,11 @@ function albumCard(album) {
 
   const artWrap = el("div", "album-art-wrap");
   artWrap.appendChild(artworkEl(album.artwork_url, "album-artwork"));
+  if (album.mb_seed_status === "needs_seeding" && !album.hidden_from_seeding) {
+    const seed = el("span", "seed-badge", "🌱");
+    seed.title = "Missing from MusicBrainz — needs seeding";
+    artWrap.appendChild(seed);
+  }
   if (album.track_count) {
     const mvCount = album.music_video_count || 0;
     const songCount = album.track_count - mvCount;

@@ -557,6 +557,54 @@ describe("albumCard track-count chip", () => {
 });
 
 // ---------------------------------------------------------------------------
+// albumCard — seed (MusicBrainz needs-seeding) badge
+// ---------------------------------------------------------------------------
+
+describe("albumCard seed badge", () => {
+  const baseAlbum = {
+    store_adam_id: "123",
+    title: "Test Album",
+    artwork_url: null,
+    artists: [{ id: "A1", name: "Artist", url: null }],
+    release_date: "2024-01-01",
+    storefronts: [],
+    watched: false,
+  };
+
+  test("shows seed badge when mb_seed_status is needs_seeding", () => {
+    const card = ctx.appWindow.albumCard({ ...baseAlbum, mb_seed_status: "needs_seeding" });
+    const badge = card.querySelector(".seed-badge");
+    expect(badge).not.toBeNull();
+    expect(badge.textContent).toBe("🌱");
+  });
+
+  test("seed badge is inside album-art-wrap", () => {
+    const card = ctx.appWindow.albumCard({ ...baseAlbum, mb_seed_status: "needs_seeding" });
+    const wrap = card.querySelector(".album-art-wrap");
+    expect(wrap.querySelector(".seed-badge")).not.toBeNull();
+  });
+
+  test("does not show seed badge when mb_seed_status is absent", () => {
+    const card = ctx.appWindow.albumCard({ ...baseAlbum });
+    expect(card.querySelector(".seed-badge")).toBeNull();
+  });
+
+  test("does not show seed badge for other mb_seed_status values", () => {
+    const card = ctx.appWindow.albumCard({ ...baseAlbum, mb_seed_status: "present" });
+    expect(card.querySelector(".seed-badge")).toBeNull();
+  });
+
+  test("does not show seed badge when release is hidden from seeding", () => {
+    const card = ctx.appWindow.albumCard({
+      ...baseAlbum,
+      mb_seed_status: "needs_seeding",
+      hidden_from_seeding: 1,
+    });
+    expect(card.querySelector(".seed-badge")).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // buildPagination scroll-to-top
 // ---------------------------------------------------------------------------
 

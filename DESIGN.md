@@ -236,7 +236,9 @@ The app over-indexes on counts: "67 releases in database", result counts above e
 
 ## 15 · Item cards
 
-**Album tile · 180–200px wide.** Full-bleed square artwork on top (`object-fit: contain` on a 1:1 slot — never crop, letterbox, or go portrait). 12px info pad. Title 13/600 (truncate). Artist 12/500 in `--accent`. Meta-row: date (11/dim) + `sf-chips`. Star top-right (`.watched-badge`) when watched. Track-count chip bottom-right of the artwork. When artwork is missing/blocked, `placeholderEl` renders a `♫` glass tile.
+**Album tile · 180–200px wide.** Full-bleed square artwork on top (`object-fit: contain` on a 1:1 slot — never crop, letterbox, or go portrait). 12px info pad. Title 13/600 (truncate). Artist 12/500 in `--accent`. Meta-row: date (11/dim) + `sf-chips`. Star top-right (`.watched-badge`) when watched. Track-count chip bottom-right of the artwork. Seed sprout `🌱` top-left (`.seed-badge`) when the release is flagged as missing from MusicBrainz (`mb_seed_status === "needs_seeding"` and not hidden). When artwork is missing/blocked, `placeholderEl` renders a `♫` glass tile.
+
+**Artwork-corner glyphs** are emoji indicators (like the `★` watch flag), not color chips — their intrinsic emoji color carries the meaning through the recognizable shape, so they sit outside the §10 color grammar. Each corner is reserved: `★` watched (top-right), `🌱` needs-seeding (top-left), track-count chip (bottom-right). One glyph per corner; don't stack.
 
 **Artist card · circular artwork.** Round avatar + name + genre, navigates to the in-app artist page.
 
