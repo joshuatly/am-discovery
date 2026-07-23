@@ -154,7 +154,13 @@ def init_db():
 
 def get_album(store_adam_id: str):
     with get_conn() as conn:
-        row = conn.execute("SELECT * FROM albums WHERE store_adam_id = ?", (store_adam_id,)).fetchone()
+        row = conn.execute(
+            """SELECT a.*, ar.musicbrainz_id AS artist_musicbrainz_id
+               FROM albums a
+               LEFT JOIN artists ar ON ar.artist_id = a.artist_id
+               WHERE a.store_adam_id = ?""",
+            (store_adam_id,),
+        ).fetchone()
         return dict(row) if row else None
 
 
