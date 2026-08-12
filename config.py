@@ -33,14 +33,6 @@ _DEFAULTS = {
     # storefronts.py/client.py re-read config on every discovery call, so
     # changes take effect on the next poll without a restart.
     "discovery_names": {
-        "cn": "本周新发行",
-        "hk": "新發行",
-        "mo": "新發行",
-        "tw": "新發行",
-        "jp": "ニューリリース",
-        "sg": "Recent Releases",
-        "my": "Recent Releases",
-        "us": "New Releases",
     },
     # Substring fallback used when a storefront has no `discovery_names`
     # entry (amp-api path) and by the /new page scraping path in client.py.
@@ -57,7 +49,7 @@ _DEFAULTS = {
     "watchlist_refresh_interval_days": 7,
     "notification_scan_interval_minutes": 10,
     "notification_max_release_age_days": 7,
-    "mb_scan_enabled": True,
+    "mb_scan_enabled": False,
     "mb_scan_interval_minutes": 60,
     "mb_scan_artist_batch": 3,
     "mb_artist_recheck_days": 7,
