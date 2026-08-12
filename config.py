@@ -23,8 +23,8 @@ CONFIG_LOCK = threading.RLock()
 
 _DEFAULTS = {
     "newrelease_poll_interval_days": 1,
-    "check_storefronts": ["jp", "tw", "my", "hk", "sg"],
-    "home_storefront": "my",
+    "check_storefronts": ["us", "jp"],
+    "home_storefront": "us",
     # Per-storefront localized title of the "New Releases" editorial room
     # (resourceTypes == ["albums"]), matched against `attributes.name` in
     # the amp-api groupings response. This is the new-*albums* room —
