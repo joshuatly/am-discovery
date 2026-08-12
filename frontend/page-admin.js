@@ -36,7 +36,7 @@ async function renderAdmin(main, tab) {
 
   main.innerHTML = "";
   const wrap = el("div", "page-enter");
-  wrap.appendChild(buildHeader("Admin", "Link artists and seed missing releases to MusicBrainz"));
+  wrap.appendChild(buildHeader("MB Admin", "Link artists and seed missing releases to MusicBrainz"));
   main.appendChild(wrap);
 
   await ensureAdminConfig();
@@ -303,6 +303,47 @@ function adminReleaseLetter(name) {
 // filtered count, not just this page.
 const ADMIN_RELEASES_PAGE_SIZE = 48;
 
+// Group-by-artist view needs the *entire* filtered set client-side (like the
+// watchlist page) so the A–Z index can jump across pages instead of only
+// scrolling within whatever page happened to load. Loops the paginated
+// endpoint until every matching row has been collected.
+async function fetchAllAdminReleases(sort, country) {
+  const perPage = 200;
+  let items = [];
+  let total = Infinity;
+  let page = 1;
+  while (items.length < total) {
+    const qp = new URLSearchParams({ sort, page, per_page: perPage });
+    if (country) qp.set("country", country);
+    const data = await API.get(`/api/admin/releases?${qp}`);
+    total = data.total;
+    if (!data.items.length) break;
+    items = items.concat(data.items);
+    page++;
+  }
+  return { items, total };
+}
+
+// Split alphabetically-sorted artist groups into pages of ~pageSize releases
+// each, never splitting a single artist's group across two pages.
+function paginateGroups(sortedNames, groups, pageSize) {
+  const pages = [];
+  let current = [];
+  let count = 0;
+  sortedNames.forEach(name => {
+    const size = groups[name].length;
+    if (count > 0 && count + size > pageSize) {
+      pages.push(current);
+      current = [];
+      count = 0;
+    }
+    current.push(name);
+    count += size;
+  });
+  if (current.length) pages.push(current);
+  return pages.length ? pages : [[]];
+}
+
 async function renderAdminReleases(container) {
   container.innerHTML = "";
 
@@ -380,11 +421,17 @@ async function renderAdminReleases(container) {
   listWrap.appendChild(skeletonGrid(8));
   container.appendChild(listWrap);
 
+  const grouped = state.adminGroupByArtist;
+
   let data;
   try {
-    const qp = new URLSearchParams({ sort: state_sort, page, per_page: ADMIN_RELEASES_PAGE_SIZE });
-    if (country) qp.set("country", country);
-    data = await API.get(`/api/admin/releases?${qp}`);
+    data = grouped
+      ? await fetchAllAdminReleases(state_sort, country)
+      : await (async () => {
+          const qp = new URLSearchParams({ sort: state_sort, page, per_page: ADMIN_RELEASES_PAGE_SIZE });
+          if (country) qp.set("country", country);
+          return API.get(`/api/admin/releases?${qp}`);
+        })();
   } catch {
     listWrap.innerHTML = "";
     listWrap.appendChild(adminEmpty("⚠️", "Could not load releases"));
@@ -397,8 +444,9 @@ async function renderAdminReleases(container) {
 
   // If this page came up empty but there are still matching releases (e.g. the
   // last item on the page was just hidden), snap back to page 1 instead of
-  // showing a false "nothing pending" empty state.
-  if (!items.length && data.total > 0 && page > 1) {
+  // showing a false "nothing pending" empty state. Grouped mode always has the
+  // full set in hand, so its own pagination below clamps itself instead.
+  if (!grouped && !items.length && data.total > 0 && page > 1) {
     return gotoPage(1);
   }
 
@@ -415,13 +463,22 @@ async function renderAdminReleases(container) {
 
   const rerender = () => renderAdminReleases(container);
 
-  if (state.adminGroupByArtist) {
+  if (grouped) {
     const groups = {};
     items.forEach(r => {
       const key = r.artist_name || "—";
       (groups[key] = groups[key] || []).push(r);
     });
     const sortedNames = Object.keys(groups).sort((a, b) => a.localeCompare(b));
+
+    // Client-side pagination over whole artist groups (never split mid-group)
+    // so the A–Z index below can jump straight to the page holding a letter,
+    // the same cross-page behaviour as the watchlist's alpha index.
+    const pages = paginateGroups(sortedNames, groups, ADMIN_RELEASES_PAGE_SIZE);
+    const totalPages = pages.length;
+    const safePage = Math.max(0, Math.min(page - 1, totalPages - 1));
+    state.adminReleasePage = safePage + 1;
+    const pageNames = pages[safePage] || [];
 
     // Layout: groups on the left, sticky A–Z index on the right (mirrors the
     // watchlist page when sorted by name).
@@ -431,13 +488,10 @@ async function renderAdminReleases(container) {
     pageLayout.appendChild(groupsWrap);
     pageLayout.appendChild(alphaIndexContainer);
 
-    const letterToHeader = {}; // first group header element per display letter
-    sortedNames.forEach(artistName => {
+    pageNames.forEach(artistName => {
       const g = groups[artistName];
       const header = el("div", "admin-group-header");
-      const letter = adminReleaseLetter(artistName);
-      header.dataset.letter = letter;
-      if (!(letter in letterToHeader)) letterToHeader[letter] = header;
+      header.dataset.letter = adminReleaseLetter(artistName);
       header.appendChild(el("span", "admin-group-name", artistName));
       header.appendChild(el("span", "admin-group-count", `${g.length}`));
       const artistId = g[0].artist_id;
@@ -460,17 +514,40 @@ async function renderAdminReleases(container) {
       groupsWrap.appendChild(grid);
     });
 
-    // A–Z index — enabled letters jump to that artist group.
+    // A–Z index spanning the *full* filtered set — enabled letters jump to
+    // whichever page holds that letter's first group, then scroll to it.
     if (sortedNames.length > 1) {
+      const letterFirstPage = {};
+      const letterLastPage = {};
+      pages.forEach((names, pIdx) => {
+        names.forEach(name => {
+          const letter = adminReleaseLetter(name);
+          if (!(letter in letterFirstPage)) letterFirstPage[letter] = pIdx;
+          letterLastPage[letter] = pIdx;
+        });
+      });
       const alphaIndex = el("div", "alpha-index");
       const letters = ["#", ..."ABCDEFGHIJKLMNOPQRSTUVWXYZ"];
       letters.forEach(letter => {
         const btn = el("button", "alpha-index-btn");
         btn.textContent = letter;
-        if (letter in letterToHeader) {
+        if (letter in letterFirstPage) {
           btn.classList.add("has-artists");
+          const targetPage = letterFirstPage[letter];
+          if (safePage >= targetPage && safePage <= letterLastPage[letter]) btn.classList.add("current");
           btn.addEventListener("click", () => {
-            letterToHeader[letter].scrollIntoView({ behavior: "smooth", block: "start" });
+            state.adminReleasePage = targetPage + 1;
+            renderAdminReleases(container).then(() => {
+              requestAnimationFrame(() => {
+                const headers = container.querySelectorAll(".admin-group-header");
+                for (const h of headers) {
+                  if (h.dataset.letter === letter) {
+                    h.scrollIntoView({ behavior: "smooth", block: "start" });
+                    break;
+                  }
+                }
+              });
+            });
           });
         } else {
           btn.disabled = true;
@@ -481,15 +558,19 @@ async function renderAdminReleases(container) {
     }
 
     listWrap.appendChild(pageLayout);
+
+    if (totalPages > 1) {
+      listWrap.appendChild(buildPagination(safePage + 1, totalPages, gotoPage));
+    }
   } else {
     const grid = el("div", "album-grid admin-release-grid");
     items.forEach(r => grid.appendChild(adminReleaseCard(r, rerender)));
     listWrap.appendChild(grid);
-  }
 
-  const totalPages = Math.ceil(data.total / ADMIN_RELEASES_PAGE_SIZE);
-  if (totalPages > 1) {
-    listWrap.appendChild(buildPagination(page, totalPages, gotoPage));
+    const totalPages = Math.ceil(data.total / ADMIN_RELEASES_PAGE_SIZE);
+    if (totalPages > 1) {
+      listWrap.appendChild(buildPagination(page, totalPages, gotoPage));
+    }
   }
 }
 

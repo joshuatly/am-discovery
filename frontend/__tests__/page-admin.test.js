@@ -482,6 +482,50 @@ describe("Admin page", () => {
     ctx.appWindow.__test_state.adminGroupByArtist = false;
   });
 
+  test("group-by-artist A–Z index jumps to the page holding that letter, not just scrolls the current page", async () => {
+    ctx.appWindow.__test_state.adminGroupByArtist = true;
+    // 40 Eason releases + 45 Jay releases (85 total) — with a 48-per-page cap,
+    // grouping keeps whole artists together, so Eason fills page 1 alone and
+    // Jay lands entirely on page 2.
+    const items = [
+      ...Array.from({ length: 40 }, (_, i) => ({
+        store_adam_id: `E${i}`, artist_id: "eason", title: `Eason Album ${i}`, artist_name: "Eason Chan",
+        release_date: "2020-01-01", release_type: "Album", preferred_source: "tw",
+        artist_musicbrainz_id: null, upc: `e${i}`, artwork_url: null, storefronts: ["tw"],
+      })),
+      ...Array.from({ length: 45 }, (_, i) => ({
+        store_adam_id: `J${i}`, artist_id: "jay", title: `Jay Album ${i}`, artist_name: "Jay Chou",
+        release_date: "2020-01-01", release_type: "Album", preferred_source: "tw",
+        artist_musicbrainz_id: null, upc: `j${i}`, artwork_url: null, storefronts: ["tw"],
+      })),
+    ];
+    // Grouped mode fetches the full filtered set (looping the paginated
+    // endpoint) on every render, so reuse the same response for repeat calls.
+    ctx.appWindow.fetch.mockImplementation((url) => {
+      if (String(url).startsWith("/api/admin/releases")) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ items, total: items.length }) });
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
+    });
+
+    await ctx.appWindow.__test_renderAdminReleases(main);
+    expect(main.querySelector(".admin-group-name").textContent).toBe("Eason Chan");
+    expect(main.textContent).not.toContain("Jay Chou");
+
+    const jBtn = Array.from(main.querySelectorAll(".alpha-index-btn")).find(b => b.textContent === "J");
+    expect(jBtn.classList.contains("has-artists")).toBe(true);
+    jBtn.click();
+    await new Promise(r => setTimeout(r, 100));
+
+    expect(main.querySelector(".admin-group-name").textContent).toBe("Jay Chou");
+    expect(main.textContent).not.toContain("Eason Chan");
+
+    ctx.appWindow.__test_state.adminGroupByArtist = false;
+    ctx.appWindow.fetch.mockImplementation(() =>
+      Promise.resolve({ ok: true, json: () => Promise.resolve({ items: [], total: 0 }) })
+    );
+  });
+
   // --- Pagination ------------------------------------------------------------
   test("no pagination controls when everything fits on one page", async () => {
     mockOnce({

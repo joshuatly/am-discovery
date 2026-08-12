@@ -34,7 +34,7 @@ function route(hash) {
     document.title = "Settings — AM Discovery";
     renderSettings(main);
   } else if (hash.startsWith("#/admin")) {
-    document.title = "Admin — AM Discovery";
+    document.title = "MB Admin — AM Discovery";
     const tab = hash.slice("#/admin".length).replace(/^\//, "") || "";
     renderAdmin(main, tab || null);
   } else if (hash.startsWith("#/artist/")) {
