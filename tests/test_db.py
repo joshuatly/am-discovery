@@ -1957,15 +1957,16 @@ class TestAlbumSeedStatus(DBTestCase):
         self._album("A2", artist_id="ART1", title="Known")
         self.db.set_album_seed_status("A1", "needs_seeding")
         self.db.set_album_seed_status("A2", "known")
-        rows = self.db.get_seeding_releases()
+        rows, total = self.db.get_seeding_releases()
         self.assertEqual([r["store_adam_id"] for r in rows], ["A1"])
+        self.assertEqual(total, 1)
 
     def test_get_seeding_releases_joins_preferred_source_and_mbid(self):
         self._album("A1", artist_id="ART1", title="Needs")
         self.db.add_to_watchlist("ART1", "Jay", preferred_source="tw")
         self.db.upsert_artist("ART1", name="Jay", musicbrainz_id="artist-mbid")
         self.db.set_album_seed_status("A1", "needs_seeding")
-        rows = self.db.get_seeding_releases()
+        rows, _total = self.db.get_seeding_releases()
         self.assertEqual(rows[0]["preferred_source"], "tw")
         self.assertEqual(rows[0]["artist_musicbrainz_id"], "artist-mbid")
         self.assertEqual(rows[0]["artist_name"], "Jay")
@@ -1974,25 +1975,62 @@ class TestAlbumSeedStatus(DBTestCase):
         self._album("A1", artist_id="ART1")
         self.db.set_album_seed_status("A1", "needs_seeding")
         self.db.set_album_hidden_from_seeding("A1", True)
-        self.assertEqual(self.db.get_seeding_releases(), [])
+        rows, total = self.db.get_seeding_releases()
+        self.assertEqual(rows, [])
+        self.assertEqual(total, 0)
         self.assertEqual(self.db.count_seeding_releases(), 0)
         # include_hidden brings it back
-        self.assertEqual(len(self.db.get_seeding_releases(include_hidden=True)), 1)
+        rows, total = self.db.get_seeding_releases(include_hidden=True)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(total, 1)
 
     def test_unhide_restores(self):
         self._album("A1", artist_id="ART1")
         self.db.set_album_seed_status("A1", "needs_seeding")
         self.db.set_album_hidden_from_seeding("A1", True)
         self.db.set_album_hidden_from_seeding("A1", False)
-        self.assertEqual(len(self.db.get_seeding_releases()), 1)
+        rows, total = self.db.get_seeding_releases()
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(total, 1)
 
     def test_sort_by_release_type(self):
         self._album("A1", artist_id="ART1", title="Z", release_type="EP", release_date="2020-01-01")
         self._album("A2", artist_id="ART1", title="A", release_type="Album", release_date="2021-01-01")
         self.db.set_album_seed_status("A1", "needs_seeding")
         self.db.set_album_seed_status("A2", "needs_seeding")
-        rows = self.db.get_seeding_releases(sort="release_type")
+        rows, _total = self.db.get_seeding_releases(sort="release_type")
         self.assertEqual([r["release_type"] for r in rows], ["Album", "EP"])
+
+    def test_pagination_limits_page_size_but_total_stays_accurate(self):
+        for i in range(5):
+            self._album(f"A{i}", artist_id="ART1", title=f"T{i}", release_date=f"2020-01-{i + 1:02d}")
+            self.db.set_album_seed_status(f"A{i}", "needs_seeding")
+        rows, total = self.db.get_seeding_releases(page=1, per_page=2)
+        self.assertEqual(len(rows), 2)
+        self.assertEqual(total, 5)
+        rows_p2, total_p2 = self.db.get_seeding_releases(page=2, per_page=2)
+        self.assertEqual(len(rows_p2), 2)
+        self.assertEqual(total_p2, 5)
+        self.assertNotEqual([r["store_adam_id"] for r in rows], [r["store_adam_id"] for r in rows_p2])
+        rows_p3, total_p3 = self.db.get_seeding_releases(page=3, per_page=2)
+        self.assertEqual(len(rows_p3), 1)
+        self.assertEqual(total_p3, 5)
+
+    def test_country_filter_uses_preferred_source_or_home_storefront(self):
+        self._album("A1", artist_id="ART1", title="TW one")
+        self._album("A2", artist_id="ART2", title="HK one")
+        self.db.add_to_watchlist("ART1", "Jay", preferred_source="tw")
+        # ART2 has no watchlist row/preferred_source -> falls back to home_storefront.
+        self.db.set_album_seed_status("A1", "needs_seeding")
+        self.db.set_album_seed_status("A2", "needs_seeding")
+
+        rows, total = self.db.get_seeding_releases(country="tw", home_storefront="hk")
+        self.assertEqual([r["store_adam_id"] for r in rows], ["A1"])
+        self.assertEqual(total, 1)
+
+        rows, total = self.db.get_seeding_releases(country="hk", home_storefront="hk")
+        self.assertEqual([r["store_adam_id"] for r in rows], ["A2"])
+        self.assertEqual(total, 1)
 
 
 # ---------------------------------------------------------------------------

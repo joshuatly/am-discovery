@@ -21,6 +21,7 @@ describe("Admin page", () => {
     ctx.appWindow.__test_state.adminGroupByArtist = false;
     ctx.appWindow.__test_state.adminReleaseSort = "release_date";
     ctx.appWindow.__test_state.adminReleaseCountry = "";
+    ctx.appWindow.__test_state.adminReleasePage = 1;
   });
 
   afterEach(() => {
@@ -443,11 +444,12 @@ describe("Admin page", () => {
   });
 
   test("selecting a country filters releases by preferred source", async () => {
+    // Filtering happens server-side now — the mocked response already reflects
+    // what the server would return for country=hk.
     ctx.appWindow.__test_state.adminReleaseCountry = "hk";
     mockOnce({
-      total: 2,
+      total: 1,
       items: [
-        { store_adam_id: "A1", title: "TW One", artist_name: "Jay", release_date: "2020-01-01", release_type: "Album", preferred_source: "tw", artist_musicbrainz_id: null, upc: "1", artwork_url: null, storefronts: ["tw"] },
         { store_adam_id: "A2", title: "HK Two", artist_name: "Eason", release_date: "2021-01-01", release_type: "Album", preferred_source: "hk", artist_musicbrainz_id: null, upc: "2", artwork_url: null, storefronts: ["hk"] },
       ],
     });
@@ -455,6 +457,9 @@ describe("Admin page", () => {
     expect(main.textContent).toContain("HK Two");
     expect(main.textContent).not.toContain("TW One");
     expect(main.textContent).toContain("1 release missing from MusicBrainz");
+
+    const call = ctx.appWindow.fetch.mock.calls[ctx.appWindow.fetch.mock.calls.length - 1];
+    expect(String(call[0])).toContain("country=hk");
     ctx.appWindow.__test_state.adminReleaseCountry = "";
   });
 
@@ -475,5 +480,127 @@ describe("Admin page", () => {
     const active = Array.from(idx.querySelectorAll(".alpha-index-btn.has-artists")).map(b => b.textContent).sort();
     expect(active).toEqual(["E", "J"]);
     ctx.appWindow.__test_state.adminGroupByArtist = false;
+  });
+
+  // --- Pagination ------------------------------------------------------------
+  test("no pagination controls when everything fits on one page", async () => {
+    mockOnce({
+      total: 1,
+      items: [
+        { store_adam_id: "A1", title: "One", artist_name: "Jay", release_date: "2020-01-01", release_type: "Album", preferred_source: "tw", artist_musicbrainz_id: null, upc: "1", artwork_url: null, storefronts: ["tw"] },
+      ],
+    });
+    await ctx.appWindow.__test_renderAdminReleases(main);
+    expect(main.querySelector(".pagination")).toBeFalsy();
+  });
+
+  test("pagination renders when total exceeds one page and requests the right page/per_page", async () => {
+    mockOnce({
+      total: 100,
+      items: [
+        { store_adam_id: "A1", title: "One", artist_name: "Jay", release_date: "2020-01-01", release_type: "Album", preferred_source: "tw", artist_musicbrainz_id: null, upc: "1", artwork_url: null, storefronts: ["tw"] },
+      ],
+    });
+    await ctx.appWindow.__test_renderAdminReleases(main);
+    const pagination = main.querySelector(".pagination");
+    expect(pagination).toBeTruthy();
+    expect(pagination.textContent).toContain("Page 1 of 3");
+
+    const call = ctx.appWindow.fetch.mock.calls[ctx.appWindow.fetch.mock.calls.length - 1];
+    expect(String(call[0])).toContain("page=1");
+    expect(String(call[0])).toContain("per_page=48");
+  });
+
+  test("clicking Next requests the next page and remembers it in state", async () => {
+    mockOnce({
+      total: 100,
+      items: [
+        { store_adam_id: "A1", title: "One", artist_name: "Jay", release_date: "2020-01-01", release_type: "Album", preferred_source: "tw", artist_musicbrainz_id: null, upc: "1", artwork_url: null, storefronts: ["tw"] },
+      ],
+    });
+    await ctx.appWindow.__test_renderAdminReleases(main);
+
+    mockOnce({
+      total: 100,
+      items: [
+        { store_adam_id: "A2", title: "Two", artist_name: "Jay", release_date: "2020-01-01", release_type: "Album", preferred_source: "tw", artist_musicbrainz_id: null, upc: "2", artwork_url: null, storefronts: ["tw"] },
+      ],
+    });
+    const nextBtn = Array.from(main.querySelectorAll(".page-btn")).find(b => b.textContent.includes("Next"));
+    nextBtn.click();
+    await new Promise(r => setTimeout(r, 0));
+
+    expect(main.textContent).toContain("Two");
+    expect(ctx.appWindow.__test_state.adminReleasePage).toBe(2);
+    const call = ctx.appWindow.fetch.mock.calls[ctx.appWindow.fetch.mock.calls.length - 1];
+    expect(String(call[0])).toContain("page=2");
+  });
+
+  test("changing sort resets back to page 1", async () => {
+    ctx.appWindow.__test_state.adminReleasePage = 3;
+    mockOnce({
+      total: 100,
+      items: [
+        { store_adam_id: "A1", title: "One", artist_name: "Jay", release_date: "2020-01-01", release_type: "Album", preferred_source: "tw", artist_musicbrainz_id: null, upc: "1", artwork_url: null, storefronts: ["tw"] },
+      ],
+    });
+    await ctx.appWindow.__test_renderAdminReleases(main);
+
+    mockOnce({ total: 0, items: [] });
+    const artistSortBtn = Array.from(main.querySelectorAll(".admin-pill")).find(b => b.textContent === "Artist");
+    artistSortBtn.click();
+    await new Promise(r => setTimeout(r, 0));
+
+    expect(ctx.appWindow.__test_state.adminReleasePage).toBe(1);
+    const call = ctx.appWindow.fetch.mock.calls[ctx.appWindow.fetch.mock.calls.length - 1];
+    expect(String(call[0])).toContain("page=1");
+    expect(String(call[0])).toContain("sort=artist");
+  });
+
+  test("empty country-filtered page shows a country-specific message", async () => {
+    ctx.appWindow.__test_state.adminReleaseCountry = "hk";
+    mockOnce({ total: 0, items: [] });
+    await ctx.appWindow.__test_renderAdminReleases(main);
+    expect(main.textContent).toContain("No releases pending for HK");
+    ctx.appWindow.__test_state.adminReleaseCountry = "";
+  });
+
+  // --- mb_scan_enabled feature flag ------------------------------------------
+  describe("mb_scan_enabled feature flag", () => {
+    afterEach(() => {
+      ctx.appWindow.__test_state.mbScanEnabled = true;
+      ctx.appWindow.location.hash = "";
+    });
+
+    test("renderAdmin redirects to home and skips rendering when disabled", async () => {
+      ctx.appWindow.__test_state.mbScanEnabled = false;
+      ctx.appWindow.location.hash = "#/admin";
+      await ctx.appWindow.__test_renderAdmin(main, null);
+      expect(ctx.appWindow.location.hash).toBe("#/");
+      expect(main.querySelector(".admin-tabs")).toBeFalsy();
+      expect(ctx.appWindow.fetch).not.toHaveBeenCalled();
+    });
+
+    test("renderAdmin renders normally when enabled", async () => {
+      ctx.appWindow.__test_state.mbScanEnabled = true;
+      mockOnce({ total: 0, items: [] });
+      await ctx.appWindow.__test_renderAdmin(main, null);
+      expect(main.querySelector(".admin-tabs")).toBeTruthy();
+    });
+
+    test("applyMbScanFeatureFlag hides the nav-admin link when disabled", async () => {
+      mockOnce({ mb_scan_enabled: false });
+      await ctx.appWindow.__test_applyMbScanFeatureFlag();
+      expect(ctx.appWindow.__test_state.mbScanEnabled).toBe(false);
+      expect(ctx.appWindow.__test_dollar("nav-admin").style.display).toBe("none");
+    });
+
+    test("applyMbScanFeatureFlag shows the nav-admin link when enabled", async () => {
+      ctx.appWindow.__test_dollar("nav-admin").style.display = "none";
+      mockOnce({ mb_scan_enabled: true });
+      await ctx.appWindow.__test_applyMbScanFeatureFlag();
+      expect(ctx.appWindow.__test_state.mbScanEnabled).toBe(true);
+      expect(ctx.appWindow.__test_dollar("nav-admin").style.display).toBe("");
+    });
   });
 });

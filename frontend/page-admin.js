@@ -26,6 +26,14 @@ async function ensureAdminConfig() {
 // Page: Admin
 // ---------------------------------------------------------------------------
 async function renderAdmin(main, tab) {
+  // Defensive re-check for direct navigation (e.g. a bookmarked #/admin URL) —
+  // the nav link is already hidden by the app bootstrap when disabled, but the
+  // route itself must also bail so the panel never renders.
+  if (!state.mbScanEnabled) {
+    location.hash = "#/";
+    return;
+  }
+
   main.innerHTML = "";
   const wrap = el("div", "page-enter");
   wrap.appendChild(buildHeader("Admin", "Link artists and seed missing releases to MusicBrainz"));
@@ -289,13 +297,25 @@ function adminReleaseLetter(name) {
   return /[A-Z]/.test(first) ? first : "#";
 }
 
+// Releases per admin page. The endpoint is paginated server-side so the
+// response stays small regardless of how large the seeding backlog grows —
+// `total` (used for the count badge and pagination) still reflects the full
+// filtered count, not just this page.
+const ADMIN_RELEASES_PAGE_SIZE = 48;
+
 async function renderAdminReleases(container) {
   container.innerHTML = "";
 
   const country = state.adminReleaseCountry || "";
+  const page = state.adminReleasePage || 1;
 
-  // Country filter row — mirrors the watchlist Country filter. Filters client-side
-  // by the release's effective seed source (preferred_source, else home storefront).
+  const gotoPage = p => {
+    state.adminReleasePage = p;
+    return renderAdminReleases(container);
+  };
+
+  // Country filter row — mirrors the watchlist Country filter. Pushed down to
+  // the API so the count/pagination reflect the filtered set, not just this page.
   const filters = el("div", "admin-filters");
   const sfFilterBar = el("div", "sf-filter-bar");
   const sfButtons = [["All", ""], ...(state.configuredStorefronts || []).map(sf => [sf.toUpperCase(), sf.toLowerCase()])];
@@ -304,7 +324,7 @@ async function renderAdminReleases(container) {
     btn.textContent = label;
     btn.addEventListener("click", () => {
       state.adminReleaseCountry = code;
-      renderAdminReleases(container);
+      gotoPage(1);
     });
     sfFilterBar.appendChild(btn);
   });
@@ -328,7 +348,7 @@ async function renderAdminReleases(container) {
     const btn = el("button", "admin-pill" + (key === state_sort ? " active" : ""), label);
     btn.addEventListener("click", () => {
       state.adminReleaseSort = key;
-      renderAdminReleases(container);
+      gotoPage(1);
     });
     controls.appendChild(btn);
   });
@@ -336,7 +356,7 @@ async function renderAdminReleases(container) {
   const groupBtn = el("button", "admin-pill" + (state.adminGroupByArtist ? " active" : ""), "Group by artist");
   groupBtn.addEventListener("click", () => {
     state.adminGroupByArtist = !state.adminGroupByArtist;
-    renderAdminReleases(container);
+    gotoPage(1);
   });
   controls.appendChild(groupBtn);
 
@@ -362,7 +382,9 @@ async function renderAdminReleases(container) {
 
   let data;
   try {
-    data = await API.get(`/api/admin/releases?sort=${state_sort}`);
+    const qp = new URLSearchParams({ sort: state_sort, page, per_page: ADMIN_RELEASES_PAGE_SIZE });
+    if (country) qp.set("country", country);
+    data = await API.get(`/api/admin/releases?${qp}`);
   } catch {
     listWrap.innerHTML = "";
     listWrap.appendChild(adminEmpty("⚠️", "Could not load releases"));
@@ -371,17 +393,21 @@ async function renderAdminReleases(container) {
 
   listWrap.innerHTML = "";
 
-  // Apply the country filter client-side (the list is small and unpaginated).
-  const items = country
-    ? data.items.filter(r => (r.preferred_source || state.homeStorefront) === country)
-    : data.items;
+  const items = data.items;
 
-  const count = el("div", "admin-count", `${items.length} release${items.length === 1 ? "" : "s"} missing from MusicBrainz`);
+  // If this page came up empty but there are still matching releases (e.g. the
+  // last item on the page was just hidden), snap back to page 1 instead of
+  // showing a false "nothing pending" empty state.
+  if (!items.length && data.total > 0 && page > 1) {
+    return gotoPage(1);
+  }
+
+  const count = el("div", "admin-count", `${data.total} release${data.total === 1 ? "" : "s"} missing from MusicBrainz`);
   listWrap.appendChild(count);
 
   if (!items.length) {
-    const msg = data.total
-      ? "No releases for this country"
+    const msg = country
+      ? `No releases pending for ${country.toUpperCase()}`
       : "No releases pending — everything is seeded or hidden";
     listWrap.appendChild(adminEmpty("✓", msg));
     return;
@@ -459,6 +485,11 @@ async function renderAdminReleases(container) {
     const grid = el("div", "album-grid admin-release-grid");
     items.forEach(r => grid.appendChild(adminReleaseCard(r, rerender)));
     listWrap.appendChild(grid);
+  }
+
+  const totalPages = Math.ceil(data.total / ADMIN_RELEASES_PAGE_SIZE);
+  if (totalPages > 1) {
+    listWrap.appendChild(buildPagination(page, totalPages, gotoPage));
   }
 }
 

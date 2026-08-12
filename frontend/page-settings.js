@@ -161,6 +161,35 @@ async function renderSettings(main) {
   proxyGroup.appendChild(proxyInput);
   form.appendChild(proxyGroup);
 
+  // MusicBrainz Seeding Admin (enable checkbox)
+  const mbGroup = el("div");
+  mbGroup.style.display = "flex";
+  mbGroup.style.flexDirection = "column";
+  mbGroup.style.gap = "8px";
+  const mbRow = el("div");
+  mbRow.style.cssText = "display:flex;align-items:center;gap:8px;";
+  const mbCb = el("input");
+  mbCb.type = "checkbox";
+  mbCb.id = "cfg-mb-scan-enabled";
+  mbCb.checked = cfg.mb_scan_enabled !== false;
+  const mbLabel = el("label", "", "Enable MusicBrainz Seeding Admin");
+  mbLabel.style.fontWeight = "600";
+  mbLabel.htmlFor = "cfg-mb-scan-enabled";
+  mbRow.appendChild(mbCb);
+  mbRow.appendChild(mbLabel);
+  const mbDesc = el(
+    "p",
+    "",
+    "Suggests MusicBrainz artist IDs and flags releases missing from MusicBrainz. " +
+      "When disabled, the background scanner stops running and the Admin page is hidden.",
+  );
+  mbDesc.style.fontSize = "12px";
+  mbDesc.style.color = "var(--text-dim)";
+  mbDesc.style.margin = "0";
+  mbGroup.appendChild(mbRow);
+  mbGroup.appendChild(mbDesc);
+  form.appendChild(mbGroup);
+
   // CLI Scheduler URL
   const cliUrlGroup = el("div");
   cliUrlGroup.style.display = "flex";
@@ -291,6 +320,7 @@ async function renderSettings(main) {
         watchlist_poll_batch_size: isNaN(parsedWlBatch) ? 5 : parsedWlBatch,
         watchlist_refresh_interval_days: isNaN(parsedWlRefresh) ? 7 : parsedWlRefresh,
         cors_proxy: parsedProxy,
+        mb_scan_enabled: mbCb.checked,
         cli_scheduler_url: cliUrlInput.value.trim(),
         cli_scheduler_preset: cliPresetInput.value.trim(),
         timezone: tzInput.value.trim() || "UTC",
@@ -302,6 +332,10 @@ async function renderSettings(main) {
       state.configuredStorefronts = parsedSfs;
       state.homeStorefront = newCfg.home_storefront;
       state.cliSchedulerEnabled = !!(newCfg.cli_scheduler_url);
+      state.mbScanEnabled = newCfg.mb_scan_enabled;
+      const navAdmin = $("nav-admin");
+      if (navAdmin) navAdmin.style.display = state.mbScanEnabled ? "" : "none";
+      if (!state.mbScanEnabled && location.hash.startsWith("#/admin")) location.hash = "#/";
       renderMetaSourceWidget();
 
       saveBtn.textContent = "Saved!";

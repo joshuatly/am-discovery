@@ -30,6 +30,7 @@ beforeAll(() => {
     <a class="nav-link" data-page="releases" href="#/">New</a>
     <a class="nav-link" data-page="all" href="#/all">All</a>
     <a class="nav-link" data-page="watchlist" href="#/watchlist">Watchlist</a>
+    <a class="nav-link" id="nav-admin" data-page="admin" href="#/admin">Admin</a>
     <a class="nav-link" data-page="settings" href="#/settings">Settings</a>
     <button id="sidebar-src-badge"></button>
     <div id="meta-source-chips"></div>
@@ -121,6 +122,7 @@ beforeAll(() => {
     window.__test_renderAdminArtists       = renderAdminArtists;
     window.__test_renderAdminReleases      = renderAdminReleases;
     window.__test_buildHarmonyUrl          = buildHarmonyUrl;
+    window.__test_applyMbScanFeatureFlag   = applyMbScanFeatureFlag;
   `;
   ctx.appWindow.document.head.appendChild(exposeScript);
 });

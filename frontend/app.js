@@ -48,9 +48,26 @@ function route(hash) {
 }
 
 // ---------------------------------------------------------------------------
+// Feature flags
+// ---------------------------------------------------------------------------
+// Fetched once at bootstrap (before the initial route) so the Admin nav link
+// and #/admin route agree from the first paint. Settings saves keep it in
+// sync afterwards (see page-settings.js).
+async function applyMbScanFeatureFlag() {
+  try {
+    const cfg = await API.get("/api/system/config");
+    state.mbScanEnabled = cfg.mb_scan_enabled !== false;
+  } catch {
+    state.mbScanEnabled = true;
+  }
+  const navAdmin = $("nav-admin");
+  if (navAdmin) navAdmin.style.display = state.mbScanEnabled ? "" : "none";
+}
+
+// ---------------------------------------------------------------------------
 // Bootstrap
 // ---------------------------------------------------------------------------
-document.addEventListener("DOMContentLoaded", () => {
+document.addEventListener("DOMContentLoaded", async () => {
   // Routing
   window.addEventListener("hashchange", () => route(location.hash));
   // Re-route on nav click even when hash hasn't changed (e.g. clicking "New Releases" while already on that page)
@@ -92,6 +109,10 @@ document.addEventListener("DOMContentLoaded", () => {
   // Initial status poll
   refreshStatus();
   setInterval(refreshStatus, 10000);
+
+  // Gate the Admin nav link/route before the first render so a bookmarked
+  // #/admin URL doesn't flash the page before redirecting away.
+  await applyMbScanFeatureFlag();
 
   // Initial route
   route(location.hash || "#/");

@@ -139,4 +139,52 @@ describe("renderSettings", () => {
     const body = JSON.parse(putCall[1].body);
     expect(body.cors_proxy).toBe("");
   });
+
+  // ---------------------------------------------------------------------------
+  // MusicBrainz Seeding Admin — enable checkbox
+  // ---------------------------------------------------------------------------
+
+  test("renders the MusicBrainz seeding checkbox checked when enabled", async () => {
+    mockConfigFetch({ ...fullCfg, mb_scan_enabled: true });
+    await ctx.appWindow.__test_renderSettings(main);
+    const cb = main.querySelector("#cfg-mb-scan-enabled");
+    expect(cb).toBeTruthy();
+    expect(cb.checked).toBe(true);
+  });
+
+  test("renders the MusicBrainz seeding checkbox unchecked when disabled", async () => {
+    mockConfigFetch({ ...fullCfg, mb_scan_enabled: false });
+    await ctx.appWindow.__test_renderSettings(main);
+    const cb = main.querySelector("#cfg-mb-scan-enabled");
+    expect(cb.checked).toBe(false);
+  });
+
+  test("defaults the checkbox to checked when mb_scan_enabled is absent from config", async () => {
+    const { mb_scan_enabled, ...cfgWithoutFlag } = fullCfg;
+    mockConfigFetch(cfgWithoutFlag);
+    await ctx.appWindow.__test_renderSettings(main);
+    expect(main.querySelector("#cfg-mb-scan-enabled").checked).toBe(true);
+  });
+
+  test("unchecking the MusicBrainz seeding checkbox saves mb_scan_enabled:false and updates state", async () => {
+    mockConfigFetch({ ...fullCfg, mb_scan_enabled: true });
+    await ctx.appWindow.__test_renderSettings(main);
+
+    main.querySelector("#cfg-mb-scan-enabled").click();
+
+    ctx.appWindow.fetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({ ok: true }),
+    });
+    const saveBtn = Array.from(main.querySelectorAll("button")).find(b => b.textContent.includes("Save"));
+    saveBtn.click();
+    await new Promise(r => setTimeout(r, 50));
+
+    const putCall = ctx.appWindow.fetch.mock.calls.find(
+      ([url, opts]) => url === "/api/system/config" && opts && opts.method === "PUT"
+    );
+    const body = JSON.parse(putCall[1].body);
+    expect(body.mb_scan_enabled).toBe(false);
+    expect(ctx.appWindow.__test_state.mbScanEnabled).toBe(false);
+  });
 });

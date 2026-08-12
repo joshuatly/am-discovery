@@ -180,23 +180,35 @@ class TestApiAdminDeny(ServerTestCase):
 class TestApiAdminReleases(ServerTestCase):
     @patch("api_admin.db")
     def test_lists_releases(self, mock_db):
-        mock_db.get_seeding_releases.return_value = [
-            {
-                "store_adam_id": "A1",
-                "title": "Album",
-                "storefronts": '["tw"]',
-                "artist_name": "Jay",
-                "preferred_source": "tw",
-                "artist_musicbrainz_id": "m",
-                "upc": "111",
-            }
-        ]
+        mock_db.get_seeding_releases.return_value = (
+            [
+                {
+                    "store_adam_id": "A1",
+                    "title": "Album",
+                    "artists_json": '[{"id": "ART1"}]',
+                    "artist_name": "Jay",
+                    "preferred_source": "tw",
+                    "artist_musicbrainz_id": "m",
+                    "upc": "111",
+                }
+            ],
+            1,
+        )
         resp = self.client.get("/api/admin/releases?sort=release_date")
         self.assertEqual(resp.status_code, 200)
         data = resp.get_json()
         self.assertEqual(data["total"], 1)
-        self.assertEqual(data["items"][0]["storefronts"], ["tw"])
-        mock_db.get_seeding_releases.assert_called_once_with(sort="release_date", include_hidden=False)
+        self.assertEqual(data["page"], 1)
+        self.assertEqual(data["per_page"], 48)
+        self.assertEqual(data["items"][0]["artists_json"], [{"id": "ART1"}])
+        mock_db.get_seeding_releases.assert_called_once_with(
+            sort="release_date",
+            include_hidden=False,
+            country="",
+            home_storefront="my",
+            page=1,
+            per_page=48,
+        )
 
     @patch("api_admin.db")
     def test_invalid_sort(self, mock_db):
@@ -204,10 +216,49 @@ class TestApiAdminReleases(ServerTestCase):
         self.assertEqual(resp.status_code, 400)
 
     @patch("api_admin.db")
+    def test_invalid_page(self, mock_db):
+        resp = self.client.get("/api/admin/releases?page=0")
+        self.assertEqual(resp.status_code, 400)
+
+    @patch("api_admin.db")
+    def test_per_page_is_capped(self, mock_db):
+        mock_db.get_seeding_releases.return_value = ([], 0)
+        self.client.get("/api/admin/releases?per_page=9999")
+        _args, kwargs = mock_db.get_seeding_releases.call_args
+        self.assertEqual(kwargs["per_page"], 200)
+
+    @patch("api_admin.db")
+    def test_pagination_params_forwarded(self, mock_db):
+        mock_db.get_seeding_releases.return_value = ([], 0)
+        self.client.get("/api/admin/releases?page=3&per_page=10")
+        mock_db.get_seeding_releases.assert_called_once_with(
+            sort="release_date",
+            include_hidden=False,
+            country="",
+            home_storefront="my",
+            page=3,
+            per_page=10,
+        )
+
+    @patch("api_admin.db")
+    def test_country_filter_forwarded(self, mock_db):
+        mock_db.get_seeding_releases.return_value = ([], 0)
+        self.client.get("/api/admin/releases?country=HK")
+        _args, kwargs = mock_db.get_seeding_releases.call_args
+        self.assertEqual(kwargs["country"], "hk")
+
+    @patch("api_admin.db")
     def test_include_hidden(self, mock_db):
-        mock_db.get_seeding_releases.return_value = []
+        mock_db.get_seeding_releases.return_value = ([], 0)
         self.client.get("/api/admin/releases?include_hidden=true")
-        mock_db.get_seeding_releases.assert_called_once_with(sort="release_date", include_hidden=True)
+        mock_db.get_seeding_releases.assert_called_once_with(
+            sort="release_date",
+            include_hidden=True,
+            country="",
+            home_storefront="my",
+            page=1,
+            per_page=48,
+        )
 
     @patch("api_admin.db")
     def test_hide(self, mock_db):
@@ -235,6 +286,44 @@ class TestApiAdminScanStatus(ServerTestCase):
         resp = self.client.post("/api/admin/scan", json={})
         self.assertEqual(resp.status_code, 202)
         mock_seeding.trigger_scan_now.assert_called_once_with(force=True)
+
+
+class TestApiAdminDisabled(ServerTestCase):
+    """When mb_scan_enabled is off, the whole admin blueprint is gated."""
+
+    def _disable(self):
+        import config
+
+        cfg = config.load_config()
+        cfg["mb_scan_enabled"] = False
+        config.save_config(cfg)
+
+    @patch("api_admin.db")
+    def test_releases_blocked_when_disabled(self, mock_db):
+        self._disable()
+        resp = self.client.get("/api/admin/releases")
+        self.assertEqual(resp.status_code, 403)
+        mock_db.get_seeding_releases.assert_not_called()
+
+    @patch("api_admin.db")
+    def test_artists_blocked_when_disabled(self, mock_db):
+        self._disable()
+        resp = self.client.get("/api/admin/artists")
+        self.assertEqual(resp.status_code, 403)
+        mock_db.get_unlinked_watchlist_artists.assert_not_called()
+
+    @patch("api_admin.seeding")
+    def test_scan_blocked_when_disabled(self, mock_seeding):
+        self._disable()
+        resp = self.client.post("/api/admin/scan", json={})
+        self.assertEqual(resp.status_code, 403)
+        mock_seeding.trigger_scan_now.assert_not_called()
+
+    @patch("api_admin.db")
+    def test_releases_allowed_when_enabled(self, mock_db):
+        mock_db.get_seeding_releases.return_value = ([], 0)
+        resp = self.client.get("/api/admin/releases")
+        self.assertEqual(resp.status_code, 200)
 
 
 if __name__ == "__main__":
