@@ -1,9 +1,13 @@
 """Tests for storefronts.py + storefront_locales.py."""
 
+import contextlib
+import os
+import tempfile
 import unittest
 
+import config
 from storefront_locales import STOREFRONT_LOCALES
-from storefronts import DEFAULT_DISCOVERY_NAMES, DEFAULT_LOCALE, discovery_names_for, locale_for
+from storefronts import DEFAULT_LOCALE, discovery_names_for, fallback_titles, locale_for
 
 
 class TestLocaleFor(unittest.TestCase):
@@ -46,17 +50,57 @@ class TestStorefrontLocalesCoverage(unittest.TestCase):
             self.assertRegex(locale, r"^[a-z]{2,3}(-[A-Za-z0-9]{2,8})*$", msg=f"bad locale for {code}: {locale}")
 
 
-class TestDiscoveryNamesFor(unittest.TestCase):
-    def test_known_storefront_returns_single_name(self):
+# ---------------------------------------------------------------------------
+# discovery_names_for / fallback_titles — sourced from config.json, editable
+# at runtime via the Settings page (PUT /api/system/config), no restart.
+# ---------------------------------------------------------------------------
+
+
+class DiscoveryConfigTestCase(unittest.TestCase):
+    """Isolates config.CONFIG_PATH so these tests don't depend on (or
+    mutate) the real config.json on disk."""
+
+    def setUp(self):
+        self._cfg_fd, self._cfg_path = tempfile.mkstemp(suffix=".json")
+        os.close(self._cfg_fd)
+        os.unlink(self._cfg_path)
+        self._orig_config_path = config.CONFIG_PATH
+        config.CONFIG_PATH = self._cfg_path
+
+    def tearDown(self):
+        config.CONFIG_PATH = self._orig_config_path
+        with contextlib.suppress(FileNotFoundError):
+            os.unlink(self._cfg_path)
+
+
+class TestDiscoveryNamesFor(DiscoveryConfigTestCase):
+    def test_known_storefront_returns_single_name_from_defaults(self):
         self.assertEqual(discovery_names_for("hk"), ["新發行"])
         self.assertEqual(discovery_names_for("jp"), ["ニューリリース"])
         self.assertEqual(discovery_names_for("us"), ["New Releases"])
 
-    def test_unknown_storefront_returns_default_list(self):
+    def test_unknown_storefront_returns_default_fallback_list(self):
         names = discovery_names_for("zz")
-        self.assertEqual(names, DEFAULT_DISCOVERY_NAMES)
+        self.assertEqual(names, config._DEFAULTS["discovery_fallback_titles"])
         names.append("mutated")
-        self.assertNotIn("mutated", DEFAULT_DISCOVERY_NAMES)
+        self.assertNotIn("mutated", fallback_titles())
+
+    def test_configured_name_overrides_default(self):
+        # Simulates editing the Settings page after a storefront's room
+        # title changes on Apple's side — no code change, no restart.
+        cfg = config.load_config()
+        cfg["discovery_names"]["hk"] = "本週新發行"
+        config.save_config(cfg)
+
+        self.assertEqual(discovery_names_for("hk"), ["本週新發行"])
+
+    def test_configured_fallback_titles_override_default(self):
+        cfg = config.load_config()
+        cfg["discovery_fallback_titles"] = ["custom new release title"]
+        config.save_config(cfg)
+
+        self.assertEqual(fallback_titles(), ["custom new release title"])
+        self.assertEqual(discovery_names_for("zz"), ["custom new release title"])
 
 
 if __name__ == "__main__":
