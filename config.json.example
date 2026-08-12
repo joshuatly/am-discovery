@@ -1,14 +1,10 @@
 {
   "cors_proxy": "",
   "check_storefronts": [
-    "jp",
-    "tw",
-    "my",
-    "hk",
-    "sg",
-    "us"
+    "us",
+    "jp"
   ],
-  "home_storefront": "my",
+  "home_storefront": "us",
   "discovery_names": {
     "cn": "本周新发行",
     "hk": "新發行",
