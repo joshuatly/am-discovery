@@ -20,6 +20,10 @@ class ServerTestCase(unittest.TestCase):
 
         self._orig_config_path = config.CONFIG_PATH
         config.CONFIG_PATH = self._cfg_path
+        # mb_scan_enabled defaults to False for fresh installs (config.py
+        # _DEFAULTS); these tests exercise the admin blueprint itself, so
+        # opt back in explicitly rather than relying on the install default.
+        config.save_config({**config.load_config(), "mb_scan_enabled": True})
         import server
 
         self.app = server.app
@@ -205,7 +209,7 @@ class TestApiAdminReleases(ServerTestCase):
             sort="release_date",
             include_hidden=False,
             country="",
-            home_storefront="my",
+            home_storefront="us",
             page=1,
             per_page=48,
         )
@@ -235,7 +239,7 @@ class TestApiAdminReleases(ServerTestCase):
             sort="release_date",
             include_hidden=False,
             country="",
-            home_storefront="my",
+            home_storefront="us",
             page=3,
             per_page=10,
         )
@@ -255,7 +259,7 @@ class TestApiAdminReleases(ServerTestCase):
             sort="release_date",
             include_hidden=True,
             country="",
-            home_storefront="my",
+            home_storefront="us",
             page=1,
             per_page=48,
         )

@@ -75,9 +75,12 @@ class DiscoveryConfigTestCase(unittest.TestCase):
 
 class TestDiscoveryNamesFor(DiscoveryConfigTestCase):
     def test_known_storefront_returns_single_name_from_defaults(self):
-        self.assertEqual(discovery_names_for("hk"), ["新發行"])
-        self.assertEqual(discovery_names_for("jp"), ["ニューリリース"])
-        self.assertEqual(discovery_names_for("us"), ["New Releases"])
+        # discovery_names ships empty by default (config._DEFAULTS) — every
+        # storefront falls back to substring-matching discovery_fallback_titles
+        # until a per-storefront override is configured via the Settings page.
+        self.assertEqual(discovery_names_for("hk"), config._DEFAULTS["discovery_fallback_titles"])
+        self.assertEqual(discovery_names_for("jp"), config._DEFAULTS["discovery_fallback_titles"])
+        self.assertEqual(discovery_names_for("us"), config._DEFAULTS["discovery_fallback_titles"])
 
     def test_unknown_storefront_returns_default_fallback_list(self):
         names = discovery_names_for("zz")

@@ -32,8 +32,7 @@ _DEFAULTS = {
     # that this app does not track. Edit via the Settings page —
     # storefronts.py/client.py re-read config on every discovery call, so
     # changes take effect on the next poll without a restart.
-    "discovery_names": {
-    },
+    "discovery_names": {},
     # Substring fallback used when a storefront has no `discovery_names`
     # entry (amp-api path) and by the /new page scraping path in client.py.
     "discovery_fallback_titles": [
