@@ -77,6 +77,7 @@ beforeAll(() => {
     "page-artist.js",
     "page-watchlist.js",
     "page-settings.js",
+    "page-settings-notifications.js",
     "page-admin.js",
     "app.js",
   ];

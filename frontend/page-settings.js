@@ -5,6 +5,92 @@
 "use strict";
 
 // ---------------------------------------------------------------------------
+// Settings page helpers — section grouping + a plain text/number field
+// ---------------------------------------------------------------------------
+function settingsSectionHeading(title, desc) {
+  const wrap = el("div");
+  wrap.style.cssText = "display:flex;flex-direction:column;gap:4px;";
+  const label = el("div", "", title);
+  label.style.cssText = "font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-dim);";
+  wrap.appendChild(label);
+  if (desc) {
+    const descEl = el("p", "", desc);
+    descEl.style.cssText = "font-size:12px;color:var(--text-secondary);margin:0;";
+    wrap.appendChild(descEl);
+  }
+  return wrap;
+}
+
+function settingsSectionDivider() {
+  const hr = el("div");
+  hr.style.cssText = "border-top:1px solid var(--border);";
+  return hr;
+}
+
+// A labeled text/number input with an optional description, matching the
+// existing field markup exactly (label 600 weight, 12px dim desc).
+function settingsField({ label, desc, value, placeholder, maxWidth, type = "text", min = "1" }) {
+  const group = el("div");
+  group.style.cssText = "display:flex;flex-direction:column;gap:8px;";
+  const labelEl = el("label", "", label);
+  labelEl.style.fontWeight = "600";
+  group.appendChild(labelEl);
+  if (desc) {
+    const descEl = el("p", "", desc);
+    descEl.style.cssText = "font-size:12px;color:var(--text-dim);margin:0;";
+    group.appendChild(descEl);
+  }
+  const input = el("input", "search-input");
+  input.type = type;
+  if (type === "number") input.min = min;
+  input.value = value;
+  if (placeholder) input.placeholder = placeholder;
+  if (maxWidth) input.style.maxWidth = maxWidth;
+  group.appendChild(input);
+  return { group, input };
+}
+
+// A single "Enable X" checkbox + description, used to gate a section's extra
+// fields. Returns the checkbox so callers can wire up show/hide + read it on save.
+function settingsEnableCheckbox({ id, label, desc, checked }) {
+  const group = el("div");
+  group.style.cssText = "display:flex;flex-direction:column;gap:8px;";
+  const row = el("div");
+  row.style.cssText = "display:flex;align-items:center;gap:8px;";
+  const cb = el("input");
+  cb.type = "checkbox";
+  cb.id = id;
+  cb.checked = checked;
+  const cbLabel = el("label", "", label);
+  cbLabel.style.fontWeight = "600";
+  cbLabel.htmlFor = id;
+  row.appendChild(cb);
+  row.appendChild(cbLabel);
+  group.appendChild(row);
+  if (desc) {
+    const descEl = el("p", "", desc);
+    descEl.style.cssText = "font-size:12px;color:var(--text-dim);margin:0;";
+    group.appendChild(descEl);
+  }
+  return { group, cb };
+}
+
+// Shows/hides `target` based on `checkbox`'s checked state, both immediately
+// and on every change — used for the MusicBrainz/CLI Scheduler sub-fields,
+// which are only meaningful once their feature is enabled.
+function bindSettingsToggle(checkbox, target) {
+  const sync = () => {
+    // Restore "flex" explicitly rather than clearing to "" — an empty value
+    // unsets the inline display and falls back to the default block layout,
+    // which silently drops the container's `gap` (block children don't
+    // respect it), collapsing the spacing between the revealed fields.
+    target.style.display = checkbox.checked ? "flex" : "none";
+  };
+  checkbox.addEventListener("change", sync);
+  sync();
+}
+
+// ---------------------------------------------------------------------------
 // Page: Settings
 // ---------------------------------------------------------------------------
 async function renderSettings(main) {
@@ -26,6 +112,11 @@ async function renderSettings(main) {
   form.style.display = "flex";
   form.style.flexDirection = "column";
   form.style.gap = "20px";
+
+  // ---------------------------------------------------------------------
+  // Section: Storefronts & Discovery
+  // ---------------------------------------------------------------------
+  form.appendChild(settingsSectionHeading("Storefronts & Discovery"));
 
   // Check Storefronts
   const sfsGroup = el("div");
@@ -104,226 +195,177 @@ async function renderSettings(main) {
   form.appendChild(discGroup);
 
   // Home Storefront
-  const homeGroup = el("div");
-  homeGroup.style.display = "flex";
-  homeGroup.style.flexDirection = "column";
-  homeGroup.style.gap = "8px";
-  const homeLabel = el("label", "", "Home Storefront");
-  homeLabel.style.fontWeight = "600";
-  const homeDesc = el("p", "", "The storefront your Apple Music account is in. Used as the baseline for tracklist comparisons.");
-  homeDesc.style.fontSize = "12px";
-  homeDesc.style.color = "var(--text-dim)";
-  homeDesc.style.margin = "0";
-  homeGroup.appendChild(homeLabel);
-  homeGroup.appendChild(homeDesc);
-  const homeInput = el("input", "search-input");
-  homeInput.type = "text";
-  homeInput.value = cfg.home_storefront || "my";
-  homeInput.placeholder = "e.g. my";
-  homeInput.style.maxWidth = "120px";
-  homeGroup.appendChild(homeInput);
+  const { group: homeGroup, input: homeInput } = settingsField({
+    label: "Home Storefront",
+    desc: "The storefront your Apple Music account is in. Used as the baseline for tracklist comparisons.",
+    value: cfg.home_storefront || "my",
+    placeholder: "e.g. my",
+    maxWidth: "120px",
+  });
   form.appendChild(homeGroup);
 
-  // Poll Interval
-  const pollGroup = el("div");
-  pollGroup.style.display = "flex";
-  pollGroup.style.flexDirection = "column";
-  pollGroup.style.gap = "8px";
-  const pollLabel = el("label", "", "New Release Poll Interval (days)");
-  pollLabel.style.fontWeight = "600";
-  pollGroup.appendChild(pollLabel);
-  const pollInput = el("input", "search-input");
-  pollInput.type = "number";
-  pollInput.min = "1";
-  pollInput.value = cfg.newrelease_poll_interval_days || 1;
-  pollInput.style.maxWidth = "120px";
-  pollGroup.appendChild(pollInput);
-  form.appendChild(pollGroup);
-
-  // Watchlist Poll Interval
-  const wlPollGroup = el("div");
-  wlPollGroup.style.display = "flex";
-  wlPollGroup.style.flexDirection = "column";
-  wlPollGroup.style.gap = "8px";
-  const wlPollLabel = el("label", "", "Watchlist Poll Interval (minutes)");
-  wlPollLabel.style.fontWeight = "600";
-  const wlPollDesc = el("p", "", "How often to check watched artists for new releases.");
-  wlPollDesc.style.fontSize = "12px";
-  wlPollDesc.style.color = "var(--text-dim)";
-  wlPollDesc.style.margin = "0";
-  wlPollGroup.appendChild(wlPollLabel);
-  wlPollGroup.appendChild(wlPollDesc);
-  const wlPollInput = el("input", "search-input");
-  wlPollInput.type = "number";
-  wlPollInput.min = "1";
-  wlPollInput.value = cfg.watchlist_poll_interval_minutes || 10;
-  wlPollInput.style.maxWidth = "120px";
-  wlPollGroup.appendChild(wlPollInput);
-  form.appendChild(wlPollGroup);
-
-  // Watchlist Poll Batch Size
-  const wlBatchGroup = el("div");
-  wlBatchGroup.style.display = "flex";
-  wlBatchGroup.style.flexDirection = "column";
-  wlBatchGroup.style.gap = "8px";
-  const wlBatchLabel = el("label", "", "Watchlist Poll Batch Size");
-  wlBatchLabel.style.fontWeight = "600";
-  const wlBatchDesc = el("p", "", "Number of watched artists to refresh per poll cycle.");
-  wlBatchDesc.style.fontSize = "12px";
-  wlBatchDesc.style.color = "var(--text-dim)";
-  wlBatchDesc.style.margin = "0";
-  wlBatchGroup.appendChild(wlBatchLabel);
-  wlBatchGroup.appendChild(wlBatchDesc);
-  const wlBatchInput = el("input", "search-input");
-  wlBatchInput.type = "number";
-  wlBatchInput.min = "1";
-  wlBatchInput.value = cfg.watchlist_poll_batch_size || 5;
-  wlBatchInput.style.maxWidth = "120px";
-  wlBatchGroup.appendChild(wlBatchInput);
-  form.appendChild(wlBatchGroup);
-
-  // Watchlist Refresh Interval
-  const wlRefreshGroup = el("div");
-  wlRefreshGroup.style.display = "flex";
-  wlRefreshGroup.style.flexDirection = "column";
-  wlRefreshGroup.style.gap = "8px";
-  const wlRefreshLabel = el("label", "", "Watchlist Artist Refresh Interval (days)");
-  wlRefreshLabel.style.fontWeight = "600";
-  const wlRefreshDesc = el("p", "", "Days before a watched artist's catalog is considered stale and re-fetched.");
-  wlRefreshDesc.style.fontSize = "12px";
-  wlRefreshDesc.style.color = "var(--text-dim)";
-  wlRefreshDesc.style.margin = "0";
-  wlRefreshGroup.appendChild(wlRefreshLabel);
-  wlRefreshGroup.appendChild(wlRefreshDesc);
-  const wlRefreshInput = el("input", "search-input");
-  wlRefreshInput.type = "number";
-  wlRefreshInput.min = "1";
-  wlRefreshInput.value = cfg.watchlist_refresh_interval_days || 7;
-  wlRefreshInput.style.maxWidth = "120px";
-  wlRefreshGroup.appendChild(wlRefreshInput);
-  form.appendChild(wlRefreshGroup);
-
   // CORS Proxy
-  const proxyGroup = el("div");
-  proxyGroup.style.display = "flex";
-  proxyGroup.style.flexDirection = "column";
-  proxyGroup.style.gap = "8px";
-  const proxyLabel = el("label", "", "CORS Proxy");
-  proxyLabel.style.fontWeight = "600";
-  const proxyDesc = el("p", "", "Optional URL prefix to proxy outgoing Apple Music requests through. Leave blank to disable.");
-  proxyDesc.style.fontSize = "12px";
-  proxyDesc.style.color = "var(--text-dim)";
-  proxyDesc.style.margin = "0";
-  proxyGroup.appendChild(proxyLabel);
-  proxyGroup.appendChild(proxyDesc);
-  const proxyInput = el("input", "search-input");
-  proxyInput.type = "text";
-  proxyInput.value = cfg.cors_proxy || "";
-  proxyInput.placeholder = "e.g. https://proxy.example.com/";
-  proxyGroup.appendChild(proxyInput);
+  const { group: proxyGroup, input: proxyInput } = settingsField({
+    label: "CORS Proxy",
+    desc: "Optional URL prefix to proxy outgoing Apple Music requests through. Leave blank to disable.",
+    value: cfg.cors_proxy || "",
+    placeholder: "e.g. https://proxy.example.com/",
+  });
   form.appendChild(proxyGroup);
 
-  // MusicBrainz Seeding Admin (enable checkbox)
-  const mbGroup = el("div");
-  mbGroup.style.display = "flex";
-  mbGroup.style.flexDirection = "column";
-  mbGroup.style.gap = "8px";
-  const mbRow = el("div");
-  mbRow.style.cssText = "display:flex;align-items:center;gap:8px;";
-  const mbCb = el("input");
-  mbCb.type = "checkbox";
-  mbCb.id = "cfg-mb-scan-enabled";
-  mbCb.checked = cfg.mb_scan_enabled !== false;
-  const mbLabel = el("label", "", "Enable MusicBrainz Seeding Admin");
-  mbLabel.style.fontWeight = "600";
-  mbLabel.htmlFor = "cfg-mb-scan-enabled";
-  mbRow.appendChild(mbCb);
-  mbRow.appendChild(mbLabel);
-  const mbDesc = el(
-    "p",
-    "",
-    "Suggests MusicBrainz artist IDs and flags releases missing from MusicBrainz. " +
+  // Timezone
+  const { group: tzGroup, input: tzInput } = settingsField({
+    label: "Timezone",
+    desc:
+      "IANA timezone name used to format timestamps in notifications and API responses. " +
+      "Examples: UTC, Asia/Hong_Kong, America/New_York, Europe/London. Defaults to UTC.",
+    value: cfg.timezone || "UTC",
+    placeholder: "UTC",
+    maxWidth: "240px",
+  });
+  form.appendChild(tzGroup);
+
+  // ---------------------------------------------------------------------
+  // Section: Polling Intervals & Batch Sizes
+  // ---------------------------------------------------------------------
+  form.appendChild(settingsSectionDivider());
+  form.appendChild(settingsSectionHeading("Polling Intervals & Batch Sizes"));
+
+  const { group: pollGroup, input: pollInput } = settingsField({
+    label: "New Release Poll Interval (days)",
+    value: cfg.newrelease_poll_interval_days || 1,
+    type: "number",
+    maxWidth: "120px",
+  });
+  form.appendChild(pollGroup);
+
+  const { group: wlPollGroup, input: wlPollInput } = settingsField({
+    label: "Watchlist Poll Interval (minutes)",
+    desc: "How often to check watched artists for new releases.",
+    value: cfg.watchlist_poll_interval_minutes || 10,
+    type: "number",
+    maxWidth: "120px",
+  });
+  form.appendChild(wlPollGroup);
+
+  const { group: wlBatchGroup, input: wlBatchInput } = settingsField({
+    label: "Watchlist Poll Batch Size",
+    desc: "Number of watched artists to refresh per poll cycle.",
+    value: cfg.watchlist_poll_batch_size || 5,
+    type: "number",
+    maxWidth: "120px",
+  });
+  form.appendChild(wlBatchGroup);
+
+  const { group: wlRefreshGroup, input: wlRefreshInput } = settingsField({
+    label: "Watchlist Artist Refresh Interval (days)",
+    desc: "Days before a watched artist's catalog is considered stale and re-fetched.",
+    value: cfg.watchlist_refresh_interval_days || 7,
+    type: "number",
+    maxWidth: "120px",
+  });
+  form.appendChild(wlRefreshGroup);
+
+  // ---------------------------------------------------------------------
+  // Section: MusicBrainz Seeding — the enable checkbox is always shown;
+  // its own interval/batch fields only matter (and only render visibly)
+  // once the feature is on.
+  // ---------------------------------------------------------------------
+  form.appendChild(settingsSectionDivider());
+  form.appendChild(settingsSectionHeading("MusicBrainz Seeding"));
+
+  const { group: mbGroup, cb: mbCb } = settingsEnableCheckbox({
+    id: "cfg-mb-scan-enabled",
+    label: "Enable MusicBrainz Seeding Admin",
+    desc:
+      "Suggests MusicBrainz artist IDs and flags releases missing from MusicBrainz. " +
       "When disabled, the background scanner stops running and the Admin page is hidden.",
-  );
-  mbDesc.style.fontSize = "12px";
-  mbDesc.style.color = "var(--text-dim)";
-  mbDesc.style.margin = "0";
-  mbGroup.appendChild(mbRow);
-  mbGroup.appendChild(mbDesc);
+    checked: cfg.mb_scan_enabled !== false,
+  });
   form.appendChild(mbGroup);
 
-  // CLI Scheduler URL
-  const cliUrlGroup = el("div");
-  cliUrlGroup.style.display = "flex";
-  cliUrlGroup.style.flexDirection = "column";
-  cliUrlGroup.style.gap = "8px";
-  const cliUrlLabel = el("label", "", "CLI Scheduler URL");
-  cliUrlLabel.style.fontWeight = "600";
-  const cliUrlDesc = el("p", "", "Base URL of your CLI Scheduler instance. Leave blank to disable.");
-  cliUrlDesc.style.fontSize = "12px";
-  cliUrlDesc.style.color = "var(--text-dim)";
-  cliUrlDesc.style.margin = "0";
-  cliUrlGroup.appendChild(cliUrlLabel);
-  cliUrlGroup.appendChild(cliUrlDesc);
-  const cliUrlInput = el("input", "search-input");
-  cliUrlInput.type = "text";
-  cliUrlInput.value = cfg.cli_scheduler_url || "";
-  cliUrlInput.placeholder = "http://192.168.5.198:5000";
-  cliUrlGroup.appendChild(cliUrlInput);
-  form.appendChild(cliUrlGroup);
+  const mbExtra = el("div");
+  mbExtra.style.cssText = "display:flex;flex-direction:column;gap:20px;";
+  form.appendChild(mbExtra);
 
-  // CLI Scheduler Preset
-  const cliPresetGroup = el("div");
-  cliPresetGroup.style.display = "flex";
-  cliPresetGroup.style.flexDirection = "column";
-  cliPresetGroup.style.gap = "8px";
-  const cliPresetLabel = el("label", "", "CLI Scheduler Preset");
-  cliPresetLabel.style.fontWeight = "600";
-  const cliPresetDesc = el("p", "", "Preset name to use when submitting jobs to the CLI Scheduler.");
-  cliPresetDesc.style.fontSize = "12px";
-  cliPresetDesc.style.color = "var(--text-dim)";
-  cliPresetDesc.style.margin = "0";
-  cliPresetGroup.appendChild(cliPresetLabel);
-  cliPresetGroup.appendChild(cliPresetDesc);
-  const cliPresetInput = el("input", "search-input");
-  cliPresetInput.type = "text";
-  cliPresetInput.value = cfg.cli_scheduler_preset || "";
-  cliPresetInput.placeholder = "e.g. amdl";
-  cliPresetGroup.appendChild(cliPresetInput);
-  form.appendChild(cliPresetGroup);
+  const { group: mbIntervalGroup, input: mbIntervalInput } = settingsField({
+    label: "MusicBrainz Scan Interval (minutes)",
+    desc: "How often the seeding scanner runs a cycle.",
+    value: cfg.mb_scan_interval_minutes || 60,
+    type: "number",
+    maxWidth: "120px",
+  });
+  mbExtra.appendChild(mbIntervalGroup);
 
-  // Timezone
-  const tzGroup = el("div");
-  tzGroup.style.display = "flex";
-  tzGroup.style.flexDirection = "column";
-  tzGroup.style.gap = "8px";
-  const tzLabel = el("label", "", "Timezone");
-  tzLabel.style.fontWeight = "600";
-  const tzDesc = el(
-    "p",
-    "",
-    "IANA timezone name used to format timestamps in notifications and API responses. " +
-      "Examples: UTC, Asia/Hong_Kong, America/New_York, Europe/London. Defaults to UTC.",
-  );
-  tzDesc.style.fontSize = "12px";
-  tzDesc.style.color = "var(--text-dim)";
-  tzDesc.style.margin = "0";
-  tzGroup.appendChild(tzLabel);
-  tzGroup.appendChild(tzDesc);
-  const tzInput = el("input", "search-input");
-  tzInput.type = "text";
-  tzInput.value = cfg.timezone || "UTC";
-  tzInput.placeholder = "UTC";
-  tzInput.style.maxWidth = "240px";
-  tzGroup.appendChild(tzInput);
-  form.appendChild(tzGroup);
+  const { group: mbBatchGroup, input: mbBatchInput } = settingsField({
+    label: "MusicBrainz Artist Batch Size",
+    desc: "Artists processed per seeding-scan phase per cycle. Keep small — MusicBrainz allows ~1 request/sec.",
+    value: cfg.mb_scan_artist_batch || 3,
+    type: "number",
+    maxWidth: "120px",
+  });
+  mbExtra.appendChild(mbBatchGroup);
+
+  const { group: mbRecheckGroup, input: mbRecheckInput } = settingsField({
+    label: "MusicBrainz Artist Recheck Interval (days)",
+    desc: "Minimum days before re-scanning an already-checked artist for an MBID or new releases.",
+    value: cfg.mb_artist_recheck_days || 7,
+    type: "number",
+    maxWidth: "120px",
+  });
+  mbExtra.appendChild(mbRecheckGroup);
+
+  bindSettingsToggle(mbCb, mbExtra);
+
+  // ---------------------------------------------------------------------
+  // Section: CLI Scheduler — same enable/reveal pattern as MusicBrainz.
+  // "Enabled" is derived from cli_scheduler_url being non-empty (there's no
+  // separate boolean in config); unchecking clears the URL on save.
+  // ---------------------------------------------------------------------
+  form.appendChild(settingsSectionDivider());
+  form.appendChild(settingsSectionHeading("CLI Scheduler"));
+
+  const { group: cliEnabledGroup, cb: cliEnabledCb } = settingsEnableCheckbox({
+    id: "cfg-cli-scheduler-enabled",
+    label: "Enable CLI Scheduler",
+    desc: "Send albums to an external CLI Scheduler instance for automated downloading.",
+    checked: !!cfg.cli_scheduler_url,
+  });
+  form.appendChild(cliEnabledGroup);
+
+  const cliExtra = el("div");
+  cliExtra.style.cssText = "display:flex;flex-direction:column;gap:20px;";
+  form.appendChild(cliExtra);
+
+  const { group: cliUrlGroup, input: cliUrlInput } = settingsField({
+    label: "CLI Scheduler URL",
+    desc: "Base URL of your CLI Scheduler instance.",
+    value: cfg.cli_scheduler_url || "",
+    placeholder: "http://192.168.5.198:5000",
+  });
+  cliExtra.appendChild(cliUrlGroup);
+
+  const { group: cliPresetGroup, input: cliPresetInput } = settingsField({
+    label: "CLI Scheduler Preset",
+    desc: "Preset name to use when submitting jobs to the CLI Scheduler.",
+    value: cfg.cli_scheduler_preset || "",
+    placeholder: "e.g. amdl",
+  });
+  cliExtra.appendChild(cliPresetGroup);
+
+  bindSettingsToggle(cliEnabledCb, cliExtra);
 
   const errorMsg = el("div", "");
   errorMsg.style.color = "red";
   errorMsg.style.display = "none";
   form.appendChild(errorMsg);
 
-  // Notification Events
+  // ---------------------------------------------------------------------
+  // Section: Notifications
+  // ---------------------------------------------------------------------
+  form.appendChild(settingsSectionDivider());
+  form.appendChild(settingsSectionHeading("Notifications"));
+
   const notifGroup = el("div");
   notifGroup.style.cssText = "display:flex;flex-direction:column;gap:12px;";
   const notifLabel = el("label", "", "Notification Events");
@@ -373,6 +415,9 @@ async function renderSettings(main) {
       const parsedWlBatch = parseInt(wlBatchInput.value, 10);
       const parsedWlRefresh = parseInt(wlRefreshInput.value, 10);
       const parsedProxy = proxyInput.value.trim();
+      const parsedMbInterval = parseInt(mbIntervalInput.value, 10);
+      const parsedMbBatch = parseInt(mbBatchInput.value, 10);
+      const parsedMbRecheck = parseInt(mbRecheckInput.value, 10);
       const parsedDiscNames = { ...(cfg.discovery_names || {}) };
       for (const { code, input } of discRows) {
         const v = input.value.trim();
@@ -395,7 +440,10 @@ async function renderSettings(main) {
         watchlist_refresh_interval_days: isNaN(parsedWlRefresh) ? 7 : parsedWlRefresh,
         cors_proxy: parsedProxy,
         mb_scan_enabled: mbCb.checked,
-        cli_scheduler_url: cliUrlInput.value.trim(),
+        mb_scan_interval_minutes: isNaN(parsedMbInterval) ? 60 : parsedMbInterval,
+        mb_scan_artist_batch: isNaN(parsedMbBatch) ? 3 : parsedMbBatch,
+        mb_artist_recheck_days: isNaN(parsedMbRecheck) ? 7 : parsedMbRecheck,
+        cli_scheduler_url: cliEnabledCb.checked ? cliUrlInput.value.trim() : "",
         cli_scheduler_preset: cliPresetInput.value.trim(),
         timezone: tzInput.value.trim() || "UTC",
       };
@@ -427,11 +475,12 @@ async function renderSettings(main) {
   form.appendChild(saveBtn);
   wrap.appendChild(form);
 
-  // Watchlist import/export
+  // ---------------------------------------------------------------------
+  // Section: Backup / Restore
+  // ---------------------------------------------------------------------
   const wlSection = el("div", "");
   wlSection.style.cssText = "max-width:600px;margin-top:32px;display:flex;flex-direction:column;gap:12px;";
-  const wlTitle = el("div", "", "Watchlist");
-  wlTitle.style.cssText = "font-weight:600;font-size:15px;";
+  wlSection.appendChild(settingsSectionHeading("Backup / Restore"));
   const wlDesc = el("p", "", "Export your watchlist as a JSON backup, or import a previously exported file.");
   wlDesc.style.cssText = "font-size:12px;color:var(--text-dim);margin:0;";
   const wlButtons = el("div", "");
@@ -467,332 +516,7 @@ async function renderSettings(main) {
 
   wlButtons.appendChild(exportBtn);
   wlButtons.appendChild(importBtn);
-  wlSection.appendChild(wlTitle);
   wlSection.appendChild(wlDesc);
   wlSection.appendChild(wlButtons);
   wrap.appendChild(wlSection);
-}
-
-// ---------------------------------------------------------------------------
-// Notification events — list row rendering
-// ---------------------------------------------------------------------------
-
-const NOTIF_EVENT_LABELS = {
-  onDiscoveryComplete: "Discovery complete",
-  onDiscoveryFailed: "Discovery failed",
-  onArtistNewRelease: "Watched artist: new release",
-  onArtistNewSingle: "Watched artist: new single",
-  onWatchlistBatchComplete: "Watchlist batch complete",
-};
-
-function _notifTruncateUrl(url, max = 40) {
-  if (!url) return "(no URL)";
-  return url.length > max ? url.slice(0, max - 1) + "…" : url;
-}
-
-function renderNotificationEvents(container, events, eventTypesMeta, onChange) {
-  container.innerHTML = "";
-  if (!events.length) {
-    const empty = el("div", "empty-state", "");
-    empty.innerHTML = `<div class="empty-title">No notification events configured</div>`;
-    container.appendChild(empty);
-    return;
-  }
-  for (const ev of events) {
-    const row = el("div");
-    row.style.cssText =
-      "display:flex;align-items:center;gap:12px;padding:10px 12px;" +
-      "background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-md);";
-
-    const info = el("div");
-    info.style.cssText = "flex:1;display:flex;flex-direction:column;gap:2px;min-width:0;";
-    const typeLabel = el("div", "", NOTIF_EVENT_LABELS[ev.event_type] || ev.event_type);
-    typeLabel.style.cssText = "font-weight:600;font-size:13px;";
-    const urlLabel = el("div", "", _notifTruncateUrl(ev.apprise_url));
-    urlLabel.style.cssText = "font-size:11px;color:var(--text-dim);overflow:hidden;text-overflow:ellipsis;";
-    info.appendChild(typeLabel);
-    info.appendChild(urlLabel);
-    if (ev.disabled_reason === "max_failures") {
-      const badge = el("div", "", "auto-disabled");
-      badge.style.cssText = "font-size:10px;color:#f85149;font-weight:600;";
-      info.appendChild(badge);
-    }
-    row.appendChild(info);
-
-    const enabled = el("input");
-    enabled.type = "checkbox";
-    enabled.checked = !!ev.enabled;
-    enabled.title = "Enabled";
-    enabled.addEventListener("change", async () => {
-      try {
-        await API.put(`/api/notifications/${ev.id}`, {
-          enabled: enabled.checked,
-          // Clear the auto-disable reason if the user re-enables.
-          disabled_reason: enabled.checked ? null : ev.disabled_reason,
-          consecutive_failures: enabled.checked ? 0 : ev.consecutive_failures,
-        });
-      } finally {
-        onChange();
-      }
-    });
-    row.appendChild(enabled);
-
-    const testBtn = el("button", "btn-secondary", "Test");
-    testBtn.style.cssText = "padding:4px 10px;font-size:11px;";
-    testBtn.addEventListener("click", async () => {
-      const orig = testBtn.textContent;
-      testBtn.disabled = true;
-      testBtn.textContent = "Sending…";
-      try {
-        const resp = await API.post(`/api/notifications/${ev.id}/test`, {});
-        testBtn.textContent = resp.ok ? "✓ Sent" : "✗ Error";
-      } catch {
-        testBtn.textContent = "✗ Error";
-      }
-      setTimeout(() => {
-        testBtn.textContent = orig;
-        testBtn.disabled = false;
-      }, 2000);
-    });
-    row.appendChild(testBtn);
-
-    const editBtn = el("button", "btn-secondary", "Edit");
-    editBtn.style.cssText = "padding:4px 10px;font-size:11px;";
-    editBtn.addEventListener("click", () => openNotificationEventModal(ev, eventTypesMeta, onChange));
-    row.appendChild(editBtn);
-
-    const delBtn = el("button", "btn-secondary", "Delete");
-    delBtn.style.cssText = "padding:4px 10px;font-size:11px;";
-    delBtn.addEventListener("click", async () => {
-      if (!confirm("Delete this notification event?")) return;
-      await API.del(`/api/notifications/${ev.id}`);
-      onChange();
-    });
-    row.appendChild(delBtn);
-
-    container.appendChild(row);
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Notification events — edit modal
-// ---------------------------------------------------------------------------
-
-function openNotificationEventModal(existing, eventTypesMeta, onSaved) {
-  const overlay = $("modal-overlay");
-  const body = $("modal-body");
-  overlay.style.display = "flex";
-  body.innerHTML = "";
-
-  const wrap = el("div");
-  wrap.style.cssText = "padding:24px;display:flex;flex-direction:column;gap:16px;max-width:560px;";
-  body.appendChild(wrap);
-
-  const heading = el("div", "", existing ? "Edit notification event" : "Add notification event");
-  heading.style.cssText = "font-weight:700;font-size:16px;";
-  wrap.appendChild(heading);
-
-  // Event type select
-  const typeGroup = el("div");
-  typeGroup.style.cssText = "display:flex;flex-direction:column;gap:6px;";
-  const typeLbl = el("label", "", "Event type");
-  typeLbl.style.cssText = "font-weight:600;font-size:12px;";
-  const typeSel = el("select", "search-input");
-  for (const meta of eventTypesMeta) {
-    const opt = el("option");
-    opt.value = meta.event_type;
-    opt.textContent = NOTIF_EVENT_LABELS[meta.event_type] || meta.event_type;
-    typeSel.appendChild(opt);
-  }
-  typeSel.value = existing?.event_type || eventTypesMeta[0]?.event_type;
-  typeGroup.appendChild(typeLbl);
-  typeGroup.appendChild(typeSel);
-  wrap.appendChild(typeGroup);
-
-  // Apprise URL
-  const urlGroup = el("div");
-  urlGroup.style.cssText = "display:flex;flex-direction:column;gap:6px;";
-  const urlLbl = el("label", "", "Apprise URL");
-  urlLbl.style.cssText = "font-weight:600;font-size:12px;";
-  const urlInput = el("input", "search-input");
-  urlInput.type = "text";
-  urlInput.placeholder = "http://192.168.5.201:8100/notify/apprise";
-  urlInput.value = existing?.apprise_url || "";
-  urlGroup.appendChild(urlLbl);
-  urlGroup.appendChild(urlInput);
-  wrap.appendChild(urlGroup);
-
-  // Title template
-  const titleGroup = el("div");
-  titleGroup.style.cssText = "display:flex;flex-direction:column;gap:6px;";
-  const titleLbl = el("label", "", "Title template");
-  titleLbl.style.cssText = "font-weight:600;font-size:12px;";
-  const titleInput = el("input", "search-input");
-  titleInput.type = "text";
-  titleGroup.appendChild(titleLbl);
-  titleGroup.appendChild(titleInput);
-  wrap.appendChild(titleGroup);
-
-  // Body template
-  const bodyGroup = el("div");
-  bodyGroup.style.cssText = "display:flex;flex-direction:column;gap:6px;";
-  const bodyLbl = el("label", "", "Body template");
-  bodyLbl.style.cssText = "font-weight:600;font-size:12px;";
-  const bodyInput = el("textarea", "search-input");
-  bodyInput.rows = 4;
-  bodyInput.style.fontFamily = "inherit";
-  bodyGroup.appendChild(bodyLbl);
-  bodyGroup.appendChild(bodyInput);
-  wrap.appendChild(bodyGroup);
-
-  // Variables panel
-  const varsGroup = el("div");
-  varsGroup.style.cssText = "display:flex;flex-direction:column;gap:6px;";
-  const varsLbl = el("label", "", "Available variables (click to insert into body)");
-  varsLbl.style.cssText = "font-weight:600;font-size:12px;";
-  const varsChips = el("div");
-  varsChips.style.cssText = "display:flex;flex-wrap:wrap;gap:6px;";
-  varsGroup.appendChild(varsLbl);
-  varsGroup.appendChild(varsChips);
-  wrap.appendChild(varsGroup);
-
-  // Notification type
-  const ntGroup = el("div");
-  ntGroup.style.cssText = "display:flex;flex-direction:column;gap:6px;";
-  const ntLbl = el("label", "", "Notification type");
-  ntLbl.style.cssText = "font-weight:600;font-size:12px;";
-  const ntSel = el("select", "search-input");
-  for (const t of ["info", "success", "warning", "failure"]) {
-    const opt = el("option");
-    opt.value = t;
-    opt.textContent = t;
-    ntSel.appendChild(opt);
-  }
-  ntSel.value = existing?.notification_type || "info";
-  ntGroup.appendChild(ntLbl);
-  ntGroup.appendChild(ntSel);
-  wrap.appendChild(ntGroup);
-
-  // Enabled
-  const enabledRow = el("label");
-  enabledRow.style.cssText = "display:flex;align-items:center;gap:8px;font-size:13px;";
-  const enabledCb = el("input");
-  enabledCb.type = "checkbox";
-  enabledCb.checked = existing ? !!existing.enabled : true;
-  enabledRow.appendChild(enabledCb);
-  enabledRow.appendChild(document.createTextNode("Enabled"));
-  wrap.appendChild(enabledRow);
-
-  // Feedback + buttons
-  const feedback = el("div");
-  feedback.style.cssText = "font-size:12px;min-height:16px;";
-  wrap.appendChild(feedback);
-
-  const btnRow = el("div");
-  btnRow.style.cssText = "display:flex;gap:8px;justify-content:flex-end;";
-  const cancelBtn = el("button", "btn-secondary", "Cancel");
-  const testBtn = el("button", "btn-secondary", "Test");
-  const saveBtn = el("button", "btn-primary", existing ? "Save" : "Create");
-  btnRow.appendChild(cancelBtn);
-  btnRow.appendChild(testBtn);
-  btnRow.appendChild(saveBtn);
-  wrap.appendChild(btnRow);
-
-  // --- Behaviour: populate templates + vars for the selected type ---
-  function syncForType() {
-    const meta = eventTypesMeta.find(m => m.event_type === typeSel.value);
-    if (!meta) return;
-    // Only overwrite templates/notification_type when they're blank (so we don't clobber user edits).
-    if (!titleInput.value) titleInput.value = meta.default_title || "";
-    if (!bodyInput.value) bodyInput.value = meta.default_body || "";
-    if (!existing && ntSel.value === "info") ntSel.value = meta.default_notification_type || "info";
-    // Rebuild chips
-    varsChips.innerHTML = "";
-    for (const v of meta.variables || []) {
-      const chip = el("code", "", `{${v}}`);
-      chip.style.cssText =
-        "padding:2px 8px;background:var(--bg-card);border:1px solid var(--border);" +
-        "border-radius:999px;font-size:11px;cursor:pointer;";
-      chip.addEventListener("click", () => {
-        const token = `{${v}}`;
-        // Insert into whichever field is focused — body textarea by default.
-        const target = document.activeElement === titleInput ? titleInput : bodyInput;
-        const start = target.selectionStart ?? target.value.length;
-        const end = target.selectionEnd ?? target.value.length;
-        target.value = target.value.slice(0, start) + token + target.value.slice(end);
-        const pos = start + token.length;
-        target.focus();
-        target.setSelectionRange(pos, pos);
-      });
-      varsChips.appendChild(chip);
-    }
-  }
-
-  // Prefill with existing values first, then sync (which only fills blanks).
-  titleInput.value = existing?.title_template || "";
-  bodyInput.value = existing?.body_template || "";
-  syncForType();
-
-  typeSel.addEventListener("change", () => {
-    // On type change, if current templates match the previous type's defaults, overwrite them.
-    // Simpler heuristic: if templates are blank OR match any known default, overwrite.
-    const priorMatches = eventTypesMeta.some(
-      m => titleInput.value === (m.default_title || "") && bodyInput.value === (m.default_body || ""),
-    );
-    if (priorMatches) {
-      titleInput.value = "";
-      bodyInput.value = "";
-    }
-    syncForType();
-  });
-
-  function collect() {
-    return {
-      event_type: typeSel.value,
-      apprise_url: urlInput.value.trim(),
-      title_template: titleInput.value,
-      body_template: bodyInput.value,
-      notification_type: ntSel.value,
-      enabled: enabledCb.checked,
-    };
-  }
-
-  cancelBtn.addEventListener("click", closeModal);
-
-  testBtn.addEventListener("click", async () => {
-    feedback.style.color = "var(--text-dim)";
-    feedback.textContent = "Sending test…";
-    try {
-      const resp = await API.post("/api/notifications/test", collect());
-      if (resp.ok) {
-        feedback.style.color = "#34d399";
-        feedback.textContent = `✓ Sent (${resp.message || "OK"})`;
-      } else {
-        feedback.style.color = "#f85149";
-        feedback.textContent = `✗ ${resp.message || "Error"}`;
-      }
-    } catch (e) {
-      feedback.style.color = "#f85149";
-      feedback.textContent = `✗ ${e.message || "Error"}`;
-    }
-  });
-
-  saveBtn.addEventListener("click", async () => {
-    feedback.textContent = "";
-    saveBtn.disabled = true;
-    try {
-      const payload = collect();
-      if (existing) {
-        await API.put(`/api/notifications/${existing.id}`, payload);
-      } else {
-        await API.post("/api/notifications", payload);
-      }
-      closeModal();
-      onSaved();
-    } catch (e) {
-      feedback.style.color = "#f85149";
-      feedback.textContent = `✗ ${e.message || "Save failed"}`;
-      saveBtn.disabled = false;
-    }
-  });
 }
