@@ -1,13 +1,38 @@
 """Unit tests for AppleMusicClient in client.py."""
 
 import base64
+import contextlib
 import json
+import os
+import tempfile
 import time
 import unittest
 import urllib.error
 from unittest.mock import MagicMock, mock_open, patch
 
+import config
 from client import AppleMusicClient, RateLimitError
+
+
+class _ConfigIsolatedMixin:
+    """Points config.CONFIG_PATH at a scratch file so discovery-title
+    lookups (which now read `discovery_fallback_titles` from config) don't
+    depend on the real config.json on disk."""
+
+    def setUp(self):
+        self._cfg_fd, self._cfg_path = tempfile.mkstemp(suffix=".json")
+        os.close(self._cfg_fd)
+        os.unlink(self._cfg_path)
+        self._orig_config_path = config.CONFIG_PATH
+        config.CONFIG_PATH = self._cfg_path
+        super().setUp()
+
+    def tearDown(self):
+        config.CONFIG_PATH = self._orig_config_path
+        with contextlib.suppress(FileNotFoundError):
+            os.unlink(self._cfg_path)
+        super().tearDown()
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -456,8 +481,9 @@ class TestGetAlbumFullInfo(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 
-class TestGetRoomNewReleases(unittest.TestCase):
+class TestGetRoomNewReleases(_ConfigIsolatedMixin, unittest.TestCase):
     def setUp(self):
+        super().setUp()
         self.client = _make_client()
 
     @patch.object(AppleMusicClient, "_web_get")
@@ -518,6 +544,36 @@ class TestGetRoomNewReleases(unittest.TestCase):
     def test_returns_empty_when_web_get_fails(self, mock_web_get):
         mock_web_get.return_value = None
         self.assertEqual(self.client.get_room_new_releases("https://example.com", "us"), [])
+
+    @patch.object(AppleMusicClient, "_web_get")
+    def test_matches_section_via_configured_fallback_title(self, mock_web_get):
+        # Simulates fixing a broken match from the Settings page: a section
+        # titled in a way the default fallback list doesn't cover.
+        cfg = config.load_config()
+        cfg["discovery_fallback_titles"] = ["custom new drops"]
+        config.save_config(cfg)
+
+        sections = [
+            {
+                "header": "Custom New Drops",
+                "items": [
+                    {
+                        "item": {
+                            "attributes": {
+                                "title": "Test Album",
+                                "artistName": "Test Artist",
+                                "url": "https://music.apple.com/us/album/test/123456789",
+                            },
+                        },
+                    },
+                ],
+            },
+        ]
+        mock_web_get.return_value = ROOM_HTML_TEMPLATE.format(payload=_make_room_payload(sections))
+
+        releases = self.client.get_room_new_releases("https://example.com", "us")
+        self.assertEqual(len(releases), 1)
+        self.assertEqual(releases[0]["title"], "Test Album")
 
 
 # ---------------------------------------------------------------------------
@@ -940,8 +996,9 @@ def _make_room_albums_response(count, start=1, storefront="us"):
     return {"resources": {"albums": albums}}
 
 
-class TestDiscoverNewReleaseRoomId(unittest.TestCase):
+class TestDiscoverNewReleaseRoomId(_ConfigIsolatedMixin, unittest.TestCase):
     def setUp(self):
+        super().setUp()
         self.client = _make_client()
 
     def test_matches_localized_title(self):
@@ -1219,8 +1276,9 @@ class TestDiscoverNewReleases(unittest.TestCase):
             self.client.discover_new_releases("us")
 
 
-class TestDiscoverRoomUrl(unittest.TestCase):
+class TestDiscoverRoomUrl(_ConfigIsolatedMixin, unittest.TestCase):
     def setUp(self):
+        super().setUp()
         self.client = _make_client()
 
     def _make_new_page_html(self, room_path, title="New Releases"):
@@ -1255,6 +1313,17 @@ class TestDiscoverRoomUrl(unittest.TestCase):
     @patch.object(AppleMusicClient, "_web_get")
     def test_returns_none_when_web_get_fails(self, mock_web_get):
         mock_web_get.return_value = None
+        self.assertIsNone(self.client.discover_room_url("jp"))
+
+    @patch.object(AppleMusicClient, "_web_get")
+    def test_default_fallback_title_no_longer_matches_after_config_change(self, mock_web_get):
+        # If the default fallback list is replaced via Settings and no
+        # longer contains "new releases", the default title stops matching.
+        cfg = config.load_config()
+        cfg["discovery_fallback_titles"] = ["custom new drops"]
+        config.save_config(cfg)
+
+        mock_web_get.return_value = self._make_new_page_html("/jp/room/6760868920", title="New Releases")
         self.assertIsNone(self.client.discover_room_url("jp"))
 
 

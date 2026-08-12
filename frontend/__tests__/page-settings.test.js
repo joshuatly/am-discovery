@@ -15,6 +15,8 @@ describe("renderSettings", () => {
     watchlist_poll_batch_size: 3,
     watchlist_refresh_interval_days: 14,
     cors_proxy: "https://proxy.example.com/",
+    discovery_names: { jp: "ニューリリース", hk: "新發行" },
+    discovery_fallback_titles: ["new release", "new releases"],
   };
 
   let main;
@@ -186,5 +188,98 @@ describe("renderSettings", () => {
     const body = JSON.parse(putCall[1].body);
     expect(body.mb_scan_enabled).toBe(false);
     expect(ctx.appWindow.__test_state.mbScanEnabled).toBe(false);
+  });
+
+  // ---------------------------------------------------------------------------
+  // Discovery Room Matching
+  // ---------------------------------------------------------------------------
+
+  test("renders a row with the configured keyword for each discovery storefront", async () => {
+    mockConfigFetch(fullCfg);
+    await ctx.appWindow.__test_renderSettings(main);
+    const inputs = main.querySelectorAll("input[type='text']");
+    const values = Array.from(inputs).map(i => i.value);
+    expect(values).toContain("ニューリリース");
+    expect(values).toContain("新發行");
+  });
+
+  test("storefront chip links directly to Apple Music's New Releases page", async () => {
+    mockConfigFetch(fullCfg);
+    await ctx.appWindow.__test_renderSettings(main);
+    const jpLink = Array.from(main.querySelectorAll("a")).find(a =>
+      a.href.includes("music.apple.com/jp/new")
+    );
+    expect(jpLink).toBeDefined();
+    expect(jpLink.target).toBe("_blank");
+    expect(jpLink.rel).toContain("noopener");
+    expect(jpLink.querySelector(".sf-chip")).not.toBeNull();
+  });
+
+  test("renders fallback match titles joined by comma", async () => {
+    mockConfigFetch(fullCfg);
+    await ctx.appWindow.__test_renderSettings(main);
+    const inputs = main.querySelectorAll("input[type='text']");
+    const values = Array.from(inputs).map(i => i.value);
+    expect(values).toContain("new release, new releases");
+  });
+
+  test("save sends edited discovery_names and discovery_fallback_titles", async () => {
+    mockConfigFetch(fullCfg);
+    await ctx.appWindow.__test_renderSettings(main);
+
+    const jpInput = Array.from(main.querySelectorAll("input[type='text']")).find(
+      i => i.value === "ニューリリース"
+    );
+    jpInput.value = "新曲";
+
+    const fallbackInput = Array.from(main.querySelectorAll("input[type='text']")).find(
+      i => i.value === "new release, new releases"
+    );
+    fallbackInput.value = "custom title";
+
+    ctx.appWindow.fetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({ ok: true }),
+    });
+
+    const saveBtn = Array.from(main.querySelectorAll("button")).find(b =>
+      b.textContent.includes("Save")
+    );
+    saveBtn.click();
+    await new Promise(r => setTimeout(r, 50));
+
+    const putCall = ctx.appWindow.fetch.mock.calls.find(
+      ([url, opts]) => url === "/api/system/config" && opts && opts.method === "PUT"
+    );
+    const body = JSON.parse(putCall[1].body);
+    expect(body.discovery_names).toEqual({ jp: "新曲", hk: "新發行" });
+    expect(body.discovery_fallback_titles).toEqual(["custom title"]);
+  });
+
+  test("clearing a storefront's keyword removes it from discovery_names (falls back)", async () => {
+    mockConfigFetch(fullCfg);
+    await ctx.appWindow.__test_renderSettings(main);
+
+    const jpInput = Array.from(main.querySelectorAll("input[type='text']")).find(
+      i => i.value === "ニューリリース"
+    );
+    jpInput.value = "";
+
+    ctx.appWindow.fetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({ ok: true }),
+    });
+
+    const saveBtn = Array.from(main.querySelectorAll("button")).find(b =>
+      b.textContent.includes("Save")
+    );
+    saveBtn.click();
+    await new Promise(r => setTimeout(r, 50));
+
+    const putCall = ctx.appWindow.fetch.mock.calls.find(
+      ([url, opts]) => url === "/api/system/config" && opts && opts.method === "PUT"
+    );
+    const body = JSON.parse(putCall[1].body);
+    expect(body.discovery_names).toEqual({ hk: "新發行" });
   });
 });

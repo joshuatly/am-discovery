@@ -10,7 +10,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-from storefronts import discovery_names_for, locale_for
+from storefronts import discovery_names_for, fallback_titles, locale_for
 
 _BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -25,15 +25,6 @@ _BROWSE_PATH = "/us/browse"
 
 _UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36"
 _MINIMAL_HEADERS = {"User-Agent": "Mozilla/5.0"}
-
-_NEW_RELEASE_TITLES = [
-    "new release",
-    "new releases",
-    "新發行",
-    "ニューリリース",
-    "Rilisan Baru",
-    "keluaran baharu",
-]
 
 _VIEW_MAP = {
     "full-albums": "main-albums",
@@ -314,6 +305,7 @@ class AppleMusicClient:
             logger.warning("Error extracting sections for room discovery: %s %s", type(e), e)
             return None
 
+        titles = fallback_titles()
         for sec in sections:
             title = sec.get("header", "")
             room_url = None
@@ -330,7 +322,7 @@ class AppleMusicClient:
                 title_text = title if isinstance(title, str) else str(title)
 
             title_lower = title_text.lower() if isinstance(title_text, str) else ""
-            if any(t in title_lower for t in _NEW_RELEASE_TITLES):
+            if any(t in title_lower for t in titles):
                 if room_url:
                     sf_match = re.search(r"music\.apple\.com/(\w+)/room/", room_url)
                     if sf_match and sf_match.group(1) != storefront:
@@ -547,6 +539,7 @@ class AppleMusicClient:
             logger.debug("Content keys: %s", list(content.keys()))
 
         new_releases = []
+        titles = fallback_titles()
         for sec in sections:
             title = sec.get("header", "")
             if isinstance(title, dict):
@@ -557,7 +550,7 @@ class AppleMusicClient:
             logger.debug("Checking section: %s", title)
 
             title_lower = title.lower() if isinstance(title, str) else str(title).lower()
-            if any(t in title_lower for t in _NEW_RELEASE_TITLES):
+            if any(t in title_lower for t in titles):
                 items = sec.get("items", [])
                 for item in items:
                     actual_item = item.get("item", item)
