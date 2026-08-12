@@ -149,7 +149,7 @@ function openNotificationEventModal(existing, eventTypesMeta, onSaved) {
   urlLbl.style.cssText = "font-weight:600;font-size:12px;";
   const urlInput = el("input", "search-input");
   urlInput.type = "text";
-  urlInput.placeholder = "http://192.168.5.201:8100/notify/apprise";
+  urlInput.placeholder = "http://192.168.1.50:8100/notify/apprise";
   urlInput.value = existing?.apprise_url || "";
   urlGroup.appendChild(urlLbl);
   urlGroup.appendChild(urlInput);

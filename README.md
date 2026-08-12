@@ -19,7 +19,7 @@ AM Discovery monitors Apple Music regional new-release pages to surface new rele
 - Similar-artist and "you might also like" discovery pulled from Apple Music
 - Storefront availability checker for any release
 - Configurable timezone for all displayed timestamps
-- Optional CLI Scheduler integration — hand an album off to a self-hosted downloader
+- Optional CLI Scheduler integration — POST an album's Apple Music URL as a webhook job to an external service such as [cli-scheduler](https://github.com/joshuatly/cli-scheduler) for further processing (see [CLI Scheduler integration](#cli-scheduler-integration))
 - Configurable poll intervals with manual refresh option
 - REST API with Swagger docs (`/apidocs`)
 - Lightweight single-page frontend (vanilla JS, no build step)
@@ -133,8 +133,8 @@ Every key has a built-in default, so a minimal `config.json` only needs the sett
 | `mb_scan_interval_minutes` | How often the seeding scanner runs a cycle. Default: 60. |
 | `mb_scan_artist_batch` | Artists processed per seeding-scan phase. Keep small — MusicBrainz allows ~1 req/sec. Default: 3. |
 | `mb_artist_recheck_days` | Minimum days before re-scanning an artist for its MBID / releases. Default: 7. |
-| `cli_scheduler_url` | Base URL of an optional self-hosted CLI Scheduler to hand albums off to. Empty disables the integration. |
-| `cli_scheduler_preset` | Preset name passed with each CLI Scheduler job submission. |
+| `cli_scheduler_url` | Base URL of an optional external webhook service that receives album job submissions (see [CLI Scheduler integration](#cli-scheduler-integration)). Empty disables the integration. |
+| `cli_scheduler_preset` | Preset name passed with each job submission. |
 | `notifications` | Apprise notification settings — see [Notifications](#notifications). Global queue tuning (`queue_max_size`, `max_failures`, `rate_limit_per_sec`) plus the list of configured `events`. Edit events from the Settings page, not by hand. |
 | `cors_proxy` | Optional URL prefix to proxy outbound requests through (e.g. `https://proxy.example.com/`). Leave empty if not needed. |
 
@@ -205,7 +205,7 @@ Swagger UI is available at `/apidocs` when the server is running. `/apidocs` is 
 | `GET /api/system/db` | SQLite database size and per-table statistics. |
 | `GET /api/system/discovery` | Recent discovery run records (one row per storefront per run). |
 | `GET /api/system/watchlist_log` | Recent watchlist batch run records. |
-| `POST /api/system/cli-scheduler/submit` | Proxy an album to the configured CLI Scheduler. |
+| `POST /api/system/cli-scheduler/submit` | POST an album's Apple Music URL as a webhook job to the configured external service (see [CLI Scheduler integration](#cli-scheduler-integration)). |
 
 **Notifications** (see [Notifications](#notifications))
 
@@ -272,6 +272,21 @@ No MusicBrainz API key is required; the read-only `/ws/2` web service only needs
 
 ---
 
+## CLI Scheduler integration
+
+AM Discovery doesn't download anything itself. When `cli_scheduler_url` is set, a "Send to scheduler" button appears on each release, and pressing it does the following:
+
+```
+POST {cli_scheduler_url}/api/jobs
+{ "preset": "<cli_scheduler_preset>", "urls": ["https://music.apple.com/<storefront>/album/<id>"] }
+```
+
+That's it — it's a thin webhook proxy (`POST /api/system/cli-scheduler/submit`, see [`api_system.py`](api_system.py)) that hands the album's Apple Music URL and your configured preset name to whatever HTTP service you point it at. What happens next is entirely up to that service.
+
+It was built against [joshuatly/cli-scheduler](https://github.com/joshuatly/cli-scheduler), a self-hosted job queue that turns an Apple Music URL into an automated download using a preset (e.g. a specific format/quality profile), but any service that accepts the same `{preset, urls}` payload on `/api/jobs` works.
+
+---
+
 ## Docker / Portainer deployment
 
 ### Overview
@@ -299,7 +314,7 @@ Portainer will clone the repository and build the image from the `Dockerfile`.
 
 ### Nginx reverse proxy
 
-Port 5000 is published on all interfaces (`0.0.0.0`), so the nginx proxy can reach the container by the Docker host's LAN IP (e.g. `192.168.5.x`).
+Port 5000 is published on all interfaces (`0.0.0.0`), so the nginx proxy can reach the container by the Docker host's LAN IP (e.g. `192.168.1.x`).
 
 ```nginx
 server {
@@ -316,7 +331,7 @@ server {
     ssl_certificate_key /etc/ssl/private/am.example.com.key;
 
     location / {
-        proxy_pass         http://192.168.5.x:5000;
+        proxy_pass         http://192.168.1.x:5000;
         proxy_set_header   Host              $host;
         proxy_set_header   X-Real-IP         $remote_addr;
         proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
@@ -326,7 +341,7 @@ server {
 }
 ```
 
-Replace `192.168.5.x` with the actual LAN IP of the Portainer host. Place this in `/etc/nginx/sites-available/am-discovery` (or equivalent), symlink it to `sites-enabled`, then reload nginx.
+Replace `192.168.1.x` with the actual LAN IP of the Portainer host. Place this in `/etc/nginx/sites-available/am-discovery` (or equivalent), symlink it to `sites-enabled`, then reload nginx.
 
 ### First-run configuration
 
