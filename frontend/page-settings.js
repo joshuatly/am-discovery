@@ -328,10 +328,17 @@ async function renderSettings(main) {
   const { group: cliEnabledGroup, cb: cliEnabledCb } = settingsEnableCheckbox({
     id: "cfg-cli-scheduler-enabled",
     label: "Enable CLI Scheduler",
-    desc: "Send albums to an external CLI Scheduler instance for automated downloading.",
+    desc: "Adds a “Send to scheduler” button that POSTs a release's Apple Music URL as a webhook job to an external service of your choice, for whatever it does with that URL next (e.g. queuing an automated download). AM Discovery doesn't download anything itself.",
     checked: !!cfg.cli_scheduler_url,
   });
   form.appendChild(cliEnabledGroup);
+
+  const cliRepoLink = el("a", "", "joshuatly/cli-scheduler on GitHub ↗");
+  cliRepoLink.href = "https://github.com/joshuatly/cli-scheduler";
+  cliRepoLink.target = "_blank";
+  cliRepoLink.rel = "noopener noreferrer";
+  cliRepoLink.style.cssText = "font-size:12px;color:var(--accent);text-decoration:none;";
+  form.appendChild(cliRepoLink);
 
   const cliExtra = el("div");
   cliExtra.style.cssText = "display:flex;flex-direction:column;gap:20px;";
@@ -341,7 +348,7 @@ async function renderSettings(main) {
     label: "CLI Scheduler URL",
     desc: "Base URL of your CLI Scheduler instance.",
     value: cfg.cli_scheduler_url || "",
-    placeholder: "http://192.168.5.198:5000",
+    placeholder: "http://192.168.1.100:5000",
   });
   cliExtra.appendChild(cliUrlGroup);
 
