@@ -83,7 +83,10 @@ modal.js          — openModal, closeModal, showImageLightbox
 page-releases.js  — renderArtistReleaseGrid, renderNewReleases, renderAllReleases
 page-artist.js    — renderArtist
 page-watchlist.js — paginateList, WATCHLIST_PAGE_SIZE, renderWatchlist
-page-settings.js  — renderSettings
+page-settings.js  — renderSettings (storefront/discovery, intervals, MusicBrainz,
+                    CLI Scheduler, notification list wiring, backup/restore)
+page-settings-notifications.js — notification event list rendering + add/edit modal
+                    (renderNotificationEvents, openNotificationEventModal)
 page-admin.js     — renderAdmin (MusicBrainz seeding: Artists + Releases tabs)
 app.js            — route(), DOMContentLoaded bootstrap
 ```
@@ -97,7 +100,7 @@ app.js            — route(), DOMContentLoaded bootstrap
 - Changes to New Releases or All Albums pages → `page-releases.js`
 - Changes to Artist Detail page → `page-artist.js`
 - Changes to Artist Watchlist page → `page-watchlist.js`
-- Changes to Settings page → `page-settings.js`
+- Changes to Settings page → `page-settings.js`; notification event list/modal → `page-settings-notifications.js`
 - Changes to the Admin (MusicBrainz seeding) page → `page-admin.js`
 - Changes to routing or app-level bootstrap → `app.js`
 

@@ -1,4 +1,4 @@
-.PHONY: test test-py test-js install lint
+.PHONY: test test-py test-js install lint update-locks update-locks-py update-locks-js
 
 test: test-py test-js
 
@@ -15,3 +15,12 @@ install:
 lint:
 	uv run ruff check --fix .
 	uv run ruff format .
+
+update-locks: update-locks-py update-locks-js
+
+update-locks-py:
+	uv lock --upgrade
+	uv sync --all-groups
+
+update-locks-js:
+	npm --prefix frontend update

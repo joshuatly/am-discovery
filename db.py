@@ -459,34 +459,71 @@ def set_album_hidden_from_seeding(store_adam_id: str, hidden: bool = True):
         )
 
 
-def get_seeding_releases(sort: str = "release_date", include_hidden: bool = False):
-    """Return albums the scanner flagged as needing MusicBrainz seeding.
+def get_seeding_releases(
+    sort: str = "release_date",
+    include_hidden: bool = False,
+    country: str = "",
+    home_storefront: str = "",
+    page: int = 1,
+    per_page: int = 48,
+):
+    """Return a page of albums the scanner flagged as needing MusicBrainz seeding.
 
     Each row is joined with the artist's preferred storefront (from the watchlist)
     and MusicBrainz artist id so the admin UI can build Harmony links and group by
-    artist without extra queries.
+    artist without extra queries. Only the columns the admin UI actually renders
+    are selected — heavy fields like ``description`` are left out to keep the
+    (potentially large) response small. ``country`` filters by the release's
+    effective seed source (preferred_source, else ``home_storefront``), pushed
+    down to SQL so the returned ``total`` stays accurate under the filter.
+
+    Returns ``(rows, total)`` where ``total`` is the filtered count across all
+    pages, not just the page returned.
     """
     order_by = {
         "release_date": "a.release_date DESC, a.title ASC",
         "release_type": "a.release_type ASC, a.release_date DESC",
         "artist": "artist_name COLLATE NOCASE ASC, a.release_date DESC",
     }.get(sort, "a.release_date DESC, a.title ASC")
-    hidden_clause = "" if include_hidden else "AND a.hidden_from_seeding = 0"
+
+    conditions = ["a.mb_seed_status = 'needs_seeding'"]
+    params: list = []
+    if not include_hidden:
+        conditions.append("a.hidden_from_seeding = 0")
+    if country:
+        conditions.append("COALESCE(NULLIF(w.preferred_source, ''), ?) = ?")
+        params += [home_storefront, country]
+    where = "WHERE " + " AND ".join(conditions)
+    offset = (page - 1) * per_page
+
     with get_conn() as conn:
+        total = conn.execute(
+            f"""
+            SELECT COUNT(*)
+            FROM albums a
+            LEFT JOIN watched_artists w ON w.artist_id = a.artist_id
+            {where}
+            """,
+            params,
+        ).fetchone()[0]
         rows = conn.execute(
             f"""
-            SELECT a.*,
+            SELECT a.store_adam_id, a.title, a.artist, a.artist_id, a.artists_json,
+                   a.release_date, a.artwork_url, a.track_count, a.music_video_count,
+                   a.release_type, a.upc,
                    COALESCE(w.name, ar.name, a.artist) AS artist_name,
                    w.preferred_source                  AS preferred_source,
                    ar.musicbrainz_id                   AS artist_musicbrainz_id
             FROM albums a
             LEFT JOIN watched_artists w ON w.artist_id = a.artist_id
             LEFT JOIN artists ar        ON ar.artist_id = a.artist_id
-            WHERE a.mb_seed_status = 'needs_seeding' {hidden_clause}
+            {where}
             ORDER BY {order_by}
+            LIMIT ? OFFSET ?
             """,
+            params + [per_page, offset],
         ).fetchall()
-        return [dict(r) for r in rows]
+        return [dict(r) for r in rows], total
 
 
 def count_seeding_releases() -> int:

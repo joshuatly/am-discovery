@@ -27,10 +27,12 @@ const state = {
   currentSort: ReleasesPrefs.getSort(),  // "release_date" | "first_seen"
   cliSchedulerEnabled: false, // true when cli_scheduler_url is configured
   watchlistPage: 0,           // remembered page index for watchlist (0-based)
+  mbScanEnabled: true,        // true when mb_scan_enabled is configured; gates the Admin nav link/page
   adminTab: "releases",       // active admin tab: "artists" | "releases"
   adminReleaseSort: "release_date", // admin releases sort key
   adminReleaseCountry: "",    // admin releases country filter ("" = all), by preferred source
   adminGroupByArtist: false,  // group admin releases by artist
+  adminReleasePage: 1,        // remembered page number for the admin releases tab
 };
 
 // ---------------------------------------------------------------------------

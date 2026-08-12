@@ -13,12 +13,26 @@ import db
 import musicbrainz as mb
 import seeding
 from api_utility import _serialize
+from config import load_config
 
 admin_bp = Blueprint("admin", __name__)
 
 _logger = logging.getLogger(__name__)
 
 _RELEASE_SORTS = {"release_date", "release_type", "artist"}
+
+
+@admin_bp.before_request
+def _require_mb_scan_enabled():
+    """Gate the whole admin blueprint behind the mb_scan_enabled config flag.
+
+    Mirrors the frontend, which hides the Admin nav link/page when disabled —
+    this stops direct API access (and the background scanner, guarded
+    separately in seeding.py) from doing MusicBrainz work while the feature
+    is turned off.
+    """
+    if not load_config().get("mb_scan_enabled", True):
+        return jsonify({"error": "musicbrainz_admin_disabled"}), 403
 
 
 def _am_artist_url(artist_id: str, url: str | None) -> str:
@@ -248,6 +262,9 @@ def api_admin_artist_deny(artist_id):
 @admin_bp.route("/api/admin/releases")
 def api_admin_releases():
     """List releases flagged as missing from MusicBrainz, ready for seeding.
+
+    Paginated — ``total`` reflects the full filtered count (including hidden
+    when ``include_hidden`` pages), not just the items on this page.
     ---
     parameters:
       - name: sort
@@ -260,19 +277,51 @@ def api_admin_releases():
         type: string
         enum: ["true"]
         description: Pass "true" to also include releases hidden from the list
+      - name: country
+        in: query
+        type: string
+        description: Filter to releases whose effective seed source (preferred storefront, else home storefront) matches
+      - name: page
+        in: query
+        type: integer
+        default: 1
+      - name: per_page
+        in: query
+        type: integer
+        default: 48
     responses:
       200:
-        description: Releases needing seeding
+        description: Paginated releases needing seeding
+      400:
+        description: Invalid sort, page, or per_page
 
     """
     sort = request.args.get("sort", "release_date").strip().lower()
     if sort not in _RELEASE_SORTS:
         return jsonify({"error": "invalid sort"}), 400
     include_hidden = request.args.get("include_hidden") == "true"
+    country = request.args.get("country", "").strip().lower()
 
-    rows = db.get_seeding_releases(sort=sort, include_hidden=include_hidden)
+    try:
+        page = int(request.args.get("page", 1))
+        per_page = int(request.args.get("per_page", 48))
+    except ValueError:
+        return jsonify({"error": "page and per_page must be integers"}), 400
+    if page < 1 or per_page < 1:
+        return jsonify({"error": "page and per_page must be positive"}), 400
+    per_page = min(per_page, 200)
+
+    home_storefront = load_config().get("home_storefront", "")
+    rows, total = db.get_seeding_releases(
+        sort=sort,
+        include_hidden=include_hidden,
+        country=country,
+        home_storefront=home_storefront,
+        page=page,
+        per_page=per_page,
+    )
     items = [_serialize(r) for r in rows]
-    return jsonify({"items": items, "total": len(items)})
+    return jsonify({"items": items, "total": total, "page": page, "per_page": per_page})
 
 
 # ---------------------------------------------------------------------------
