@@ -232,6 +232,11 @@ class TestEnqueue(NotificationsTestCase):
 
 
 class TestSendTest(NotificationsTestCase):
+    # Public literal IP: getaddrinfo() parses literal IPs locally without a real
+    # DNS/network lookup, and it isn't in any private/reserved range, so it
+    # passes the SSRF guard offline in CI.
+    _PUBLIC_URL = "http://1.1.1.1/notify/y"
+
     def _mock_response(self, status=200):
         resp = MagicMock()
         resp.status = status
@@ -245,12 +250,12 @@ class TestSendTest(NotificationsTestCase):
         ev = notifications.create_event(
             {
                 "event_type": "onArtistNewSingle",
-                "apprise_url": "http://x/notify/y",
+                "apprise_url": self._PUBLIC_URL,
                 "title_template": "Hi {artist}",
                 "body_template": "{title}",
             },
         )
-        with patch("urllib.request.urlopen", return_value=self._mock_response()) as m:
+        with patch("urllib.request.OpenerDirector.open", return_value=self._mock_response()) as m:
             ok, msg = notifications.send_test(ev)
         self.assertTrue(ok)
         sent = m.call_args[0][0]
@@ -263,10 +268,10 @@ class TestSendTest(NotificationsTestCase):
         import notifications
 
         ev = notifications.create_event(
-            {"event_type": "onArtistNewSingle", "apprise_url": "http://x/notify/y"},
+            {"event_type": "onArtistNewSingle", "apprise_url": self._PUBLIC_URL},
         )
-        err = urllib.error.HTTPError("http://x", 500, "Server Error", {}, None)
-        with patch("urllib.request.urlopen", side_effect=err):
+        err = urllib.error.HTTPError(self._PUBLIC_URL, 500, "Server Error", {}, None)
+        with patch("urllib.request.OpenerDirector.open", side_effect=err):
             ok, msg = notifications.send_test(ev)
         self.assertFalse(ok)
         self.assertIn("500", msg)
@@ -287,18 +292,65 @@ class TestSendTest(NotificationsTestCase):
         ev = notifications.create_event(
             {
                 "event_type": "onWatchlistBatchComplete",
-                "apprise_url": "http://x/notify/y",
+                "apprise_url": self._PUBLIC_URL,
                 "title_template": "{run_at}",
                 "body_template": "next {next_run_at}",
             },
         )
-        with patch("urllib.request.urlopen", return_value=self._mock_response()) as m:
+        with patch("urllib.request.OpenerDirector.open", return_value=self._mock_response()) as m:
             ok, _ = notifications.send_test(ev)
         self.assertTrue(ok)
         sent = m.call_args[0][0]
         body = json.loads(sent.data.decode())
         self.assertIn("HKT", body["title"])
         self.assertIn("HKT", body["body"])
+
+
+class TestApprSSRFGuard(NotificationsTestCase):
+    # Self-hosted Apprise almost always lives on the operator's own LAN or
+    # Docker network, so private/loopback targets must keep working.
+    def test_allows_loopback(self):
+        import notifications
+
+        self.assertIsNone(notifications._unsafe_apprise_target_reason("http://127.0.0.1:8100/notify/apprise"))
+
+    def test_allows_private_range(self):
+        import notifications
+
+        self.assertIsNone(notifications._unsafe_apprise_target_reason("http://192.168.1.50/notify/apprise"))
+
+    def test_allows_docker_service_name(self):
+        import notifications
+
+        with patch("socket.getaddrinfo", return_value=[(2, 1, 6, "", ("172.19.0.3", 0))]):
+            self.assertIsNone(notifications._unsafe_apprise_target_reason("http://apprise:8100/notify/apprise"))
+
+    def test_blocks_link_local_metadata_address(self):
+        import notifications
+
+        self.assertIsNotNone(notifications._unsafe_apprise_target_reason("http://169.254.169.254/latest/meta-data/"))
+
+    def test_blocks_alibaba_metadata_address(self):
+        import notifications
+
+        self.assertIsNotNone(notifications._unsafe_apprise_target_reason("http://100.100.100.200/latest/meta-data/"))
+
+    def test_blocks_non_http_scheme(self):
+        import notifications
+
+        self.assertIsNotNone(notifications._unsafe_apprise_target_reason("file:///etc/passwd"))
+
+    def test_allows_public_address(self):
+        import notifications
+
+        self.assertIsNone(notifications._unsafe_apprise_target_reason(TestSendTest._PUBLIC_URL))
+
+    def test_post_apprise_blocks_unsafe_target(self):
+        import notifications
+
+        ok, msg = notifications._post_apprise("http://169.254.169.254/", {"x": 1})
+        self.assertFalse(ok)
+        self.assertIn("blocked", msg)
 
 
 # ---------------------------------------------------------------------------

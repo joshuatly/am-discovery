@@ -15,12 +15,15 @@ after ``max_failures`` consecutive failures.
 
 from __future__ import annotations
 
+import ipaddress
 import json
 import logging
 import queue
+import socket
 import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 import uuid
 from datetime import datetime, timedelta
@@ -201,9 +204,61 @@ def _safe_format(template: str, variables: dict) -> str:
         return template
 
 
+_APPRISE_ALLOWED_SCHEMES = {"http", "https"}
+
+# Apprise targets are expected to live on the operator's own LAN or Docker
+# network, so private/loopback addresses are allowed. Only link-local
+# addresses are blocked outright — that range is where every major cloud's
+# instance-metadata service lives (169.254.169.254 on AWS/GCP/Azure/
+# DigitalOcean/Oracle/Kubernetes) and is never a legitimate Apprise target.
+# A couple of metadata IPs that fall outside the link-local range are
+# blocked explicitly.
+_APPRISE_EXTRA_BLOCKED_HOSTS = {
+    "100.100.100.200",  # Alibaba Cloud instance metadata
+}
+
+
+def _unsafe_apprise_target_reason(url: str) -> str | None:
+    """Return a reason string if url is unsafe to fetch (SSRF guard), else None."""
+    parts = urllib.parse.urlsplit(url)
+    if parts.scheme not in _APPRISE_ALLOWED_SCHEMES:
+        return f"scheme '{parts.scheme}' is not allowed (only http/https)"
+    hostname = parts.hostname
+    if not hostname:
+        return "URL has no host"
+    try:
+        infos = socket.getaddrinfo(hostname, None)
+    except socket.gaierror as e:
+        return f"could not resolve host: {e}"
+    for info in infos:
+        ip_str = info[4][0]
+        ip = ipaddress.ip_address(ip_str)
+        unsafe = ip.is_link_local or ip.is_multicast or ip.is_unspecified or ip_str in _APPRISE_EXTRA_BLOCKED_HOSTS
+        if unsafe:
+            return f"host resolves to a blocked metadata/link-local address ({ip})"
+    return None
+
+
+class _SSRFGuardError(Exception):
+    pass
+
+
+class _SSRFSafeRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Re-validates the redirect target so a 30x response can't retarget the request."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        reason = _unsafe_apprise_target_reason(newurl)
+        if reason:
+            raise _SSRFGuardError(f"blocked redirect: {reason}")
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
 def _post_apprise(url: str, payload: dict, timeout: int = 10) -> tuple[bool, str]:
     if not url:
         return False, "apprise_url is empty"
+    reason = _unsafe_apprise_target_reason(url)
+    if reason:
+        return False, f"blocked: {reason}"
     try:
         req = urllib.request.Request(
             url,
@@ -211,10 +266,13 @@ def _post_apprise(url: str, payload: dict, timeout: int = 10) -> tuple[bool, str
             headers={"Content-Type": "application/json"},
             method="POST",
         )
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
+        opener = urllib.request.build_opener(_SSRFSafeRedirectHandler)
+        with opener.open(req, timeout=timeout) as resp:
             if 200 <= resp.status < 300:
                 return True, f"HTTP {resp.status}"
             return False, f"HTTP {resp.status}"
+    except _SSRFGuardError as e:
+        return False, str(e)
     except urllib.error.HTTPError as e:
         return False, f"HTTP {e.code} {e.reason}"
     except Exception as e:  # noqa: BLE001
