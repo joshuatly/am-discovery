@@ -41,6 +41,68 @@ async function renderSettings(main) {
   sfsGroup.appendChild(sfsInput);
   form.appendChild(sfsGroup);
 
+  // Discovery Room Matching — per-storefront + fallback title(s) used to
+  // find each storefront's "New Releases" room. Fixable here without a
+  // code change or restart when Apple renames a room (see room_errors in
+  // the status footer).
+  const discGroup = el("div");
+  discGroup.style.cssText = "display:flex;flex-direction:column;gap:8px;";
+  const discLabel = el("label", "", "Discovery Room Matching");
+  discLabel.style.fontWeight = "600";
+  const discDesc = el(
+    "p",
+    "",
+    "Localized title Apple Music uses for each storefront's New Releases room. " +
+      "This matches the new-albums room specifically — not the new-singles/EPs room, which some storefronts list separately. " +
+      "If discovery fails for a storefront, fix its keyword here — takes effect on the next poll, no restart needed.",
+  );
+  discDesc.style.cssText = "font-size:12px;color:var(--text-dim);margin:0;";
+  discGroup.appendChild(discLabel);
+  discGroup.appendChild(discDesc);
+
+  const discNames = { ...(cfg.discovery_names || {}) };
+  const discCodes = Array.from(new Set([...(cfg.check_storefronts || []), ...Object.keys(discNames)])).sort();
+  const discRows = [];
+  const discRowsWrap = el("div");
+  discRowsWrap.style.cssText = "display:flex;flex-direction:column;gap:6px;";
+  for (const code of discCodes) {
+    const row = el("div");
+    row.style.cssText = "display:flex;align-items:center;gap:8px;";
+    const chipLink = el("a");
+    chipLink.href = `https://music.apple.com/${code}/new`;
+    chipLink.target = "_blank";
+    chipLink.rel = "noopener noreferrer";
+    chipLink.title = `Open ${code.toUpperCase()} New Releases on Apple Music`;
+    chipLink.style.textDecoration = "none";
+    chipLink.innerHTML = sfChipHtml(code);
+    row.appendChild(chipLink);
+    const rowInput = el("input", "search-input");
+    rowInput.type = "text";
+    rowInput.value = discNames[code] || "";
+    rowInput.placeholder = "e.g. New Releases — the albums room, not singles/EPs (blank = use fallback titles below)";
+    rowInput.style.flex = "1";
+    row.appendChild(rowInput);
+    discRowsWrap.appendChild(row);
+    discRows.push({ code, input: rowInput });
+  }
+  discGroup.appendChild(discRowsWrap);
+
+  const fallbackLabel = el("label", "", "Fallback Match Titles (comma separated)");
+  fallbackLabel.style.cssText = "font-weight:600;font-size:12px;margin-top:4px;";
+  const fallbackDesc = el(
+    "p",
+    "",
+    "Substrings matched against a room's title when a storefront above has no keyword set.",
+  );
+  fallbackDesc.style.cssText = "font-size:12px;color:var(--text-dim);margin:0;";
+  const fallbackInput = el("input", "search-input");
+  fallbackInput.type = "text";
+  fallbackInput.value = (cfg.discovery_fallback_titles || []).join(", ");
+  discGroup.appendChild(fallbackLabel);
+  discGroup.appendChild(fallbackDesc);
+  discGroup.appendChild(fallbackInput);
+  form.appendChild(discGroup);
+
   // Home Storefront
   const homeGroup = el("div");
   homeGroup.style.display = "flex";
@@ -282,9 +344,21 @@ async function renderSettings(main) {
       const parsedWlBatch = parseInt(wlBatchInput.value, 10);
       const parsedWlRefresh = parseInt(wlRefreshInput.value, 10);
       const parsedProxy = proxyInput.value.trim();
+      const parsedDiscNames = { ...(cfg.discovery_names || {}) };
+      for (const { code, input } of discRows) {
+        const v = input.value.trim();
+        if (v) parsedDiscNames[code] = v;
+        else delete parsedDiscNames[code];
+      }
+      const parsedFallback = fallbackInput.value
+        .split(",")
+        .map(s => s.trim())
+        .filter(s => s);
       const newCfg = {
         ...cfg,
         check_storefronts: parsedSfs,
+        discovery_names: parsedDiscNames,
+        discovery_fallback_titles: parsedFallback,
         home_storefront: parsedHome || "my",
         newrelease_poll_interval_days: isNaN(parsedPoll) ? 1 : parsedPoll,
         watchlist_poll_interval_minutes: isNaN(parsedWlPoll) ? 10 : parsedWlPoll,

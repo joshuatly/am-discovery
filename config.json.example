@@ -9,6 +9,24 @@
     "us"
   ],
   "home_storefront": "my",
+  "discovery_names": {
+    "cn": "本周新发行",
+    "hk": "新發行",
+    "mo": "新發行",
+    "tw": "新發行",
+    "jp": "ニューリリース",
+    "sg": "Recent Releases",
+    "my": "Recent Releases",
+    "us": "New Releases"
+  },
+  "discovery_fallback_titles": [
+    "new release",
+    "new releases",
+    "新發行",
+    "ニューリリース",
+    "Rilisan Baru",
+    "keluaran baharu"
+  ],
   "newrelease_poll_interval_days": 1,
   "watchlist_poll_interval_minutes": 10,
   "watchlist_poll_batch_size": 5,
