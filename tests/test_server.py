@@ -548,3 +548,159 @@ class TestInitSchedulerToken(ServerTestCase):
         self.assertEqual(event_type, "onAuthFailed")
         self.assertEqual(variables["reason"], "token gone")
         self.assertTrue(variables["run_at"])
+
+
+# ---------------------------------------------------------------------------
+# Metadata fetch: only mark albums fetched on success; backfill failures
+# ---------------------------------------------------------------------------
+
+
+_OK_INFO = {
+    "title": "Album",
+    "artist": "Artist",
+    "release_date": "2026-10-20",
+    "artist_id": "ART1",
+    "artwork_url": "https://art",
+    "track_count": 10,
+}
+_FAILED_INFO = {"title": None, "artist": None, "release_date": None, "artist_id": None, "tracks": []}
+
+
+class TestDiscoveryPollMetadata(ServerTestCase):
+    """_do_poll against a real temp DB with a mocked Apple Music client."""
+
+    def setUp(self):
+        super().setUp()
+        import db
+
+        self.db = db
+        self._db_dir = tempfile.mkdtemp()
+        self._orig_db_path = db.DB_PATH
+        db.DB_PATH = os.path.join(self._db_dir, "test.db")
+        db.init_db()
+
+    def tearDown(self):
+        import shutil
+
+        self.db.DB_PATH = self._orig_db_path
+        shutil.rmtree(self._db_dir, ignore_errors=True)
+        super().tearDown()
+
+    def _room(self, *aids):
+        return [
+            {"storeAdamID": a, "title": f"T{a}", "artist": "Artist", "url": f"https://u/{a}", "storefronts": ["jp"]}
+            for a in aids
+        ]
+
+    def _poll(self, room, info_by_url):
+        import server
+
+        with (
+            patch("server.AppleMusicClient") as mock_cls,
+            patch("server._schedule_next"),
+            patch("server._fire_discovery_cycle_notifications") as fire,
+            patch.object(server, "load_config", return_value={"check_storefronts": ["jp"], "home_storefront": "jp"}),
+        ):
+            client = mock_cls.return_value
+            client.discover_new_releases.return_value = (room, "ROOM", None)
+            client.get_album_full_info.side_effect = lambda url: dict(info_by_url.get(url, _FAILED_INFO))
+            client.get_artist_info_only.return_value = None
+            server._do_poll()
+        return client, fire.call_args.kwargs["new_ids_set"]
+
+    def _insert_unfetched(self, aid, first_seen=None, info_fetched=1):
+        self.db.upsert_album(
+            {
+                "store_adam_id": aid,
+                "title": f"T{aid}",
+                "url": f"https://u/{aid}",
+                "storefronts": ["jp"],
+                "info_fetched": info_fetched,
+                "source": "discovered",
+            }
+        )
+        if first_seen is not None:
+            with self.db.get_conn() as conn:
+                conn.execute("UPDATE albums SET first_seen=? WHERE store_adam_id=?", (first_seen, aid))
+
+    def test_failed_lookup_leaves_album_unfetched(self):
+        _, new_ids = self._poll(self._room("A1"), {})
+        self.assertEqual(self.db.get_album("A1")["info_fetched"], 0)
+        self.assertEqual(new_ids, {"A1"})
+
+    def test_successful_lookup_marks_album_fetched(self):
+        self._poll(self._room("A1"), {"https://u/A1": _OK_INFO})
+        row = self.db.get_album("A1")
+        self.assertEqual(row["info_fetched"], 1)
+        self.assertEqual(row["release_date"], "2026-10-20")
+
+    def test_failed_album_is_refetched_but_not_counted_new_again(self):
+        self._poll(self._room("A1"), {})
+        client, new_ids = self._poll(self._room("A1"), {"https://u/A1": _OK_INFO})
+        client.get_album_full_info.assert_called_once_with("https://u/A1")
+        self.assertEqual(new_ids, set())
+        self.assertEqual(self.db.get_album("A1")["artist_id"], "ART1")
+
+    def test_album_wrongly_marked_fetched_is_refetched(self):
+        self._insert_unfetched("A1", info_fetched=1)
+        client, _ = self._poll(self._room("A1"), {"https://u/A1": _OK_INFO})
+        client.get_album_full_info.assert_called_once_with("https://u/A1")
+        self.assertEqual(self.db.get_album("A1")["release_date"], "2026-10-20")
+
+    def test_known_album_with_metadata_is_not_refetched(self):
+        self._poll(self._room("A1"), {"https://u/A1": _OK_INFO})
+        client, _ = self._poll(self._room("A1"), {})
+        client.get_album_full_info.assert_not_called()
+
+    def test_backfills_recent_album_missing_from_rooms(self):
+        self._insert_unfetched("OLD1", info_fetched=1)
+        client, new_ids = self._poll(self._room(), {"https://u/OLD1": _OK_INFO})
+        client.get_album_full_info.assert_called_once_with("https://u/OLD1")
+        self.assertEqual(new_ids, set())
+        row = self.db.get_album("OLD1")
+        self.assertEqual(row["artist_id"], "ART1")
+        self.assertEqual(row["storefronts"], '["jp"]')
+
+    def test_does_not_backfill_albums_outside_window(self):
+        import server
+
+        old = int(time.time()) - (server.METADATA_BACKFILL_DAYS + 1) * 86400
+        self._insert_unfetched("OLD1", first_seen=old)
+        client, _ = self._poll(self._room(), {})
+        client.get_album_full_info.assert_not_called()
+
+
+class TestWatchlistPollMetadata(ServerTestCase):
+    @patch("server.AppleMusicClient")
+    @patch("server.db")
+    @patch("server._schedule_watchlist_next")
+    def test_failed_lookup_not_marked_fetched(self, _sched, mock_db, mock_client_cls):
+        client = mock_client_cls.return_value
+        mock_db.get_artists_needing_refresh.return_value = [
+            {"artist_id": "ART1", "name": "Artist One", "preferred_source": "us"},
+        ]
+        client.get_artist_all_releases.return_value = ([{"storeAdamID": "A1", "title": "T"}], {"name": "Artist One"})
+        client.get_album_full_info.return_value = dict(_FAILED_INFO)
+        mock_db.get_album.return_value = None
+
+        import server
+
+        server._do_watchlist_poll()
+        self.assertEqual(mock_db.upsert_album.call_args.args[0]["info_fetched"], 0)
+
+    @patch("server.AppleMusicClient")
+    @patch("server.db")
+    @patch("server._schedule_watchlist_next")
+    def test_successful_lookup_marked_fetched(self, _sched, mock_db, mock_client_cls):
+        client = mock_client_cls.return_value
+        mock_db.get_artists_needing_refresh.return_value = [
+            {"artist_id": "ART1", "name": "Artist One", "preferred_source": "us"},
+        ]
+        client.get_artist_all_releases.return_value = ([{"storeAdamID": "A1", "title": "T"}], {"name": "Artist One"})
+        client.get_album_full_info.return_value = dict(_OK_INFO)
+        mock_db.get_album.return_value = None
+
+        import server
+
+        server._do_watchlist_poll()
+        self.assertEqual(mock_db.upsert_album.call_args.args[0]["info_fetched"], 1)

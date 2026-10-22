@@ -240,6 +240,32 @@ def upsert_album(data: dict):
         )
 
 
+def list_albums_missing_info(since_ts: int, limit: int = 100) -> list[dict]:
+    """Albums first seen at or after ``since_ts`` whose metadata fetch never succeeded.
+
+    Matches rows still flagged ``info_fetched = 0`` and rows flagged fetched
+    that have neither a release date nor an artist ID — older code marked an
+    album fetched even when the catalog lookup failed. Newest first.
+    """
+    with get_conn() as conn:
+        rows = conn.execute(
+            """SELECT store_adam_id, title, artist, url, storefronts, source
+               FROM albums
+               WHERE url IS NOT NULL
+                 AND first_seen >= ?
+                 AND (info_fetched = 0 OR (release_date IS NULL AND artist_id IS NULL))
+               ORDER BY first_seen DESC
+               LIMIT ?""",
+            (since_ts, limit),
+        ).fetchall()
+    result = []
+    for r in rows:
+        d = dict(r)
+        d["storefronts"] = json.loads(d["storefronts"] or "[]")
+        result.append(d)
+    return result
+
+
 ALBUM_SORT_OPTIONS = {"release_date", "first_seen"}
 
 

@@ -25,7 +25,7 @@ from api_releases import releases_bp
 from api_system import system_bp
 from api_utility import api_bp
 from api_watchlist import watchlist_bp
-from client import AppleMusicClient
+from client import AppleMusicClient, album_info_ok
 from config import CONFIG_PATH, format_local_time, load_config, save_config  # noqa: F401
 
 # ---------------------------------------------------------------------------
@@ -64,6 +64,17 @@ _last_room_errors: list[str] = []
 # 24h by default — even though no ran_at was written to the DB.
 POLL_FAILURE_RETRY_SEC = 600
 
+# Each discovery poll also retries metadata for albums whose catalog lookup
+# failed earlier (e.g. while the Apple Music token was rejected), limited to
+# albums first seen within this window and this many per poll.
+METADATA_BACKFILL_DAYS = 30
+METADATA_BACKFILL_LIMIT = 100
+
+
+def _has_album_info(row: dict | None) -> bool:
+    """True if a stored album row holds metadata from a successful catalog lookup."""
+    return bool(row and row.get("info_fetched") and (row.get("release_date") or row.get("artist_id")))
+
 
 def _do_poll():
     global _next_run_at, _is_running, _last_room_errors
@@ -96,24 +107,57 @@ def _do_poll():
                     all_releases[aid] = r
         _last_room_errors = room_errors
 
-        # 2. Separate new (need full info fetch) vs known (skip fetch)
+        # 2. Separate albums needing a full info fetch from known ones. "New"
+        # (counted in the run log and notifications) means never seen before;
+        # an album seen earlier whose metadata lookup failed is refetched but
+        # not counted again.
         new_ids = []
+        fetch_ids = []
         known_ids = []
         for aid in all_releases:
             row = db.get_album(aid)
-            if row and row.get("info_fetched"):
+            if _has_album_info(row):
                 known_ids.append(aid)
             else:
-                new_ids.append(aid)
+                fetch_ids.append(aid)
+                if row is None:
+                    new_ids.append(aid)
 
-        logger.info("[Poll] %d new, %d already cached", len(new_ids), len(known_ids))
+        # 2b. Backfill earlier albums whose metadata lookup failed and that
+        # aren't in any room this poll.
+        to_fetch = {aid: all_releases[aid] for aid in fetch_ids}
+        backfill_since = int(time.time()) - METADATA_BACKFILL_DAYS * 86400
+        for row in db.list_albums_missing_info(backfill_since, METADATA_BACKFILL_LIMIT):
+            aid = row["store_adam_id"]
+            if aid not in all_releases:
+                to_fetch[aid] = {
+                    "storeAdamID": aid,
+                    "title": row.get("title"),
+                    "artist": row.get("artist"),
+                    "url": row["url"],
+                    "storefronts": row.get("storefronts") or [],
+                    "source": row.get("source"),
+                }
+
+        logger.info(
+            "[Poll] %d new, %d to refetch, %d backfill, %d already cached",
+            len(new_ids),
+            len(fetch_ids) - len(new_ids),
+            len(to_fetch) - len(fetch_ids),
+            len(known_ids),
+        )
 
         home_sf = cfg.get("home_storefront", "us")
 
-        # 3. Fetch full info only for new albums (concurrent)
+        # 3. Fetch full info for new / previously failed albums (concurrent).
+        # An album is only marked info_fetched when the lookup succeeded, so a
+        # failed one (e.g. a rejected token) is retried on the next poll.
         def fetch_full(aid):
-            r = all_releases[aid]
+            r = to_fetch[aid]
             info = client.get_album_full_info(r["url"])
+            ok = album_info_ok(info)
+            if not ok:
+                logger.warning("[Poll] Metadata lookup failed for %s; will retry next poll", aid)
             merged = {
                 "store_adam_id": aid,
                 "title": r.get("title"),
@@ -131,8 +175,8 @@ def _do_poll():
                 "artists_json": info.get("artists"),
                 "audio_formats": info.get("audio_formats"),
                 "upc": info.get("upc"),
-                "info_fetched": 1,
-                "source": "discovered",
+                "info_fetched": 1 if ok else 0,
+                "source": r.get("source", "discovered"),
             }
             db.upsert_album(merged)
             artist_id = info.get("artist_id")
@@ -151,7 +195,7 @@ def _do_poll():
                     )
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=10) as ex:
-            list(ex.map(fetch_full, new_ids))
+            list(ex.map(fetch_full, to_fetch))
 
         # 4. For known albums, just update storefronts / last_seen
         for aid in known_ids:
@@ -184,7 +228,7 @@ def _do_poll():
         # Notifications fire from the dedicated scanner thread in notifications.py.
         watched_ids = db.get_watched_artist_ids()
         discovered_artist_ids = {all_releases[aid].get("artist_id") or "" for aid in all_releases}
-        for aid in new_ids:
+        for aid in to_fetch:
             album = db.get_album(aid)
             if album and album.get("artist_id"):
                 discovered_artist_ids.add(album["artist_id"])
@@ -308,6 +352,7 @@ def _do_watchlist_poll():
                     existing = db.get_album(aid)
                     album_url = f"https://music.apple.com/{storefront}/album/{aid}"
                     info = client.get_album_full_info(album_url)
+                    ok = album_info_ok(info)
                     album_data = {
                         "store_adam_id": aid,
                         "url": r.get("url") or album_url,
@@ -324,7 +369,7 @@ def _do_watchlist_poll():
                         "audio_formats": info.get("audio_formats"),
                         "upc": info.get("upc"),
                         "release_type": r.get("release_type"),
-                        "info_fetched": 1,
+                        "info_fetched": 1 if ok else 0,
                         "source": "artist_fetch",
                     }
                     if not existing:

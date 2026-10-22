@@ -12,7 +12,7 @@ from flask import Blueprint, jsonify, request
 
 import db
 from api_utility import _serialize, _validate_storefront
-from client import AppleMusicClient, RateLimitError
+from client import AppleMusicClient, RateLimitError, album_info_ok
 from config import load_config
 
 artists_bp = Blueprint("artists", __name__)
@@ -130,6 +130,7 @@ def api_artist_fetch(artist_id):
                 existing = db.get_album(aid)
                 album_url = f"https://music.apple.com/{storefront}/album/{aid}"
                 info = client.get_album_full_info(album_url)
+                ok = album_info_ok(info)
 
                 album_data = {
                     "store_adam_id": aid,
@@ -146,7 +147,7 @@ def api_artist_fetch(artist_id):
                     "audio_formats": info.get("audio_formats"),
                     "upc": info.get("upc"),
                     "release_type": r.get("release_type"),
-                    "info_fetched": 1,
+                    "info_fetched": 1 if ok else 0,
                     "source": "artist_fetch",
                 }
                 if not existing:

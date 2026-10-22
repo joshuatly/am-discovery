@@ -82,6 +82,15 @@ def _note_amp_success() -> None:
         _token_state["consecutive_refreshes"] = 0
 
 
+def album_info_ok(info: dict) -> bool:
+    """True if a get_album_full_info() result came from a successful catalog lookup.
+
+    On failure (401, network error, unknown album) the method returns its
+    all-None skeleton; the catalog always returns a name for a real album.
+    """
+    return bool(info.get("title"))
+
+
 _VIEW_MAP = {
     "full-albums": "main-albums",
     "compilation-albums": "compilation-albums",

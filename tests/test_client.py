@@ -12,7 +12,7 @@ from unittest.mock import MagicMock, mock_open, patch
 
 import client as client_mod
 import config
-from client import AppleMusicClient, RateLimitError
+from client import AppleMusicClient, RateLimitError, album_info_ok
 
 
 class _ConfigIsolatedMixin:
@@ -613,6 +613,17 @@ class TestGetBearerToken(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # get_album_full_info
 # ---------------------------------------------------------------------------
+
+
+class TestAlbumInfoOk(unittest.TestCase):
+    def test_true_when_title_present(self):
+        self.assertTrue(album_info_ok({"title": "Album"}))
+
+    def test_false_for_failed_lookup_skeleton(self):
+        client = _make_client()
+        with patch.object(client, "_amp_api_get", return_value={}):
+            info = client.get_album_full_info("https://music.apple.com/jp/album/x/123")
+        self.assertFalse(album_info_ok(info))
 
 
 class TestGetAlbumFullInfo(unittest.TestCase):

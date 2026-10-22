@@ -836,6 +836,7 @@ class TestApiArtistFetch(ServerTestCase):
             {"artwork_url": "https://art.jpg", "genre": "Pop"},
         )
         mock_client.get_album_full_info.return_value = {
+            "title": "Album 1",
             "release_date": "2024-01-01",
             "artwork_url": "https://art.jpg",
             "track_count": 10,
@@ -855,6 +856,21 @@ class TestApiArtistFetch(ServerTestCase):
         self.assertTrue(data["ok"])
         self.assertTrue(data["async"])
         mock_db.upsert_album.assert_called_once()
+
+    @patch("api_artists.db")
+    @patch("api_artists.AppleMusicClient")
+    @patch("api_artists.threading.Thread", side_effect=_sync_thread_patch)
+    def test_fetch_artist_failed_lookup_not_marked_fetched(self, _MockThread, MockClient, mock_db):
+        mock_client = MockClient.return_value
+        mock_client.get_artist_all_releases.return_value = (
+            [{"storeAdamID": "A1", "title": "Album 1", "url": "https://x.com", "storefronts": ["us"]}],
+            {},
+        )
+        mock_client.get_album_full_info.return_value = {"title": None, "release_date": None, "artist_id": None}
+        mock_db.get_album.return_value = None
+
+        self.client.post("/api/artists/ART1/fetch")
+        self.assertEqual(mock_db.upsert_album.call_args.args[0]["info_fetched"], 0)
 
     @patch("api_artists.db")
     @patch("api_artists.AppleMusicClient")
