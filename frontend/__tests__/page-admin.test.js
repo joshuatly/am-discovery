@@ -39,7 +39,8 @@ describe("Admin page", () => {
     expect(url).toContain(encodeURIComponent("https://music.apple.com/tw/album/A1"));
     expect(url).toContain("gtin=12345");
     expect(url).toContain("region=TW%2CHK");
-    expect(url).toContain("musicbrainz=");
+    expect(url).toContain("category=preferred");
+    expect(url).not.toContain("musicbrainz=");
   });
 
   test("buildHarmonyUrl tolerates a missing UPC", () => {
