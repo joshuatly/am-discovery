@@ -42,6 +42,8 @@ _DEFAULTS = {
         "ニューリリース",
         "Rilisan Baru",
         "keluaran baharu",
+        "recent releases",
+        "本周新发行",
     ],
     "watchlist_poll_interval_minutes": 10,
     "watchlist_poll_batch_size": 5,

@@ -105,6 +105,11 @@ class TestDiscoveryNamesFor(DiscoveryConfigTestCase):
         self.assertEqual(fallback_titles(), ["custom new release title"])
         self.assertEqual(discovery_names_for("zz"), ["custom new release title"])
 
+    def test_default_fallback_titles_cover_sg_my_and_cn_rooms(self):
+        matchers = room_title_matchers("zz")
+        self.assertIn("recent releases", matchers)
+        self.assertIn("本周新发行", matchers)
+
 
 class TestRoomTitleMatchers(DiscoveryConfigTestCase):
     def test_per_storefront_name_first_then_fallbacks(self):

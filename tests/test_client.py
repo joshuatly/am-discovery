@@ -1606,10 +1606,10 @@ class TestDiscoverRoomUrl(_ConfigIsolatedMixin, unittest.TestCase):
     @patch.object(AppleMusicClient, "_web_get")
     def test_per_storefront_name_does_not_leak_to_other_storefronts(self, mock_web_get):
         cfg = config.load_config()
-        cfg["discovery_names"]["sg"] = "Recent Releases"
+        cfg["discovery_names"]["sg"] = "Fresh Picks"
         config.save_config(cfg)
 
-        mock_web_get.return_value = self._make_new_page_html("/us/room/111", title="Recent Releases")
+        mock_web_get.return_value = self._make_new_page_html("/us/room/111", title="Fresh Picks")
         self.assertIsNone(self.client.discover_room_url("us"))
 
     @patch.object(AppleMusicClient, "_web_get")
