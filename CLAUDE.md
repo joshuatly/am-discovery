@@ -12,6 +12,7 @@ AM Discovery is an Apple Music new-release discovery tool. It monitors regional 
 
 ```
 client.py          — AppleMusicClient: scrapes music.apple.com + amp-api.music.apple.com
+client_discovery.py — DiscoveryMixin: new-release room discovery (amp-api groupings + /new page fallback)
 db.py              — SQLite database layer (all SQL lives here, nowhere else)
 config.py          — load_config() / save_config() + CONFIG_PATH + timezone/date helpers
 server.py          — Flask app creation, polling schedulers, init_scheduler(), main(); registers all blueprints
