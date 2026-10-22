@@ -57,6 +57,12 @@ describe("renderNotificationEvents", () => {
     expect(checkboxes[1].checked).toBe(false);
   });
 
+  test("labels the onAuthFailed event type", () => {
+    const events = [{ id: "e1", event_type: "onAuthFailed", apprise_url: "http://a", enabled: true }];
+    ctx.appWindow.__test_renderNotificationEvents(container, events, eventTypesMeta, () => {});
+    expect(container.textContent).toContain("Apple Music authorization failed");
+  });
+
   test("auto-disabled badge renders when disabled_reason is max_failures", () => {
     const events = [
       {

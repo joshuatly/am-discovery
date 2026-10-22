@@ -160,6 +160,7 @@ class TestEventTypes(NotificationsApiTestCase):
                 "onArtistNewRelease",
                 "onArtistNewSingle",
                 "onWatchlistBatchComplete",
+                "onAuthFailed",
             },
         )
 
