@@ -183,7 +183,8 @@ async function renderSettings(main) {
   const fallbackDesc = el(
     "p",
     "",
-    "Substrings matched against a room's title when a storefront above has no keyword set.",
+    "Case-insensitive substrings matched against section titles on each storefront's /new page " +
+      "(alongside its keyword above), and against room titles when a storefront has no keyword set.",
   );
   fallbackDesc.style.cssText = "font-size:12px;color:var(--text-dim);margin:0;";
   const fallbackInput = el("input", "search-input");
