@@ -785,6 +785,33 @@ class TestGetRoomNewReleases(_ConfigIsolatedMixin, unittest.TestCase):
         self.assertEqual(self.client.get_room_new_releases("https://example.com", "us"), [])
 
     @patch.object(AppleMusicClient, "_web_get")
+    def test_matches_section_via_per_storefront_name(self, mock_web_get):
+        cfg = config.load_config()
+        cfg["discovery_names"]["cn"] = "本周新发行"
+        config.save_config(cfg)
+
+        sections = [
+            {
+                "header": {"item": {"titleLink": {"title": "本周新发行"}}},
+                "items": [
+                    {
+                        "item": {
+                            "attributes": {
+                                "title": "专辑",
+                                "artistName": "歌手",
+                                "url": "https://music.apple.com/cn/album/x/555",
+                            },
+                        },
+                    },
+                ],
+            },
+        ]
+        mock_web_get.return_value = ROOM_HTML_TEMPLATE.format(payload=_make_room_payload(sections))
+
+        releases = self.client.get_room_new_releases("https://example.com", "cn")
+        self.assertEqual([r["storeAdamID"] for r in releases], ["555"])
+
+    @patch.object(AppleMusicClient, "_web_get")
     def test_matches_section_via_configured_fallback_title(self, mock_web_get):
         # Simulates fixing a broken match from the Settings page: a section
         # titled in a way the default fallback list doesn't cover.
@@ -1564,6 +1591,48 @@ class TestDiscoverRoomUrl(_ConfigIsolatedMixin, unittest.TestCase):
 
         mock_web_get.return_value = self._make_new_page_html("/jp/room/6760868920", title="New Releases")
         self.assertIsNone(self.client.discover_room_url("jp"))
+
+    @patch.object(AppleMusicClient, "_web_get")
+    def test_matches_per_storefront_discovery_name(self, mock_web_get):
+        # A storefront-specific name from Settings applies to the /new page
+        # fallback too, not just the amp-api path.
+        cfg = config.load_config()
+        cfg["discovery_names"]["sg"] = "Recent Releases"
+        config.save_config(cfg)
+
+        mock_web_get.return_value = self._make_new_page_html("/sg/room/111", title="Recent Releases")
+        self.assertEqual(self.client.discover_room_url("sg"), "https://music.apple.com/sg/room/111")
+
+    @patch.object(AppleMusicClient, "_web_get")
+    def test_per_storefront_name_does_not_leak_to_other_storefronts(self, mock_web_get):
+        cfg = config.load_config()
+        cfg["discovery_names"]["sg"] = "Recent Releases"
+        config.save_config(cfg)
+
+        mock_web_get.return_value = self._make_new_page_html("/us/room/111", title="Recent Releases")
+        self.assertIsNone(self.client.discover_room_url("us"))
+
+    @patch.object(AppleMusicClient, "_web_get")
+    def test_mixed_case_fallback_title_matches(self, mock_web_get):
+        mock_web_get.return_value = self._make_new_page_html("/my/room/222", title="Rilisan Baru")
+        self.assertEqual(self.client.discover_room_url("my"), "https://music.apple.com/my/room/222")
+
+    @patch.object(AppleMusicClient, "_web_get")
+    def test_logs_seen_section_titles_when_nothing_matches(self, mock_web_get):
+        sections = [{"header": "Top Picks"}, {"header": {"item": {"title": "Coming Soon"}}}]
+        mock_web_get.return_value = ROOM_HTML_TEMPLATE.format(payload=_make_room_payload(sections))
+        with self.assertLogs("client", level="ERROR") as logs:
+            self.assertIsNone(self.client.discover_room_url("us"))
+        self.assertIn("Top Picks", logs.output[0])
+        self.assertIn("Coming Soon", logs.output[0])
+
+    @patch.object(AppleMusicClient, "_web_get")
+    def test_matches_title_from_dictionary_when_no_header(self, mock_web_get):
+        sections = [{"dictionary": {"title": "New Releases"}}]
+        mock_web_get.return_value = ROOM_HTML_TEMPLATE.format(payload=_make_room_payload(sections))
+        with self.assertLogs("client", level="ERROR") as logs:
+            self.assertIsNone(self.client.discover_room_url("us"))
+        self.assertIn("no room URL", logs.output[0])
 
 
 if __name__ == "__main__":

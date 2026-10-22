@@ -10,11 +10,42 @@ import logging
 import re
 import traceback
 
-from storefronts import discovery_names_for, fallback_titles, locale_for
+from storefronts import discovery_names_for, locale_for, room_title_matchers
 
 _MUSIC_BASE = "https://music.apple.com"
 
 logger = logging.getLogger("client")
+
+
+def _section_title(sec: dict) -> tuple[str, str | None]:
+    """Return (title text, absolute room URL or None) for a serialized page section.
+
+    The header comes in several shapes: a plain string, a dict whose
+    `item.titleLink` carries the title and the room link, a dict with a bare
+    `item.title` / `title`, or no header with the title under `dictionary`.
+    """
+    header = sec.get("header")
+    text, link_url = "", ""
+    if isinstance(header, dict):
+        item = header.get("item") or {}
+        title_link = item.get("titleLink") or {}
+        text = title_link.get("title") or item.get("title") or header.get("title") or ""
+        link_url = title_link.get("url") or ""
+    elif isinstance(header, str) and header:
+        text = header
+    if not text:
+        text = (sec.get("dictionary") or {}).get("title") or sec.get("title") or ""
+    if not isinstance(text, str):
+        text = str(text)
+    room_url = None
+    if link_url:
+        room_url = f"{_MUSIC_BASE}{link_url}" if link_url.startswith("/") else link_url
+    return text, room_url
+
+
+def _title_matches(text: str, matchers: list[str]) -> bool:
+    lowered = text.lower()
+    return any(m in lowered for m in matchers)
 
 
 class DiscoveryMixin:
@@ -50,48 +81,45 @@ class DiscoveryMixin:
             logger.warning("Error extracting sections for room discovery: %s %s", type(e), e)
             return None
 
-        titles = fallback_titles()
+        matchers = room_title_matchers(storefront)
+        seen_titles = []
         for sec in sections:
-            title = sec.get("header", "")
-            room_url = None
-
-            if isinstance(title, dict):
-                title_link = title.get("item", {}).get("titleLink", {})
-                title_text = title_link.get("title", "")
-                link_url = title_link.get("url", "")
-                if link_url:
-                    room_url = f"{_MUSIC_BASE}{link_url}" if link_url.startswith("/") else link_url
-            elif not title and "dictionary" in sec and "title" in sec["dictionary"]:
-                title_text = sec["dictionary"]["title"]
-            else:
-                title_text = title if isinstance(title, str) else str(title)
-
-            title_lower = title_text.lower() if isinstance(title_text, str) else ""
-            if any(t in title_lower for t in titles):
-                if room_url:
-                    sf_match = re.search(r"music\.apple\.com/(\w+)/room/", room_url)
-                    if sf_match and sf_match.group(1) != storefront:
-                        logger.error(
-                            "[%s] Room URL storefront mismatch (got %s): %s",
-                            storefront.upper(),
-                            sf_match.group(1),
-                            room_url,
-                        )
-                        return None
-                    logger.info(
-                        "[%s] Discovered new release room: %s",
+            title_text, room_url = _section_title(sec)
+            if title_text:
+                seen_titles.append(title_text)
+            if not _title_matches(title_text, matchers):
+                continue
+            if room_url:
+                sf_match = re.search(r"music\.apple\.com/(\w+)/room/", room_url)
+                if sf_match and sf_match.group(1) != storefront:
+                    logger.error(
+                        "[%s] Room URL storefront mismatch (got %s): %s",
                         storefront.upper(),
+                        sf_match.group(1),
                         room_url,
                     )
-                    return room_url
-                logger.error(
-                    "[%s] Found new release section '%s' but no room URL",
+                    return None
+                logger.info(
+                    "[%s] Discovered new release room: %s",
                     storefront.upper(),
-                    title_text,
+                    room_url,
                 )
-                return None
+                return room_url
+            logger.error(
+                "[%s] Found new release section '%s' but no room URL",
+                storefront.upper(),
+                title_text,
+            )
+            return None
 
-        logger.error("[%s] No new release section found on /new page", storefront.upper())
+        # List what the page does have so the right title can be added to
+        # Settings → Discovery Room Matching.
+        logger.error(
+            "[%s] No new release section found on /new page; section titles: %s; looked for: %s",
+            storefront.upper(),
+            seen_titles,
+            matchers,
+        )
         return None
 
     def discover_new_release_room_id(self, storefront):
@@ -286,18 +314,12 @@ class DiscoveryMixin:
             logger.debug("Content keys: %s", list(content.keys()))
 
         new_releases = []
-        titles = fallback_titles()
+        matchers = room_title_matchers(storefront)
         for sec in sections:
-            title = sec.get("header", "")
-            if isinstance(title, dict):
-                title = title.get("item", {}).get("titleLink", {}).get("title", str(title))
-            elif not title and "dictionary" in sec and "title" in sec["dictionary"]:
-                title = sec["dictionary"]["title"]
-
+            title, _ = _section_title(sec)
             logger.debug("Checking section: %s", title)
 
-            title_lower = title.lower() if isinstance(title, str) else str(title).lower()
-            if any(t in title_lower for t in titles):
+            if _title_matches(title, matchers):
                 items = sec.get("items", [])
                 for item in items:
                     actual_item = item.get("item", item)
