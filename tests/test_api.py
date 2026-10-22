@@ -573,6 +573,13 @@ class TestApiRefresh(ServerTestCase):
         self.assertTrue(resp.get_json()["ok"])
         mock_trigger.assert_called_once()
 
+    @patch("server.trigger_poll_now")
+    @patch("server._is_running", False)
+    def test_refresh_rearms_token_refresh(self, _):
+        with patch("api_system.apple_client.reset_token_refresh") as reset:
+            self.client.post("/api/system/refresh")
+        reset.assert_called_once()
+
     def test_refresh_409_when_running(self):
         import server
 
@@ -614,6 +621,15 @@ class TestApiStatus(ServerTestCase):
         self.assertIn("total_albums", data)
         self.assertEqual(data["last_run"]["new_count"], 5)
         self.assertEqual(len(data["last_run"]["storefronts"]), 1)
+
+    @patch("api_system.db")
+    def test_status_reports_token_refresh_state(self, mock_db):
+        mock_db.get_last_run.return_value = None
+        mock_db.list_albums.return_value = ([], 0)
+        state = {"disabled": True, "reason": "nope"}
+        with patch("api_system.apple_client.token_refresh_status", return_value=state):
+            data = self.client.get("/api/system/status").get_json()
+        self.assertEqual(data["token_refresh"], state)
 
     @patch("api_system.db")
     def test_status_no_last_run(self, mock_db):
@@ -1106,6 +1122,7 @@ class TestApiStatusWatchlist(ServerTestCase):
         with (
             patch.object(server, "load_config", return_value={"newrelease_poll_interval_days": 1}),
             patch("server.threading.Timer"),  # don't actually fire
+            patch("server.AppleMusicClient.refresh_token_on_startup"),  # no network
         ):
             server.init_scheduler()
 

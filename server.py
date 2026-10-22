@@ -13,6 +13,7 @@ import time
 from flasgger import Swagger
 from flask import Flask
 
+import client as apple_client
 import db
 import notifications
 import seeding
@@ -457,6 +458,10 @@ def _fire_discovery_cycle_notifications(
         )
 
 
+def _notify_auth_failed(reason: str) -> None:
+    notifications.enqueue("onAuthFailed", {"run_at": format_local_time(time.time()), "reason": reason})
+
+
 def init_scheduler():
     """Initialise the database and start background polling timers.
 
@@ -465,6 +470,12 @@ def init_scheduler():
     db.init_db()
     notifications.init()
     notifications.init_scanner()
+
+    # Report once (rather than retrying forever) when Apple Music token refresh
+    # gives up, and start from a fresh token in case the cached one was revoked
+    # while the app was down.
+    apple_client.set_token_failure_handler(_notify_auth_failed)
+    AppleMusicClient.refresh_token_on_startup()
 
     cfg = load_config()
     interval_sec = cfg.get("newrelease_poll_interval_days", 1) * 86400

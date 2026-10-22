@@ -510,3 +510,41 @@ class TestDiscoveryPollRescheduleOnFailure(ServerTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# ---------------------------------------------------------------------------
+# Apple Music token handling at startup
+# ---------------------------------------------------------------------------
+
+
+class TestInitSchedulerToken(ServerTestCase):
+    @patch("server.seeding")
+    @patch("server._schedule_watchlist_next")
+    @patch("server._schedule_next")
+    @patch("server.trigger_poll_now")
+    @patch("server.notifications")
+    @patch("server.db")
+    @patch("server.AppleMusicClient")
+    @patch("server.apple_client")
+    def test_init_scheduler_refreshes_token_and_registers_handler(self, mock_ac, mock_client_cls, *_):
+        import server
+
+        order = []
+        mock_client_cls.refresh_token_on_startup.side_effect = lambda: order.append("refresh")
+        server.trigger_poll_now.side_effect = lambda: order.append("poll")
+        server.db.get_last_run.return_value = None
+        server.init_scheduler()
+
+        mock_ac.set_token_failure_handler.assert_called_once_with(server._notify_auth_failed)
+        mock_client_cls.refresh_token_on_startup.assert_called_once()
+        self.assertEqual(order, ["refresh", "poll"])
+
+    @patch("server.notifications")
+    def test_notify_auth_failed_enqueues_event(self, mock_notif):
+        import server
+
+        server._notify_auth_failed("token gone")
+        event_type, variables = mock_notif.enqueue.call_args.args
+        self.assertEqual(event_type, "onAuthFailed")
+        self.assertEqual(variables["reason"], "token gone")
+        self.assertTrue(variables["run_at"])
