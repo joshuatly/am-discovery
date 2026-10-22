@@ -1,9 +1,11 @@
 import base64
 import concurrent.futures
+import contextlib
 import json
 import logging
 import os
 import re
+import threading
 import time
 import urllib.error
 import urllib.parse
@@ -24,6 +26,61 @@ _BROWSE_PATH = "/us/browse"
 
 _UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36"
 _MINIMAL_HEADERS = {"User-Agent": "Mozilla/5.0"}
+_TOKEN_FILE = os.path.join(_BASE_DIR, "bearer_token.txt")
+# Web player bundle: `/assets/index-<hash>.js` or `/assets/index~<hash>.js`
+# (plus an `index-legacy-*` variant on some builds).
+_INDEX_JS_RE = re.compile(r'/(assets/index[~-][^/"]+\.js)')
+# A complete JWT: three base64url segments, header and payload both JSON ("eyJ").
+_JWT_RE = re.compile(r'"(eyJ[A-Za-z0-9\-_]+\.eyJ[A-Za-z0-9\-_]+\.[A-Za-z0-9\-_]+)"')
+# Serializes token refreshes across threads (the poller fetches metadata with a
+# thread pool, so a revoked token produces a burst of concurrent 401s).
+_TOKEN_LOCK = threading.Lock()
+# Circuit breaker for token refreshes. Trips when a replacement token can't be
+# obtained, or after this many refreshes in a row with no successful amp-api
+# response in between (new tokens are fetched but still rejected). Once
+# tripped, no further fetches are attempted until reset_token_refresh() —
+# called on startup and on a manual refresh — so a persistent auth failure
+# can't hammer Apple with token fetches.
+_MAX_CONSECUTIVE_REFRESHES = 3
+_token_state = {"disabled": False, "reason": None, "consecutive_refreshes": 0}
+_token_failure_handler = None
+
+
+def set_token_failure_handler(handler) -> None:
+    """Register `handler(reason: str)`, called once each time the breaker trips."""
+    global _token_failure_handler
+    _token_failure_handler = handler
+
+
+def token_refresh_status() -> dict:
+    """Snapshot of the token circuit breaker: `{"disabled": bool, "reason": str | None}`."""
+    with _TOKEN_LOCK:
+        return {"disabled": _token_state["disabled"], "reason": _token_state["reason"]}
+
+
+def reset_token_refresh() -> None:
+    """Re-arm the token circuit breaker so the next 401 may fetch a new token."""
+    with _TOKEN_LOCK:
+        _token_state.update(disabled=False, reason=None, consecutive_refreshes=0)
+
+
+def _trip_token_breaker(reason: str) -> None:
+    """Disable further token fetches and notify. Caller must hold _TOKEN_LOCK."""
+    _token_state.update(disabled=True, reason=reason)
+    logger.error("[amp-api] %s; token refresh disabled until restart or manual refresh", reason)
+    if _token_failure_handler:
+        try:
+            _token_failure_handler(reason)
+        except Exception as e:
+            logger.warning("[amp-api] Token failure handler raised: %s", e)
+
+
+def _note_amp_success() -> None:
+    # Lock-free on purpose (called on every successful request); a race with a
+    # concurrent refresh can only shift when the breaker trips by one refresh.
+    if _token_state["consecutive_refreshes"]:
+        _token_state["consecutive_refreshes"] = 0
+
 
 _VIEW_MAP = {
     "full-albums": "main-albums",
@@ -55,37 +112,102 @@ class AppleMusicClient(DiscoveryMixin):
         self._web_headers = {"User-Agent": _UA}
         if self.user_token:
             self._web_headers["Cookie"] = f"media-user-token={self.user_token}"
-        if self.bearer_token:
-            self._web_headers["Authorization"] = f"Bearer {self.bearer_token}"
 
         self._amp_headers = {
             "User-Agent": _UA,
             "Origin": _MUSIC_BASE,
             "Referer": f"{_MUSIC_BASE}/",
         }
-        if self.bearer_token:
-            self._amp_headers["Authorization"] = f"Bearer {self.bearer_token}"
         if self.user_token:
             self._amp_headers["Music-User-Token"] = self.user_token
+        self._set_auth_headers(self.bearer_token)
 
-    def _get_bearer_token(self):
-        token_file = os.path.join(_BASE_DIR, "bearer_token.txt")
-        token = None
+    def _set_auth_headers(self, token):
+        for headers in (self._web_headers, self._amp_headers):
+            if token:
+                headers["Authorization"] = f"Bearer {token}"
+            else:
+                headers.pop("Authorization", None)
 
-        # Check if exists and valid
-        if os.path.exists(token_file):
-            with open(token_file) as f:
-                token = f.read().strip()
-            if token and not self._is_jwt_expired(token):
-                return token
-
-        # Fetch new token
-        token = self._fetch_new_bearer_token()
-        if token:
-            with open(token_file, "w") as f:
-                f.write(token)
+    def _read_cached_token(self):
+        """Return the cached token if present and unexpired, else None."""
+        if not os.path.exists(_TOKEN_FILE):
+            return None
+        with open(_TOKEN_FILE) as f:
+            token = f.read().strip()
+        if token and not self._is_jwt_expired(token):
             return token
         return None
+
+    def _get_bearer_token(self):
+        token = self._read_cached_token()
+        if token:
+            return token
+
+        token = self._fetch_new_bearer_token()
+        if token:
+            with open(_TOKEN_FILE, "w") as f:
+                f.write(token)
+            return token
+        logger.warning("No Apple Music bearer token available; amp-api requests will be unauthorized")
+        return None
+
+    def _refresh_bearer_token(self, rejected):
+        """Replace a token the API rejected (HTTP 401). Returns True if a new one is in use.
+
+        Apple can revoke a web token well before its `exp`, so expiry alone
+        isn't enough to know when to refetch. Under the lock, a cached token
+        that differs from `rejected` means another thread already refreshed,
+        so it's adopted instead of fetching again. Returns False without
+        fetching while the circuit breaker is tripped.
+        """
+        with _TOKEN_LOCK:
+            if _token_state["disabled"]:
+                return False
+            cached = self._read_cached_token()
+            if cached and cached != rejected:
+                token = cached
+            else:
+                if _token_state["consecutive_refreshes"] >= _MAX_CONSECUTIVE_REFRESHES:
+                    _trip_token_breaker(
+                        f"Apple Music API still returns 401 after {_MAX_CONSECUTIVE_REFRESHES} token refreshes"
+                    )
+                    return False
+                logger.warning("[amp-api] Bearer token rejected (401); fetching a new one")
+                with contextlib.suppress(FileNotFoundError):
+                    os.remove(_TOKEN_FILE)
+                token = self._fetch_new_bearer_token()
+                if not token or token == rejected:
+                    _trip_token_breaker("Apple Music API returned 401 and no replacement bearer token could be fetched")
+                    return False
+                with open(_TOKEN_FILE, "w") as f:
+                    f.write(token)
+                _token_state["consecutive_refreshes"] += 1
+                logger.info("[amp-api] Bearer token refreshed")
+            self.bearer_token = token
+            self._set_auth_headers(token)
+            return True
+
+    @classmethod
+    def refresh_token_on_startup(cls) -> bool:
+        """Fetch a fresh bearer token regardless of the cached one's expiry.
+
+        Called once at app startup so a token Apple revoked while the app
+        was down is replaced before the first poll. Re-arms the circuit
+        breaker. On failure the cached token (if any) is left in place and
+        the 401 path takes over. Returns True if a new token was stored.
+        """
+        reset_token_refresh()
+        client = cls.__new__(cls)
+        client._cors_proxy = _load_cors_proxy()
+        token = client._fetch_new_bearer_token()
+        if not token:
+            logger.warning("Startup bearer token refresh failed; keeping cached token if any")
+            return False
+        with _TOKEN_LOCK, open(_TOKEN_FILE, "w") as f:
+            f.write(token)
+        logger.info("Startup bearer token refresh succeeded")
+        return True
 
     def _is_jwt_expired(self, token):
         try:
@@ -113,40 +235,54 @@ class AppleMusicClient(DiscoveryMixin):
             return None
 
     def _fetch_new_bearer_token(self):
+        """Scrape the web player's JS bundle for its embedded developer token."""
         try:
             html = self._web_get(_MUSIC_BASE + _BROWSE_PATH, headers=_MINIMAL_HEADERS)
             if not html:
-                logger.warning("Failed to fetch Apple Music browse page")
+                logger.warning("Failed to fetch Apple Music browse page for bearer token")
                 return None
-            m = re.search(r'src="(/assets/index-[^"]+\.js)"', html)
-            if not m:
-                m = re.search(r'src="(/assets/index-legacy[^"]+\.js)"', html)
-            if m:
-                js_url = _MUSIC_BASE + m.group(1)
-                js_content = self._web_get(js_url, headers=_MINIMAL_HEADERS)
-                if not js_content:
-                    logger.warning("Failed to fetch Apple Music JS bundle")
-                    return None
-                tokens = re.findall(
-                    r"\"(eyJ[A-Za-z0-9-_]+[=]{0,2}\.[A-Za-z0-9-_]+[=]{0,2}\.[A-Za-z0-9-_.+/=]+)\"",
-                    js_content,
-                )
-                if tokens:
-                    return tokens[0]
+            bundles = _INDEX_JS_RE.findall(html)
+            if not bundles:
+                logger.warning("No index JS bundle referenced on Apple Music browse page")
+                return None
+            # Prefer the modern bundle over the legacy one when both are present.
+            bundle = next((b for b in bundles if "legacy" not in b), bundles[0])
+            js_content = self._web_get(f"{_MUSIC_BASE}/{bundle}", headers=_MINIMAL_HEADERS)
+            if not js_content:
+                logger.warning("Failed to fetch Apple Music JS bundle %s", bundle)
+                return None
+            tokens = _JWT_RE.findall(js_content)
+            if not tokens:
+                logger.warning("No bearer token found in Apple Music JS bundle %s", bundle)
+                return None
+            token = next((t for t in tokens if not self._is_jwt_expired(t)), None)
+            if not token:
+                logger.warning("Only expired tokens found in Apple Music JS bundle %s", bundle)
+                return None
+            logger.info("Fetched new Apple Music bearer token from %s", bundle)
+            return token
         except Exception as e:
             logger.warning("Error fetching bearer token: %s", e)
         return None
 
-    def _amp_api_get(self, path: str, params: dict = None) -> dict:
-        """GET from amp-api.music.apple.com, returns parsed JSON or {}."""
+    def _amp_api_get(self, path: str, params: dict = None, _retried: bool = False) -> dict:
+        """GET from amp-api.music.apple.com, returns parsed JSON or {}.
+
+        On HTTP 401 the bearer token is refreshed and the request retried once.
+        """
         query = ("?" + urllib.parse.urlencode(params)) if params else ""
         url = self._apply_proxy(f"{_AMP_API_BASE}{path}{query}")
+        token = self.bearer_token
         req = urllib.request.Request(url, headers=self._amp_headers)
         logger.debug("[amp-api] GET %s", url)
         try:
             with urllib.request.urlopen(req, timeout=10) as resp:
-                return json.loads(resp.read().decode("utf-8"))
+                data = json.loads(resp.read().decode("utf-8"))
+            _note_amp_success()
+            return data
         except urllib.error.HTTPError as e:
+            if e.code == 401 and not _retried and self._refresh_bearer_token(token):
+                return self._amp_api_get(path, params, _retried=True)
             if e.code == 429:
                 logger.warning("[amp-api] Rate limited (429): %s", url)
                 raise RateLimitError("Apple Music API rate limit exceeded") from e
@@ -156,7 +292,7 @@ class AppleMusicClient(DiscoveryMixin):
             logger.warning("[amp-api] GET %s failed: %s", url, e)
             return {}
 
-    def catalog_get_raw(self, path: str, params: dict = None) -> tuple[int, dict | str]:
+    def catalog_get_raw(self, path: str, params: dict = None, _retried: bool = False) -> tuple[int, dict | str]:
         """GET from amp-api.music.apple.com and return (status_code, body).
 
         Unlike _amp_api_get, errors are not swallowed — the HTTP status and
@@ -165,12 +301,17 @@ class AppleMusicClient(DiscoveryMixin):
         """
         query = ("?" + urllib.parse.urlencode(params)) if params else ""
         url = self._apply_proxy(f"{_AMP_API_BASE}{path}{query}")
+        token = self.bearer_token
         req = urllib.request.Request(url, headers=self._amp_headers)
         logger.debug("[amp-api raw] GET %s", url)
         try:
             with urllib.request.urlopen(req, timeout=10) as resp:
-                return resp.status, json.loads(resp.read().decode("utf-8"))
+                status, data = resp.status, json.loads(resp.read().decode("utf-8"))
+            _note_amp_success()
+            return status, data
         except urllib.error.HTTPError as e:
+            if e.code == 401 and not _retried and self._refresh_bearer_token(token):
+                return self.catalog_get_raw(path, params, _retried=True)
             try:
                 body = json.loads(e.read().decode("utf-8"))
             except Exception:
