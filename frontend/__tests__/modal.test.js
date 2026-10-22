@@ -156,11 +156,11 @@ describe("openModal MusicBrainz and Harmony sections", () => {
     const url = new URL(btns[0].href);
     expect(url.searchParams.has("gtin")).toBe(true);
     expect(url.searchParams.has("region")).toBe(true);
-    expect(url.searchParams.has("musicbrainz")).toBe(true);
-    expect(url.searchParams.has("deezer")).toBe(true);
-    expect(url.searchParams.has("itunes")).toBe(true);
-    expect(url.searchParams.has("spotify")).toBe(true);
-    expect(url.searchParams.has("tidal")).toBe(true);
+    expect(url.searchParams.get("category")).toBe("preferred");
+    // Provider overrides are left to Harmony's "preferred" category
+    for (const p of ["musicbrainz", "deezer", "itunes", "spotify", "tidal"]) {
+      expect(url.searchParams.has(p)).toBe(false);
+    }
     // region should be uppercased configured storefronts
     expect(url.searchParams.get("region")).toBe("US,JP,HK");
   });
