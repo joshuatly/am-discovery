@@ -573,6 +573,13 @@ class TestApiRefresh(ServerTestCase):
         self.assertTrue(resp.get_json()["ok"])
         mock_trigger.assert_called_once()
 
+    @patch("server.trigger_poll_now")
+    @patch("server._is_running", False)
+    def test_refresh_rearms_token_refresh(self, _):
+        with patch("api_system.apple_client.reset_token_refresh") as reset:
+            self.client.post("/api/system/refresh")
+        reset.assert_called_once()
+
     def test_refresh_409_when_running(self):
         import server
 
@@ -614,6 +621,15 @@ class TestApiStatus(ServerTestCase):
         self.assertIn("total_albums", data)
         self.assertEqual(data["last_run"]["new_count"], 5)
         self.assertEqual(len(data["last_run"]["storefronts"]), 1)
+
+    @patch("api_system.db")
+    def test_status_reports_token_refresh_state(self, mock_db):
+        mock_db.get_last_run.return_value = None
+        mock_db.list_albums.return_value = ([], 0)
+        state = {"disabled": True, "reason": "nope"}
+        with patch("api_system.apple_client.token_refresh_status", return_value=state):
+            data = self.client.get("/api/system/status").get_json()
+        self.assertEqual(data["token_refresh"], state)
 
     @patch("api_system.db")
     def test_status_no_last_run(self, mock_db):
@@ -820,6 +836,7 @@ class TestApiArtistFetch(ServerTestCase):
             {"artwork_url": "https://art.jpg", "genre": "Pop"},
         )
         mock_client.get_album_full_info.return_value = {
+            "title": "Album 1",
             "release_date": "2024-01-01",
             "artwork_url": "https://art.jpg",
             "track_count": 10,
@@ -839,6 +856,21 @@ class TestApiArtistFetch(ServerTestCase):
         self.assertTrue(data["ok"])
         self.assertTrue(data["async"])
         mock_db.upsert_album.assert_called_once()
+
+    @patch("api_artists.db")
+    @patch("api_artists.AppleMusicClient")
+    @patch("api_artists.threading.Thread", side_effect=_sync_thread_patch)
+    def test_fetch_artist_failed_lookup_not_marked_fetched(self, _MockThread, MockClient, mock_db):
+        mock_client = MockClient.return_value
+        mock_client.get_artist_all_releases.return_value = (
+            [{"storeAdamID": "A1", "title": "Album 1", "url": "https://x.com", "storefronts": ["us"]}],
+            {},
+        )
+        mock_client.get_album_full_info.return_value = {"title": None, "release_date": None, "artist_id": None}
+        mock_db.get_album.return_value = None
+
+        self.client.post("/api/artists/ART1/fetch")
+        self.assertEqual(mock_db.upsert_album.call_args.args[0]["info_fetched"], 0)
 
     @patch("api_artists.db")
     @patch("api_artists.AppleMusicClient")
@@ -1106,6 +1138,7 @@ class TestApiStatusWatchlist(ServerTestCase):
         with (
             patch.object(server, "load_config", return_value={"newrelease_poll_interval_days": 1}),
             patch("server.threading.Timer"),  # don't actually fire
+            patch("server.AppleMusicClient.refresh_token_on_startup"),  # no network
         ):
             server.init_scheduler()
 

@@ -7,7 +7,7 @@ import unittest
 
 import config
 from storefront_locales import STOREFRONT_LOCALES
-from storefronts import DEFAULT_LOCALE, discovery_names_for, fallback_titles, locale_for
+from storefronts import DEFAULT_LOCALE, discovery_names_for, fallback_titles, locale_for, room_title_matchers
 
 
 class TestLocaleFor(unittest.TestCase):
@@ -104,6 +104,30 @@ class TestDiscoveryNamesFor(DiscoveryConfigTestCase):
 
         self.assertEqual(fallback_titles(), ["custom new release title"])
         self.assertEqual(discovery_names_for("zz"), ["custom new release title"])
+
+    def test_default_fallback_titles_cover_sg_my_and_cn_rooms(self):
+        matchers = room_title_matchers("zz")
+        self.assertIn("recent releases", matchers)
+        self.assertIn("本周新发行", matchers)
+
+
+class TestRoomTitleMatchers(DiscoveryConfigTestCase):
+    def test_per_storefront_name_first_then_fallbacks(self):
+        cfg = config.load_config()
+        cfg["discovery_names"]["sg"] = "Recent Releases"
+        cfg["discovery_fallback_titles"] = ["New Release", "Rilisan Baru"]
+        config.save_config(cfg)
+
+        self.assertEqual(room_title_matchers("sg"), ["recent releases", "new release", "rilisan baru"])
+        self.assertEqual(room_title_matchers("my"), ["new release", "rilisan baru"])
+
+    def test_dedupes_and_drops_blank_entries(self):
+        cfg = config.load_config()
+        cfg["discovery_names"]["us"] = "New Release"
+        cfg["discovery_fallback_titles"] = ["new release", "  ", ""]
+        config.save_config(cfg)
+
+        self.assertEqual(room_title_matchers("us"), ["new release"])
 
 
 if __name__ == "__main__":

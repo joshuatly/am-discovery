@@ -2,8 +2,9 @@
 
 `discovery_names_for()` returns the localized title(s) of a storefront's
 "New Releases" room, matched against `attributes.name` in the amp-api
-editorial groupings response (and, via `fallback_titles()`, against room
-titles scraped from the `/new` page in client.py).
+editorial groupings response. `room_title_matchers()` returns the
+storefront's name plus the shared fallback titles, lowercased, matched
+against section titles scraped from the `/new` page (client_discovery.py).
 
 Defaults live in `config._DEFAULTS` (`discovery_names` /
 `discovery_fallback_titles`) and are editable at runtime via the Settings
@@ -40,3 +41,19 @@ def fallback_titles(cfg: dict | None = None) -> list[str]:
     """The shared substring-match fallback list (storefront-agnostic)."""
     cfg = cfg if cfg is not None else load_config()
     return list(cfg.get("discovery_fallback_titles") or [])
+
+
+def room_title_matchers(storefront: str) -> list[str]:
+    """Lowercased substrings that identify the New Releases section on `/new` pages.
+
+    The storefront's configured `discovery_names` entry (if any) comes first,
+    followed by the shared `discovery_fallback_titles`. Both are lowercased
+    here because callers compare against a lowercased section title.
+    """
+    cfg = load_config()
+    candidates = []
+    name = (cfg.get("discovery_names") or {}).get(storefront)
+    if name:
+        candidates.append(name)
+    candidates.extend(fallback_titles(cfg))
+    return list(dict.fromkeys(c.strip().lower() for c in candidates if c and c.strip()))

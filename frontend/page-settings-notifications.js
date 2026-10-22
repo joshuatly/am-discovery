@@ -16,6 +16,7 @@ const NOTIF_EVENT_LABELS = {
   onArtistNewRelease: "Watched artist: new release",
   onArtistNewSingle: "Watched artist: new single",
   onWatchlistBatchComplete: "Watchlist batch complete",
+  onAuthFailed: "Apple Music authorization failed",
 };
 
 function _notifTruncateUrl(url, max = 40) {

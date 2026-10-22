@@ -10,6 +10,7 @@ import urllib.request
 
 from flask import Blueprint, jsonify, request
 
+import client as apple_client
 import db
 import notifications
 from config import CONFIG_LOCK, format_local_time, load_config, save_config
@@ -84,6 +85,9 @@ def api_config_put():
 @system_bp.route("/api/system/refresh", methods=["POST"])
 def api_refresh():
     """Manually trigger a background poll.
+
+    Also re-arms Apple Music token refresh if it was disabled after
+    repeated authorization failures.
     ---
     responses:
       200:
@@ -94,6 +98,7 @@ def api_refresh():
     srv = _server()
     if srv._is_running:
         return jsonify({"ok": False, "message": "Poll already in progress"}), 409
+    apple_client.reset_token_refresh()
     srv.trigger_poll_now()
     return jsonify({"ok": True, "message": "Poll triggered"})
 
@@ -131,6 +136,7 @@ def api_status():
             "watchlist_poll_running": srv._watchlist_running,
             "watchlist_poll_interval_minutes": cfg.get("watchlist_poll_interval_minutes"),
             "room_errors": srv._last_room_errors,
+            "token_refresh": apple_client.token_refresh_status(),
             "last_notify_at": last_notify_at,
             "last_notify_at_human": format_local_time(last_notify_at) if last_notify_at else None,
             "notification_scan_interval_minutes": cfg.get("notification_scan_interval_minutes"),

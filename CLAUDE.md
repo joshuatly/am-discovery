@@ -12,6 +12,7 @@ AM Discovery is an Apple Music new-release discovery tool. It monitors regional 
 
 ```
 client.py          — AppleMusicClient: scrapes music.apple.com + amp-api.music.apple.com
+client_discovery.py — DiscoveryMixin: new-release room discovery (amp-api groupings + /new page fallback)
 db.py              — SQLite database layer (all SQL lives here, nowhere else)
 config.py          — load_config() / save_config() + CONFIG_PATH + timezone/date helpers
 server.py          — Flask app creation, polling schedulers, init_scheduler(), main(); registers all blueprints
@@ -226,7 +227,7 @@ The admin page (`/#/admin`, `page-admin.js`) and background scanner (`seeding.py
 
 `notifications.py` dispatches events to a self-hosted [Apprise](https://github.com/caronc/apprise) API (e.g. `http://host:8100/notify/apprise`). All routes live in `api_notifications.py`; the Settings page is the UI. **There is no DB table** — every event and the global queue settings persist in `config.json` under the `notifications` key.
 
-- **Event types** (`notifications.EVENT_TYPES`): `onDiscoveryComplete`, `onDiscoveryFailed`, `onArtistNewRelease`, `onArtistNewSingle`, `onWatchlistBatchComplete`. Each type has default title/body templates and a documented set of `{variable}` names (`EVENT_VARIABLES`) surfaced to the UI via `GET /api/notifications/event-types`.
+- **Event types** (`notifications.EVENT_TYPES`): `onDiscoveryComplete`, `onDiscoveryFailed`, `onArtistNewRelease`, `onArtistNewSingle`, `onWatchlistBatchComplete`, `onAuthFailed` (Apple Music token refresh gave up — see `client.py` circuit breaker). Each type has default title/body templates and a documented set of `{variable}` names (`EVENT_VARIABLES`) surfaced to the UI via `GET /api/notifications/event-types`.
 - **Dispatch:** `enqueue()` renders every enabled event of a type and puts it on a bounded queue; a single daemon worker thread (`init()`) sends at `rate_limit_per_sec`. Each event tracks `consecutive_failures` and auto-disables after `max_failures`. Templates use `str.format_map` with a `_SafeDict` so unknown/missing `{vars}` render empty instead of raising.
 - **Scanner:** `init_scanner()` starts a separate timer thread that every `notification_scan_interval_minutes` finds watched-artist albums first-seen in the last window (and released within `notification_max_release_age_days`) and fires `onArtistNewRelease`/`onArtistNewSingle`. Discovery/watchlist-batch events fire directly from `server.py`.
 - **Where to add code:** new event route → `api_notifications.py`; new event type, template, variable, or send/scan logic → `notifications.py`. Server wiring (`notifications.init()` / `init_scanner()`, and the discovery/batch `enqueue` calls) lives in `server.py`.

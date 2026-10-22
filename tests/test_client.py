@@ -10,8 +10,9 @@ import unittest
 import urllib.error
 from unittest.mock import MagicMock, mock_open, patch
 
+import client as client_mod
 import config
-from client import AppleMusicClient, RateLimitError
+from client import AppleMusicClient, RateLimitError, album_info_ok
 
 
 class _ConfigIsolatedMixin:
@@ -293,7 +294,7 @@ class TestFetchNewBearerToken(unittest.TestCase):
         self.client = _make_client()
 
     def test_extracts_token_from_js(self):
-        fake_token = "eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ0ZXN0In0.fakesig"
+        fake_token = _make_jwt(int(time.time()) + 3600)
         html = '<script src="/assets/index-abc.js"></script>'
         js = f'var t="{fake_token}"'
 
@@ -331,6 +332,233 @@ class TestFetchNewBearerToken(unittest.TestCase):
 
         with patch.object(self.client, "_web_get", side_effect=side_effect):
             self.assertIsNone(self.client._fetch_new_bearer_token())
+
+    def _fetch_with(self, html, js_by_bundle):
+        def side_effect(url, headers=None, timeout=10):
+            if "browse" in url:
+                return html
+            for bundle, js in js_by_bundle.items():
+                if url.endswith(bundle):
+                    return js
+            return None
+
+        with patch.object(self.client, "_web_get", side_effect=side_effect):
+            return self.client._fetch_new_bearer_token()
+
+    def test_accepts_tilde_bundle_name(self):
+        token = _make_jwt(int(time.time()) + 3600)
+        html = '<link rel="modulepreload" href="/assets/index~a1b2c3.js">'
+        self.assertEqual(self._fetch_with(html, {"index~a1b2c3.js": f'x="{token}"'}), token)
+
+    def test_prefers_modern_bundle_over_legacy(self):
+        token = _make_jwt(int(time.time()) + 3600)
+        html = '<script src="/assets/index-legacy-old.js"></script><script src="/assets/index-new.js"></script>'
+        result = self._fetch_with(html, {"index-new.js": f'x="{token}"', "index-legacy-old.js": "nothing"})
+        self.assertEqual(result, token)
+
+    def test_ignores_non_jwt_eyj_strings(self):
+        token = _make_jwt(int(time.time()) + 3600)
+        html = '<script src="/assets/index-abc.js"></script>'
+        js = f'a="eyJub3RhLmp3dA.abc.def";b="{token}"'
+        self.assertEqual(self._fetch_with(html, {"index-abc.js": js}), token)
+
+    def test_skips_expired_tokens(self):
+        expired = _make_jwt(int(time.time()) - 3600)
+        fresh = _make_jwt(int(time.time()) + 3600)
+        html = '<script src="/assets/index-abc.js"></script>'
+        js = f'a="{expired}";b="{fresh}"'
+        self.assertEqual(self._fetch_with(html, {"index-abc.js": js}), fresh)
+
+    def test_returns_none_when_only_expired_tokens(self):
+        expired = _make_jwt(int(time.time()) - 3600)
+        html = '<script src="/assets/index-abc.js"></script>'
+        self.assertIsNone(self._fetch_with(html, {"index-abc.js": f'a="{expired}"'}))
+
+
+# ---------------------------------------------------------------------------
+# _refresh_bearer_token / 401 retry
+# ---------------------------------------------------------------------------
+
+
+class TestBearerTokenRefreshOn401(unittest.TestCase):
+    def setUp(self):
+        fd, self.token_path = tempfile.mkstemp()
+        os.close(fd)
+        self.old = _make_jwt(int(time.time()) + 3600)
+        self.new = _make_jwt(int(time.time()) + 7200)
+        with open(self.token_path, "w") as f:
+            f.write(self.old)
+        self._patch = patch("client._TOKEN_FILE", self.token_path)
+        self._patch.start()
+        client_mod.reset_token_refresh()
+        client_mod.set_token_failure_handler(None)
+        self.client = _make_client(bearer_token=self.old)
+
+    def tearDown(self):
+        self._patch.stop()
+        client_mod.reset_token_refresh()
+        client_mod.set_token_failure_handler(None)
+        with contextlib.suppress(FileNotFoundError):
+            os.unlink(self.token_path)
+
+    @staticmethod
+    def _http_error(code):
+        return urllib.error.HTTPError(url="https://amp-api.music.apple.com/x", code=code, msg="", hdrs={}, fp=None)
+
+    @staticmethod
+    def _ok(data):
+        resp = MagicMock()
+        resp.status = 200
+        resp.read.return_value = json.dumps(data).encode()
+        resp.__enter__ = lambda s: s
+        resp.__exit__ = MagicMock(return_value=False)
+        return resp
+
+    def test_refresh_replaces_token_file_and_headers(self):
+        with patch.object(AppleMusicClient, "_fetch_new_bearer_token", return_value=self.new):
+            self.assertTrue(self.client._refresh_bearer_token(self.old))
+        self.assertEqual(self.client.bearer_token, self.new)
+        self.assertEqual(self.client._amp_headers["Authorization"], f"Bearer {self.new}")
+        self.assertEqual(self.client._web_headers["Authorization"], f"Bearer {self.new}")
+        with open(self.token_path) as f:
+            self.assertEqual(f.read(), self.new)
+
+    def test_refresh_adopts_token_already_refreshed_by_another_thread(self):
+        with open(self.token_path, "w") as f:
+            f.write(self.new)
+        with patch.object(AppleMusicClient, "_fetch_new_bearer_token") as fetch:
+            self.assertTrue(self.client._refresh_bearer_token(self.old))
+        fetch.assert_not_called()
+        self.assertEqual(self.client.bearer_token, self.new)
+
+    def test_refresh_fails_when_fetch_returns_same_token(self):
+        with patch.object(AppleMusicClient, "_fetch_new_bearer_token", return_value=self.old):
+            self.assertFalse(self.client._refresh_bearer_token(self.old))
+
+    def test_refresh_fails_when_fetch_returns_none(self):
+        with patch.object(AppleMusicClient, "_fetch_new_bearer_token", return_value=None):
+            self.assertFalse(self.client._refresh_bearer_token(self.old))
+        self.assertFalse(os.path.exists(self.token_path))
+
+    @patch("urllib.request.urlopen")
+    def test_amp_api_get_retries_once_after_401(self, mock_urlopen):
+        mock_urlopen.side_effect = [self._http_error(401), self._ok({"data": [1]})]
+        with patch.object(AppleMusicClient, "_fetch_new_bearer_token", return_value=self.new):
+            self.assertEqual(self.client._amp_api_get("/v1/catalog/us/albums/1"), {"data": [1]})
+        retry_req = mock_urlopen.call_args_list[1][0][0]
+        self.assertEqual(retry_req.get_header("Authorization"), f"Bearer {self.new}")
+
+    @patch("urllib.request.urlopen")
+    def test_amp_api_get_does_not_loop_on_repeated_401(self, mock_urlopen):
+        mock_urlopen.side_effect = [self._http_error(401), self._http_error(401)]
+        with patch.object(AppleMusicClient, "_fetch_new_bearer_token", return_value=self.new):
+            self.assertEqual(self.client._amp_api_get("/v1/catalog/us/albums/1"), {})
+        self.assertEqual(mock_urlopen.call_count, 2)
+
+    @patch("urllib.request.urlopen")
+    def test_amp_api_get_no_retry_when_refresh_fails(self, mock_urlopen):
+        mock_urlopen.side_effect = [self._http_error(401)]
+        with patch.object(AppleMusicClient, "_fetch_new_bearer_token", return_value=None):
+            self.assertEqual(self.client._amp_api_get("/v1/catalog/us/albums/1"), {})
+        self.assertEqual(mock_urlopen.call_count, 1)
+
+    @patch("urllib.request.urlopen")
+    def test_catalog_get_raw_retries_once_after_401(self, mock_urlopen):
+        mock_urlopen.side_effect = [self._http_error(401), self._ok({"ok": True})]
+        with patch.object(AppleMusicClient, "_fetch_new_bearer_token", return_value=self.new):
+            self.assertEqual(self.client.catalog_get_raw("/v1/catalog/us/albums/1"), (200, {"ok": True}))
+
+    # -- circuit breaker --------------------------------------------------
+
+    def test_failed_refresh_trips_breaker_and_notifies_once(self):
+        handler = MagicMock()
+        client_mod.set_token_failure_handler(handler)
+        with patch.object(AppleMusicClient, "_fetch_new_bearer_token", return_value=None) as fetch:
+            self.assertFalse(self.client._refresh_bearer_token(self.old))
+            self.assertFalse(self.client._refresh_bearer_token(self.old))
+            self.assertFalse(self.client._refresh_bearer_token(self.old))
+        self.assertEqual(fetch.call_count, 1)
+        handler.assert_called_once()
+        self.assertTrue(client_mod.token_refresh_status()["disabled"])
+        self.assertIn("401", client_mod.token_refresh_status()["reason"])
+
+    @patch("urllib.request.urlopen")
+    def test_tripped_breaker_skips_refresh_on_401(self, mock_urlopen):
+        with patch.object(AppleMusicClient, "_fetch_new_bearer_token", return_value=None):
+            self.client._refresh_bearer_token(self.old)
+        mock_urlopen.side_effect = [self._http_error(401)]
+        with patch.object(AppleMusicClient, "_fetch_new_bearer_token") as fetch:
+            self.assertEqual(self.client._amp_api_get("/v1/catalog/us/albums/1"), {})
+        fetch.assert_not_called()
+        self.assertEqual(mock_urlopen.call_count, 1)
+
+    def test_repeated_rejected_new_tokens_trip_breaker(self):
+        handler = MagicMock()
+        client_mod.set_token_failure_handler(handler)
+        tokens = [_make_jwt(int(time.time()) + 10000 + i) for i in range(10)]
+        rejected = self.old
+        with patch.object(AppleMusicClient, "_fetch_new_bearer_token", side_effect=tokens) as fetch:
+            for _ in range(client_mod._MAX_CONSECUTIVE_REFRESHES):
+                self.assertTrue(self.client._refresh_bearer_token(rejected))
+                rejected = self.client.bearer_token
+            self.assertFalse(self.client._refresh_bearer_token(rejected))
+        self.assertEqual(fetch.call_count, client_mod._MAX_CONSECUTIVE_REFRESHES)
+        handler.assert_called_once()
+        self.assertIn("after", client_mod.token_refresh_status()["reason"])
+
+    @patch("urllib.request.urlopen")
+    def test_successful_request_resets_consecutive_refresh_count(self, mock_urlopen):
+        tokens = [_make_jwt(int(time.time()) + 10000 + i) for i in range(10)]
+        mock_urlopen.side_effect = lambda *a, **k: self._ok({})
+        rejected = self.old
+        with patch.object(AppleMusicClient, "_fetch_new_bearer_token", side_effect=tokens):
+            for _ in range(client_mod._MAX_CONSECUTIVE_REFRESHES + 2):
+                self.assertTrue(self.client._refresh_bearer_token(rejected))
+                rejected = self.client.bearer_token
+                self.client._amp_api_get("/v1/ok")
+        self.assertFalse(client_mod.token_refresh_status()["disabled"])
+
+    def test_reset_rearms_breaker(self):
+        with patch.object(AppleMusicClient, "_fetch_new_bearer_token", return_value=None):
+            self.client._refresh_bearer_token(self.old)
+        client_mod.reset_token_refresh()
+        with patch.object(AppleMusicClient, "_fetch_new_bearer_token", return_value=self.new):
+            self.assertTrue(self.client._refresh_bearer_token(self.old))
+
+    def test_handler_exception_does_not_propagate(self):
+        client_mod.set_token_failure_handler(MagicMock(side_effect=RuntimeError("boom")))
+        with patch.object(AppleMusicClient, "_fetch_new_bearer_token", return_value=None):
+            self.assertFalse(self.client._refresh_bearer_token(self.old))
+
+    # -- startup refresh --------------------------------------------------
+
+    def test_startup_refresh_replaces_unexpired_cached_token(self):
+        with (
+            patch("client._load_cors_proxy", return_value=""),
+            patch.object(AppleMusicClient, "_fetch_new_bearer_token", return_value=self.new),
+        ):
+            self.assertTrue(AppleMusicClient.refresh_token_on_startup())
+        with open(self.token_path) as f:
+            self.assertEqual(f.read(), self.new)
+
+    def test_startup_refresh_failure_keeps_cached_token(self):
+        with (
+            patch("client._load_cors_proxy", return_value=""),
+            patch.object(AppleMusicClient, "_fetch_new_bearer_token", return_value=None),
+        ):
+            self.assertFalse(AppleMusicClient.refresh_token_on_startup())
+        with open(self.token_path) as f:
+            self.assertEqual(f.read(), self.old)
+
+    def test_startup_refresh_rearms_breaker(self):
+        with patch.object(AppleMusicClient, "_fetch_new_bearer_token", return_value=None):
+            self.client._refresh_bearer_token(self.old)
+        with (
+            patch("client._load_cors_proxy", return_value=""),
+            patch.object(AppleMusicClient, "_fetch_new_bearer_token", return_value=None),
+        ):
+            AppleMusicClient.refresh_token_on_startup()
+        self.assertFalse(client_mod.token_refresh_status()["disabled"])
 
 
 # ---------------------------------------------------------------------------
@@ -385,6 +613,17 @@ class TestGetBearerToken(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # get_album_full_info
 # ---------------------------------------------------------------------------
+
+
+class TestAlbumInfoOk(unittest.TestCase):
+    def test_true_when_title_present(self):
+        self.assertTrue(album_info_ok({"title": "Album"}))
+
+    def test_false_for_failed_lookup_skeleton(self):
+        client = _make_client()
+        with patch.object(client, "_amp_api_get", return_value={}):
+            info = client.get_album_full_info("https://music.apple.com/jp/album/x/123")
+        self.assertFalse(album_info_ok(info))
 
 
 class TestGetAlbumFullInfo(unittest.TestCase):
@@ -544,6 +783,33 @@ class TestGetRoomNewReleases(_ConfigIsolatedMixin, unittest.TestCase):
     def test_returns_empty_when_web_get_fails(self, mock_web_get):
         mock_web_get.return_value = None
         self.assertEqual(self.client.get_room_new_releases("https://example.com", "us"), [])
+
+    @patch.object(AppleMusicClient, "_web_get")
+    def test_matches_section_via_per_storefront_name(self, mock_web_get):
+        cfg = config.load_config()
+        cfg["discovery_names"]["cn"] = "本周新发行"
+        config.save_config(cfg)
+
+        sections = [
+            {
+                "header": {"item": {"titleLink": {"title": "本周新发行"}}},
+                "items": [
+                    {
+                        "item": {
+                            "attributes": {
+                                "title": "专辑",
+                                "artistName": "歌手",
+                                "url": "https://music.apple.com/cn/album/x/555",
+                            },
+                        },
+                    },
+                ],
+            },
+        ]
+        mock_web_get.return_value = ROOM_HTML_TEMPLATE.format(payload=_make_room_payload(sections))
+
+        releases = self.client.get_room_new_releases("https://example.com", "cn")
+        self.assertEqual([r["storeAdamID"] for r in releases], ["555"])
 
     @patch.object(AppleMusicClient, "_web_get")
     def test_matches_section_via_configured_fallback_title(self, mock_web_get):
@@ -1325,6 +1591,48 @@ class TestDiscoverRoomUrl(_ConfigIsolatedMixin, unittest.TestCase):
 
         mock_web_get.return_value = self._make_new_page_html("/jp/room/6760868920", title="New Releases")
         self.assertIsNone(self.client.discover_room_url("jp"))
+
+    @patch.object(AppleMusicClient, "_web_get")
+    def test_matches_per_storefront_discovery_name(self, mock_web_get):
+        # A storefront-specific name from Settings applies to the /new page
+        # fallback too, not just the amp-api path.
+        cfg = config.load_config()
+        cfg["discovery_names"]["sg"] = "Recent Releases"
+        config.save_config(cfg)
+
+        mock_web_get.return_value = self._make_new_page_html("/sg/room/111", title="Recent Releases")
+        self.assertEqual(self.client.discover_room_url("sg"), "https://music.apple.com/sg/room/111")
+
+    @patch.object(AppleMusicClient, "_web_get")
+    def test_per_storefront_name_does_not_leak_to_other_storefronts(self, mock_web_get):
+        cfg = config.load_config()
+        cfg["discovery_names"]["sg"] = "Fresh Picks"
+        config.save_config(cfg)
+
+        mock_web_get.return_value = self._make_new_page_html("/us/room/111", title="Fresh Picks")
+        self.assertIsNone(self.client.discover_room_url("us"))
+
+    @patch.object(AppleMusicClient, "_web_get")
+    def test_mixed_case_fallback_title_matches(self, mock_web_get):
+        mock_web_get.return_value = self._make_new_page_html("/my/room/222", title="Rilisan Baru")
+        self.assertEqual(self.client.discover_room_url("my"), "https://music.apple.com/my/room/222")
+
+    @patch.object(AppleMusicClient, "_web_get")
+    def test_logs_seen_section_titles_when_nothing_matches(self, mock_web_get):
+        sections = [{"header": "Top Picks"}, {"header": {"item": {"title": "Coming Soon"}}}]
+        mock_web_get.return_value = ROOM_HTML_TEMPLATE.format(payload=_make_room_payload(sections))
+        with self.assertLogs("client", level="ERROR") as logs:
+            self.assertIsNone(self.client.discover_room_url("us"))
+        self.assertIn("Top Picks", logs.output[0])
+        self.assertIn("Coming Soon", logs.output[0])
+
+    @patch.object(AppleMusicClient, "_web_get")
+    def test_matches_title_from_dictionary_when_no_header(self, mock_web_get):
+        sections = [{"dictionary": {"title": "New Releases"}}]
+        mock_web_get.return_value = ROOM_HTML_TEMPLATE.format(payload=_make_room_payload(sections))
+        with self.assertLogs("client", level="ERROR") as logs:
+            self.assertIsNone(self.client.discover_room_url("us"))
+        self.assertIn("no room URL", logs.output[0])
 
 
 if __name__ == "__main__":

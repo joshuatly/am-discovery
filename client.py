@@ -1,16 +1,17 @@
 import base64
 import concurrent.futures
+import contextlib
 import json
 import logging
 import os
 import re
+import threading
 import time
-import traceback
 import urllib.error
 import urllib.parse
 import urllib.request
 
-from storefronts import discovery_names_for, fallback_titles, locale_for
+from client_discovery import DiscoveryMixin
 
 _BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -25,6 +26,70 @@ _BROWSE_PATH = "/us/browse"
 
 _UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36"
 _MINIMAL_HEADERS = {"User-Agent": "Mozilla/5.0"}
+_TOKEN_FILE = os.path.join(_BASE_DIR, "bearer_token.txt")
+# Web player bundle: `/assets/index-<hash>.js` or `/assets/index~<hash>.js`
+# (plus an `index-legacy-*` variant on some builds).
+_INDEX_JS_RE = re.compile(r'/(assets/index[~-][^/"]+\.js)')
+# A complete JWT: three base64url segments, header and payload both JSON ("eyJ").
+_JWT_RE = re.compile(r'"(eyJ[A-Za-z0-9\-_]+\.eyJ[A-Za-z0-9\-_]+\.[A-Za-z0-9\-_]+)"')
+# Serializes token refreshes across threads (the poller fetches metadata with a
+# thread pool, so a revoked token produces a burst of concurrent 401s).
+_TOKEN_LOCK = threading.Lock()
+# Circuit breaker for token refreshes. Trips when a replacement token can't be
+# obtained, or after this many refreshes in a row with no successful amp-api
+# response in between (new tokens are fetched but still rejected). Once
+# tripped, no further fetches are attempted until reset_token_refresh() —
+# called on startup and on a manual refresh — so a persistent auth failure
+# can't hammer Apple with token fetches.
+_MAX_CONSECUTIVE_REFRESHES = 3
+_token_state = {"disabled": False, "reason": None, "consecutive_refreshes": 0}
+_token_failure_handler = None
+
+
+def set_token_failure_handler(handler) -> None:
+    """Register `handler(reason: str)`, called once each time the breaker trips."""
+    global _token_failure_handler
+    _token_failure_handler = handler
+
+
+def token_refresh_status() -> dict:
+    """Snapshot of the token circuit breaker: `{"disabled": bool, "reason": str | None}`."""
+    with _TOKEN_LOCK:
+        return {"disabled": _token_state["disabled"], "reason": _token_state["reason"]}
+
+
+def reset_token_refresh() -> None:
+    """Re-arm the token circuit breaker so the next 401 may fetch a new token."""
+    with _TOKEN_LOCK:
+        _token_state.update(disabled=False, reason=None, consecutive_refreshes=0)
+
+
+def _trip_token_breaker(reason: str) -> None:
+    """Disable further token fetches and notify. Caller must hold _TOKEN_LOCK."""
+    _token_state.update(disabled=True, reason=reason)
+    logger.error("[amp-api] %s; token refresh disabled until restart or manual refresh", reason)
+    if _token_failure_handler:
+        try:
+            _token_failure_handler(reason)
+        except Exception as e:
+            logger.warning("[amp-api] Token failure handler raised: %s", e)
+
+
+def _note_amp_success() -> None:
+    # Lock-free on purpose (called on every successful request); a race with a
+    # concurrent refresh can only shift when the breaker trips by one refresh.
+    if _token_state["consecutive_refreshes"]:
+        _token_state["consecutive_refreshes"] = 0
+
+
+def album_info_ok(info: dict) -> bool:
+    """True if a get_album_full_info() result came from a successful catalog lookup.
+
+    On failure (401, network error, unknown album) the method returns its
+    all-None skeleton; the catalog always returns a name for a real album.
+    """
+    return bool(info.get("title"))
+
 
 _VIEW_MAP = {
     "full-albums": "main-albums",
@@ -47,7 +112,7 @@ def _load_cors_proxy() -> str:
         return ""
 
 
-class AppleMusicClient:
+class AppleMusicClient(DiscoveryMixin):
     def __init__(self, user_token=None):
         self.user_token = user_token
         self._cors_proxy = _load_cors_proxy()
@@ -56,37 +121,102 @@ class AppleMusicClient:
         self._web_headers = {"User-Agent": _UA}
         if self.user_token:
             self._web_headers["Cookie"] = f"media-user-token={self.user_token}"
-        if self.bearer_token:
-            self._web_headers["Authorization"] = f"Bearer {self.bearer_token}"
 
         self._amp_headers = {
             "User-Agent": _UA,
             "Origin": _MUSIC_BASE,
             "Referer": f"{_MUSIC_BASE}/",
         }
-        if self.bearer_token:
-            self._amp_headers["Authorization"] = f"Bearer {self.bearer_token}"
         if self.user_token:
             self._amp_headers["Music-User-Token"] = self.user_token
+        self._set_auth_headers(self.bearer_token)
 
-    def _get_bearer_token(self):
-        token_file = os.path.join(_BASE_DIR, "bearer_token.txt")
-        token = None
+    def _set_auth_headers(self, token):
+        for headers in (self._web_headers, self._amp_headers):
+            if token:
+                headers["Authorization"] = f"Bearer {token}"
+            else:
+                headers.pop("Authorization", None)
 
-        # Check if exists and valid
-        if os.path.exists(token_file):
-            with open(token_file) as f:
-                token = f.read().strip()
-            if token and not self._is_jwt_expired(token):
-                return token
-
-        # Fetch new token
-        token = self._fetch_new_bearer_token()
-        if token:
-            with open(token_file, "w") as f:
-                f.write(token)
+    def _read_cached_token(self):
+        """Return the cached token if present and unexpired, else None."""
+        if not os.path.exists(_TOKEN_FILE):
+            return None
+        with open(_TOKEN_FILE) as f:
+            token = f.read().strip()
+        if token and not self._is_jwt_expired(token):
             return token
         return None
+
+    def _get_bearer_token(self):
+        token = self._read_cached_token()
+        if token:
+            return token
+
+        token = self._fetch_new_bearer_token()
+        if token:
+            with open(_TOKEN_FILE, "w") as f:
+                f.write(token)
+            return token
+        logger.warning("No Apple Music bearer token available; amp-api requests will be unauthorized")
+        return None
+
+    def _refresh_bearer_token(self, rejected):
+        """Replace a token the API rejected (HTTP 401). Returns True if a new one is in use.
+
+        Apple can revoke a web token well before its `exp`, so expiry alone
+        isn't enough to know when to refetch. Under the lock, a cached token
+        that differs from `rejected` means another thread already refreshed,
+        so it's adopted instead of fetching again. Returns False without
+        fetching while the circuit breaker is tripped.
+        """
+        with _TOKEN_LOCK:
+            if _token_state["disabled"]:
+                return False
+            cached = self._read_cached_token()
+            if cached and cached != rejected:
+                token = cached
+            else:
+                if _token_state["consecutive_refreshes"] >= _MAX_CONSECUTIVE_REFRESHES:
+                    _trip_token_breaker(
+                        f"Apple Music API still returns 401 after {_MAX_CONSECUTIVE_REFRESHES} token refreshes"
+                    )
+                    return False
+                logger.warning("[amp-api] Bearer token rejected (401); fetching a new one")
+                with contextlib.suppress(FileNotFoundError):
+                    os.remove(_TOKEN_FILE)
+                token = self._fetch_new_bearer_token()
+                if not token or token == rejected:
+                    _trip_token_breaker("Apple Music API returned 401 and no replacement bearer token could be fetched")
+                    return False
+                with open(_TOKEN_FILE, "w") as f:
+                    f.write(token)
+                _token_state["consecutive_refreshes"] += 1
+                logger.info("[amp-api] Bearer token refreshed")
+            self.bearer_token = token
+            self._set_auth_headers(token)
+            return True
+
+    @classmethod
+    def refresh_token_on_startup(cls) -> bool:
+        """Fetch a fresh bearer token regardless of the cached one's expiry.
+
+        Called once at app startup so a token Apple revoked while the app
+        was down is replaced before the first poll. Re-arms the circuit
+        breaker. On failure the cached token (if any) is left in place and
+        the 401 path takes over. Returns True if a new token was stored.
+        """
+        reset_token_refresh()
+        client = cls.__new__(cls)
+        client._cors_proxy = _load_cors_proxy()
+        token = client._fetch_new_bearer_token()
+        if not token:
+            logger.warning("Startup bearer token refresh failed; keeping cached token if any")
+            return False
+        with _TOKEN_LOCK, open(_TOKEN_FILE, "w") as f:
+            f.write(token)
+        logger.info("Startup bearer token refresh succeeded")
+        return True
 
     def _is_jwt_expired(self, token):
         try:
@@ -114,40 +244,54 @@ class AppleMusicClient:
             return None
 
     def _fetch_new_bearer_token(self):
+        """Scrape the web player's JS bundle for its embedded developer token."""
         try:
             html = self._web_get(_MUSIC_BASE + _BROWSE_PATH, headers=_MINIMAL_HEADERS)
             if not html:
-                logger.warning("Failed to fetch Apple Music browse page")
+                logger.warning("Failed to fetch Apple Music browse page for bearer token")
                 return None
-            m = re.search(r'src="(/assets/index-[^"]+\.js)"', html)
-            if not m:
-                m = re.search(r'src="(/assets/index-legacy[^"]+\.js)"', html)
-            if m:
-                js_url = _MUSIC_BASE + m.group(1)
-                js_content = self._web_get(js_url, headers=_MINIMAL_HEADERS)
-                if not js_content:
-                    logger.warning("Failed to fetch Apple Music JS bundle")
-                    return None
-                tokens = re.findall(
-                    r"\"(eyJ[A-Za-z0-9-_]+[=]{0,2}\.[A-Za-z0-9-_]+[=]{0,2}\.[A-Za-z0-9-_.+/=]+)\"",
-                    js_content,
-                )
-                if tokens:
-                    return tokens[0]
+            bundles = _INDEX_JS_RE.findall(html)
+            if not bundles:
+                logger.warning("No index JS bundle referenced on Apple Music browse page")
+                return None
+            # Prefer the modern bundle over the legacy one when both are present.
+            bundle = next((b for b in bundles if "legacy" not in b), bundles[0])
+            js_content = self._web_get(f"{_MUSIC_BASE}/{bundle}", headers=_MINIMAL_HEADERS)
+            if not js_content:
+                logger.warning("Failed to fetch Apple Music JS bundle %s", bundle)
+                return None
+            tokens = _JWT_RE.findall(js_content)
+            if not tokens:
+                logger.warning("No bearer token found in Apple Music JS bundle %s", bundle)
+                return None
+            token = next((t for t in tokens if not self._is_jwt_expired(t)), None)
+            if not token:
+                logger.warning("Only expired tokens found in Apple Music JS bundle %s", bundle)
+                return None
+            logger.info("Fetched new Apple Music bearer token from %s", bundle)
+            return token
         except Exception as e:
             logger.warning("Error fetching bearer token: %s", e)
         return None
 
-    def _amp_api_get(self, path: str, params: dict = None) -> dict:
-        """GET from amp-api.music.apple.com, returns parsed JSON or {}."""
+    def _amp_api_get(self, path: str, params: dict = None, _retried: bool = False) -> dict:
+        """GET from amp-api.music.apple.com, returns parsed JSON or {}.
+
+        On HTTP 401 the bearer token is refreshed and the request retried once.
+        """
         query = ("?" + urllib.parse.urlencode(params)) if params else ""
         url = self._apply_proxy(f"{_AMP_API_BASE}{path}{query}")
+        token = self.bearer_token
         req = urllib.request.Request(url, headers=self._amp_headers)
         logger.debug("[amp-api] GET %s", url)
         try:
             with urllib.request.urlopen(req, timeout=10) as resp:
-                return json.loads(resp.read().decode("utf-8"))
+                data = json.loads(resp.read().decode("utf-8"))
+            _note_amp_success()
+            return data
         except urllib.error.HTTPError as e:
+            if e.code == 401 and not _retried and self._refresh_bearer_token(token):
+                return self._amp_api_get(path, params, _retried=True)
             if e.code == 429:
                 logger.warning("[amp-api] Rate limited (429): %s", url)
                 raise RateLimitError("Apple Music API rate limit exceeded") from e
@@ -157,7 +301,7 @@ class AppleMusicClient:
             logger.warning("[amp-api] GET %s failed: %s", url, e)
             return {}
 
-    def catalog_get_raw(self, path: str, params: dict = None) -> tuple[int, dict | str]:
+    def catalog_get_raw(self, path: str, params: dict = None, _retried: bool = False) -> tuple[int, dict | str]:
         """GET from amp-api.music.apple.com and return (status_code, body).
 
         Unlike _amp_api_get, errors are not swallowed — the HTTP status and
@@ -166,12 +310,17 @@ class AppleMusicClient:
         """
         query = ("?" + urllib.parse.urlencode(params)) if params else ""
         url = self._apply_proxy(f"{_AMP_API_BASE}{path}{query}")
+        token = self.bearer_token
         req = urllib.request.Request(url, headers=self._amp_headers)
         logger.debug("[amp-api raw] GET %s", url)
         try:
             with urllib.request.urlopen(req, timeout=10) as resp:
-                return resp.status, json.loads(resp.read().decode("utf-8"))
+                status, data = resp.status, json.loads(resp.read().decode("utf-8"))
+            _note_amp_success()
+            return status, data
         except urllib.error.HTTPError as e:
+            if e.code == 401 and not _retried and self._refresh_bearer_token(token):
+                return self.catalog_get_raw(path, params, _retried=True)
             try:
                 body = json.loads(e.read().decode("utf-8"))
             except Exception:
@@ -272,328 +421,6 @@ class AppleMusicClient:
         result["music_video_count"] = mv_count
 
         return result
-
-    def discover_room_url(self, storefront):
-        """Discover the New Release room URL from the /{storefront}/new page.
-
-        Returns the full room URL (e.g. https://music.apple.com/jp/room/6760868920)
-        or None if no matching section is found.
-        """
-        url = f"{_MUSIC_BASE}/{storefront}/new"
-        html = self._web_get(url)
-        if not html:
-            return None
-
-        match = re.search(
-            r'<script type="application/json" id="serialized-server-data">(.*?)</script>',
-            html,
-        )
-        if not match:
-            return None
-        data = json.loads(match.group(1))
-
-        try:
-            if isinstance(data, dict) and "data" in data:
-                content = data["data"][0]["data"]
-                sections = content.get("sections", [])
-            elif isinstance(data, list):
-                content = data[0]["data"]["data"][0]["data"]
-                sections = content.get("sections", [])
-            else:
-                sections = []
-        except Exception as e:
-            logger.warning("Error extracting sections for room discovery: %s %s", type(e), e)
-            return None
-
-        titles = fallback_titles()
-        for sec in sections:
-            title = sec.get("header", "")
-            room_url = None
-
-            if isinstance(title, dict):
-                title_link = title.get("item", {}).get("titleLink", {})
-                title_text = title_link.get("title", "")
-                link_url = title_link.get("url", "")
-                if link_url:
-                    room_url = f"{_MUSIC_BASE}{link_url}" if link_url.startswith("/") else link_url
-            elif not title and "dictionary" in sec and "title" in sec["dictionary"]:
-                title_text = sec["dictionary"]["title"]
-            else:
-                title_text = title if isinstance(title, str) else str(title)
-
-            title_lower = title_text.lower() if isinstance(title_text, str) else ""
-            if any(t in title_lower for t in titles):
-                if room_url:
-                    sf_match = re.search(r"music\.apple\.com/(\w+)/room/", room_url)
-                    if sf_match and sf_match.group(1) != storefront:
-                        logger.error(
-                            "[%s] Room URL storefront mismatch (got %s): %s",
-                            storefront.upper(),
-                            sf_match.group(1),
-                            room_url,
-                        )
-                        return None
-                    logger.info(
-                        "[%s] Discovered new release room: %s",
-                        storefront.upper(),
-                        room_url,
-                    )
-                    return room_url
-                logger.error(
-                    "[%s] Found new release section '%s' but no room URL",
-                    storefront.upper(),
-                    title_text,
-                )
-                return None
-
-        logger.error("[%s] No new release section found on /new page", storefront.upper())
-        return None
-
-    def discover_new_release_room_id(self, storefront):
-        """Find the New Releases room ID via the amp-api editorial groupings endpoint.
-
-        Primary match: a resource under `resources["editorial-elements"]`
-        whose `attributes.name` matches a known localized discovery title.
-        Fallback: a resource with `attributes.emphasize == true` and
-        `"albums"` in `attributes.resourceTypes` (Apple marks the featured
-        new-release row this way regardless of locale).
-
-        Returns a (room_id, last_modified) tuple. Both are None if no
-        matching room was found; last_modified may be None even on a hit
-        if the API response omits it.
-        """
-        locale = locale_for(storefront)
-        names = [n.lower() for n in discovery_names_for(storefront)]
-        params = {
-            "name": "music",
-            "platform": "web",
-            "tabs": "nonsubscriber",
-            "l": locale,
-            "format[resources]": "map",
-        }
-        data = self._amp_api_get(f"/v1/editorial/{storefront}/groupings", params)
-        if not data:
-            return None, None
-
-        resources = data.get("resources") or {}
-        elements = resources.get("editorial-elements") or {}
-
-        for res_id, res in elements.items():
-            attrs = (res or {}).get("attributes") or {}
-            name = attrs.get("name") or ""
-            if name and name.lower() in names:
-                room_id = str(attrs.get("contentId") or res_id)
-                last_modified = attrs.get("lastModifiedDate")
-                logger.info(
-                    "[%s] Discovered new release room via API (name match): %s (last_modified=%s)",
-                    storefront.upper(),
-                    room_id,
-                    last_modified,
-                )
-                return room_id, last_modified
-
-        for res_id, res in elements.items():
-            attrs = (res or {}).get("attributes") or {}
-            resource_types = attrs.get("resourceTypes") or []
-            if attrs.get("emphasize") is True and "albums" in resource_types:
-                room_id = str(attrs.get("contentId") or res_id)
-                last_modified = attrs.get("lastModifiedDate")
-                logger.info(
-                    "[%s] Discovered new release room via API (emphasize fallback): %s (last_modified=%s)",
-                    storefront.upper(),
-                    room_id,
-                    last_modified,
-                )
-                return room_id, last_modified
-
-        logger.warning(
-            "[%s] No matching room in groupings response (looked for %s)",
-            storefront.upper(),
-            names,
-        )
-        return None, None
-
-    def _parse_room_albums(self, data, storefront):
-        """Extract album records from an editorial room API response."""
-        releases = []
-        resources = data.get("resources") or {}
-        albums = resources.get("albums") or {}
-        for adam_id, res in albums.items():
-            attrs = (res or {}).get("attributes") or {}
-            title = attrs.get("name")
-            url = attrs.get("url")
-            if not title or not url:
-                continue
-            releases.append(
-                {
-                    "storeAdamID": str(adam_id),
-                    "title": title,
-                    "artist": attrs.get("artistName"),
-                    "url": url,
-                    "storefronts": [storefront],
-                },
-            )
-        return releases
-
-    def get_room_albums(self, storefront, room_id, max_albums=200):
-        """Fetch albums from an editorial room, paginating via /contents?offset=.
-
-        Returns a list of release dicts in the same shape as get_room_new_releases.
-        """
-        locale = locale_for(storefront)
-        first_params = {
-            "art[url]": "c,f",
-            "extend": "offers,seoDescription,seoTitle",
-            "extend[albums]": "artistUrl",
-            "fields[albums]": (
-                "artistName,artistUrl,artwork,contentRating,editorialArtwork,"
-                "editorialNotes,name,playParams,releaseDate,url,trackCount"
-            ),
-            "format[resources]": "map",
-            "include[albums]": "artists",
-            "l": locale,
-            "platform": "web",
-        }
-        data = self._amp_api_get(f"/v1/editorial/{storefront}/rooms/{room_id}", first_params)
-        releases = self._parse_room_albums(data, storefront)
-
-        if len(releases) >= max_albums or len(releases) < 100:
-            return releases[:max_albums]
-
-        next_params = {
-            "l": locale,
-            "platform": "web",
-            "format[resources]": "map",
-            "offset": len(releases) + 1,
-        }
-        data2 = self._amp_api_get(
-            f"/v1/editorial/{storefront}/rooms/{room_id}/contents",
-            next_params,
-        )
-        releases.extend(self._parse_room_albums(data2, storefront))
-        return releases[:max_albums]
-
-    def discover_new_releases(self, storefront):
-        """Discover new releases for a storefront.
-
-        Tries the amp-api editorial groupings + rooms endpoints first (up to
-        200 albums); falls back to the HTML scraper if that path returns
-        nothing. Returns a (releases, room_id, room_last_modified) tuple;
-        room_id and room_last_modified are None if discovery failed entirely
-        (and room_last_modified is always None for the HTML fallback path).
-        """
-        try:
-            room_id, last_modified = self.discover_new_release_room_id(storefront)
-        except RateLimitError:
-            raise
-        except Exception as e:
-            logger.warning("[%s] API room discovery failed: %s", storefront.upper(), e)
-            room_id, last_modified = None, None
-
-        if room_id:
-            releases = self.get_room_albums(storefront, room_id)
-            if releases:
-                return releases, room_id, last_modified
-            logger.warning(
-                "[%s] API returned room %s but no albums; falling back to HTML",
-                storefront.upper(),
-                room_id,
-            )
-
-        room_url = self.discover_room_url(storefront)
-        if not room_url:
-            return [], None, None
-        fallback_id = room_url.rstrip("/").split("/")[-1]
-        return self.get_room_new_releases(room_url, storefront), fallback_id, None
-
-    def get_room_new_releases(self, url, storefront):
-        html = self._web_get(url)
-        if not html:
-            return []
-
-        match = re.search(
-            r'<script type="application/json" id="serialized-server-data">(.*?)</script>',
-            html,
-        )
-        if not match:
-            return []
-        data = json.loads(match.group(1))
-
-        content = None
-        try:
-            if isinstance(data, dict) and "data" in data:
-                content = data["data"][0]["data"]
-                sections = content.get("sections", [])
-            elif isinstance(data, list):
-                content = data[0]["data"]["data"][0]["data"]
-                sections = content.get("sections", [])
-            else:
-                sections = []
-        except Exception as e:
-            logger.warning("Error extracting sections: %s %s", type(e), e)
-            traceback.print_exc()
-            return []
-
-        logger.debug("Found %d sections in room.", len(sections))
-        if not sections and content is not None and isinstance(content, dict):
-            logger.debug("Content keys: %s", list(content.keys()))
-
-        new_releases = []
-        titles = fallback_titles()
-        for sec in sections:
-            title = sec.get("header", "")
-            if isinstance(title, dict):
-                title = title.get("item", {}).get("titleLink", {}).get("title", str(title))
-            elif not title and "dictionary" in sec and "title" in sec["dictionary"]:
-                title = sec["dictionary"]["title"]
-
-            logger.debug("Checking section: %s", title)
-
-            title_lower = title.lower() if isinstance(title, str) else str(title).lower()
-            if any(t in title_lower for t in titles):
-                items = sec.get("items", [])
-                for item in items:
-                    actual_item = item.get("item", item)
-
-                    # Item fallback
-                    if not actual_item:
-                        continue
-
-                    title_val, artist_val, url_val, adam_id = None, None, None, None
-
-                    if "attributes" in actual_item:
-                        attrs = actual_item["attributes"]
-                        title_val = attrs.get("title") or attrs.get("name")
-                        artist_val = attrs.get("artistName")
-                        url_val = attrs.get("url")
-                    else:
-                        if actual_item.get("titleLinks"):
-                            title_val = actual_item["titleLinks"][0].get("title")
-
-                        if actual_item.get("subtitleLinks"):
-                            artist_val = actual_item["subtitleLinks"][0].get("title")
-
-                        desc = actual_item.get("contentDescriptor", {})
-                        url_val = desc.get("url")
-                        adam_id = desc.get("identifiers", {}).get("storeAdamID")
-
-                    if not adam_id and url_val:
-                        adam_m = re.search(r"/(\d+)(?:\?.*)?$", url_val)
-                        adam_id = adam_m.group(1) if adam_m else actual_item.get("id")
-                        if adam_id and "-" in str(adam_id):
-                            adam_id = str(adam_id).split("-")[-1].strip()
-
-                    if title_val and url_val and adam_id:
-                        release_info = {
-                            "storeAdamID": adam_id,
-                            "title": title_val,
-                            "artist": artist_val,
-                            "url": url_val,
-                            "storefronts": [storefront],
-                        }
-                        new_releases.append(release_info)
-                break
-        return new_releases
 
     def get_artist_all_releases(self, url, storefront):
         """Fetch every release listed for an artist via the catalog API (paginated, grouped by type)."""

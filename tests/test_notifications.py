@@ -118,6 +118,21 @@ class TestCRUD(NotificationsTestCase):
         self.assertFalse(notifications.delete_event(ev["id"]))
         self.assertEqual(notifications.list_events(), [])
 
+    def test_auth_failed_event_type_is_registered(self):
+        import notifications
+
+        self.assertIn("onAuthFailed", notifications.EVENT_TYPES)
+        self.assertEqual(notifications.EVENT_VARIABLES["onAuthFailed"], ["run_at", "reason"])
+        self.assertEqual(notifications.DEFAULT_TEMPLATES["onAuthFailed"]["notification_type"], "failure")
+        self.assertIn("{reason}", notifications.DEFAULT_TEMPLATES["onAuthFailed"]["body"])
+
+    def test_auth_failed_sample_variables_use_live_run_at(self):
+        import notifications
+
+        variables = notifications._build_sample_variables("onAuthFailed")
+        self.assertIn("401", variables["reason"])
+        self.assertNotEqual(variables["run_at"], notifications.SAMPLE_VARIABLES["onAuthFailed"]["run_at"])
+
     def test_event_types_meta_includes_all_four(self):
         import notifications
 

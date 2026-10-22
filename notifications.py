@@ -44,6 +44,7 @@ EVENT_TYPES = [
     "onArtistNewRelease",
     "onArtistNewSingle",
     "onWatchlistBatchComplete",
+    "onAuthFailed",
 ]
 
 NOTIFICATION_TYPES = ["info", "success", "warning", "failure"]
@@ -78,6 +79,13 @@ DEFAULT_TEMPLATES: dict[str, dict] = {
             "Next batch: {next_run_at}"
         ),
         "notification_type": "info",
+    },
+    "onAuthFailed": {
+        "title": "AM Discovery: Apple Music authorization failed",
+        "body": (
+            "{reason}\nToken refresh is paused until the app restarts or a manual refresh is triggered.\nAt {run_at}"
+        ),
+        "notification_type": "failure",
     },
 }
 
@@ -120,6 +128,7 @@ EVENT_VARIABLES: dict[str, list[str]] = {
         "pending_count",
         "next_run_at",
     ],
+    "onAuthFailed": ["run_at", "reason"],
 }
 
 SAMPLE_VARIABLES: dict[str, dict] = {
@@ -133,6 +142,10 @@ SAMPLE_VARIABLES: dict[str, dict] = {
     "onDiscoveryFailed": {
         "run_at": "2026-04-23 14:30 UTC",
         "storefronts": "jp, tw",
+    },
+    "onAuthFailed": {
+        "run_at": "2026-04-23 14:30 UTC",
+        "reason": "Apple Music API returned 401 and no replacement bearer token could be fetched",
     },
     "onArtistNewRelease": {
         "artist": "Sample Artist",
@@ -443,7 +456,7 @@ def _build_sample_variables(event_type: str) -> dict:
     """Build sample variables for an event type, injecting live timezone-formatted
     timestamps so test notifications reflect the configured ``timezone``."""
     variables = dict(SAMPLE_VARIABLES.get(event_type, {}))
-    if event_type in ("onDiscoveryComplete", "onDiscoveryFailed", "onWatchlistBatchComplete"):
+    if event_type in ("onDiscoveryComplete", "onDiscoveryFailed", "onWatchlistBatchComplete", "onAuthFailed"):
         now = time.time()
         variables["run_at"] = format_local_time(now)
         if event_type == "onWatchlistBatchComplete":

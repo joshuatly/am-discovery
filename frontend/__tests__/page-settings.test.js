@@ -223,6 +223,12 @@ describe("renderSettings", () => {
     expect(values).toContain("new release, new releases");
   });
 
+  test("fallback titles description explains /new page matching", async () => {
+    mockConfigFetch(fullCfg);
+    await ctx.appWindow.__test_renderSettings(main);
+    expect(main.textContent).toContain("Case-insensitive substrings matched against section titles");
+  });
+
   test("save sends edited discovery_names and discovery_fallback_titles", async () => {
     mockConfigFetch(fullCfg);
     await ctx.appWindow.__test_renderSettings(main);

@@ -332,6 +332,41 @@ class TestUpsertAlbum(DBTestCase):
 # ---------------------------------------------------------------------------
 
 
+class TestListAlbumsMissingInfo(DBTestCase):
+    def _add(self, aid, **fields):
+        data = {"store_adam_id": aid, "title": aid, "url": f"https://u/{aid}", "storefronts": ["jp", "tw"]}
+        data.update(fields)
+        self.db.upsert_album(data)
+
+    def test_returns_unfetched_and_fetched_without_metadata(self):
+        self._add("UNFETCHED", info_fetched=0)
+        self._add("EMPTY", info_fetched=1)
+        self._add("GOOD", info_fetched=1, release_date="2026-01-01", artist_id="ART")
+        self._add("HALF", info_fetched=1, artist_id="ART")
+        ids = {r["store_adam_id"] for r in self.db.list_albums_missing_info(0)}
+        self.assertEqual(ids, {"UNFETCHED", "EMPTY"})
+
+    def test_decodes_storefronts_and_returns_source(self):
+        self._add("A1", info_fetched=0, source="artist_fetch")
+        (row,) = self.db.list_albums_missing_info(0)
+        self.assertEqual(row["storefronts"], ["jp", "tw"])
+        self.assertEqual(row["source"], "artist_fetch")
+        self.assertEqual(row["url"], "https://u/A1")
+
+    def test_respects_since_and_limit(self):
+        for aid in ("A1", "A2", "A3"):
+            self._add(aid, info_fetched=0)
+        with self.db.get_conn() as conn:
+            conn.execute("UPDATE albums SET first_seen=100 WHERE store_adam_id='A1'")
+        ids = [r["store_adam_id"] for r in self.db.list_albums_missing_info(1000)]
+        self.assertNotIn("A1", ids)
+        self.assertEqual(len(self.db.list_albums_missing_info(0, limit=2)), 2)
+
+    def test_skips_albums_without_url(self):
+        self.db.upsert_album({"store_adam_id": "NOURL", "title": "x", "storefronts": []})
+        self.assertEqual(self.db.list_albums_missing_info(0), [])
+
+
 class TestListAlbums(DBTestCase):
     def setUp(self):
         super().setUp()

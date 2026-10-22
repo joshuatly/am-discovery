@@ -21,7 +21,9 @@
     "新發行",
     "ニューリリース",
     "Rilisan Baru",
-    "keluaran baharu"
+    "keluaran baharu",
+    "recent releases",
+    "本周新发行"
   ],
   "newrelease_poll_interval_days": 1,
   "watchlist_poll_interval_minutes": 10,
