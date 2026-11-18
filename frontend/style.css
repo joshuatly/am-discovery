@@ -1474,7 +1474,7 @@ a.sf-chip:hover { opacity: 0.75; }
 .modal-details .tracklist {
   margin-top: 8px;
 }
-.tracklist-header {
+.tracklist-header, .aip-head {
   font-size: 10px;
   font-weight: 700;
   text-transform: uppercase;
@@ -1560,6 +1560,128 @@ a.sf-chip:hover { opacity: 0.75; }
 .track-row.track-differs .track-title { color: var(--gold); }
 .track-row.track-differs-my { background: rgba(60,200,100,0.06); }
 .track-row.track-differs-my .track-title { color: #3cc864; }
+
+/* Track info ("Show info") — hidden until .show-track-info is on the section.
+   Blue = info (§10); a pre-released track date is flagged by its border (§8). */
+.tracklist-header, .aip-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.tracklist-header-label { flex: 1; min-width: 0; }
+.btn-track-info {
+  padding: 3px 10px;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: normal;
+  color: var(--text-secondary);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all var(--transition);
+}
+.btn-track-info:hover:not(:disabled) { border-color: var(--text-primary); color: var(--text-primary); }
+.btn-track-info.active { border-color: var(--accent); color: var(--accent); }
+.btn-track-info:disabled { opacity: 0.5; cursor: default; }
+
+.track-info-line { display: none; }
+.show-track-info .track-info-line { display: flex; }
+
+.track-info-line {
+  grid-column: 2 / -1;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  margin-top: -2px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  min-width: 0;
+}
+.ti-date { padding: 0 4px; border: 1px solid transparent; border-radius: 4px; margin-left: -5px; }
+.ti-date.ti-early { color: #58a6ff; border-color: rgba(88,166,255,0.4); margin-left: 0; }
+.ti-date.ti-late { color: var(--text-primary); border-color: var(--border); margin-left: 0; }
+.ti-none { color: var(--text-dim); }
+.ti-isrc, .aip-mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  color: var(--text-dim);
+  user-select: all;
+}
+.ti-explicit {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 3px;
+  padding: 0 4px;
+}
+.ti-composer {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Release Info — same section treatment as .tracklist (divider + uppercase
+   label); summary notes reuse the .modal-tag pill. Collapsible (persistent
+   preference); storefront chips on the right switch the data source — the
+   selected chip carries a border (§8). */
+.album-info-panel {
+  margin-top: 8px;
+  border-top: 1px solid var(--border);
+  padding-top: 16px;
+}
+.aip-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  background: none;
+  border: none;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  color: inherit;
+  cursor: pointer;
+  transition: color var(--transition);
+}
+.aip-toggle:hover { color: var(--text-secondary); }
+.aip-chevron { display: inline-block; width: 10px; font-size: 10px; }
+.album-info-panel.collapsed .aip-head { margin-bottom: 0; }
+.album-info-panel.collapsed .aip-body,
+.album-info-panel.collapsed .aip-sfs { display: none; }
+.aip-sfs { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px; }
+.aip-sf-chip {
+  border: 1px solid transparent;
+  font-family: inherit;
+  line-height: 1.2;
+  cursor: pointer;
+  opacity: 0.5;
+  transition: opacity var(--transition), border-color var(--transition);
+}
+.aip-sf-chip:hover { opacity: 0.85; }
+.aip-sf-chip.selected { opacity: 1; border-color: currentColor; }
+.aip-sf-chip.loading { animation: aip-pulse 1s ease-in-out infinite; }
+@keyframes aip-pulse { 50% { opacity: 0.25; } }
+.aip-status { font-size: 12px; color: var(--text-dim); font-style: italic; margin: 0; }
+.aip-notes { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+.aip-note { font-weight: 500; }
+.aip-note.aip-highlight { color: #58a6ff; border-color: rgba(88,166,255,0.4); }
+.aip-grid {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 4px 14px;
+  margin: 0;
+  font-size: 12px;
+}
+.aip-grid dt { color: var(--text-dim); font-weight: 500; }
+.aip-grid dd { margin: 0; color: var(--text-secondary); overflow-wrap: anywhere; }
 
 /* =========================================================
    Artist Release Toolbar (view toggle + type filter)

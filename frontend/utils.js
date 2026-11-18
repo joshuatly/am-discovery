@@ -97,6 +97,17 @@ const ReleasesPrefs = {
   },
 };
 
+// Album modal "Release Info" collapsed/expanded — a persistent preference
+// (unlike the per-album "Show info" track toggle).
+const ReleaseInfoPrefs = {
+  isCollapsed() {
+    try { return localStorage.getItem("release_info_collapsed") === "1"; } catch { return false; }
+  },
+  setCollapsed(collapsed) {
+    try { localStorage.setItem("release_info_collapsed", collapsed ? "1" : "0"); } catch {}
+  },
+};
+
 function formatDate(d) {
   if (!d || d === "Unknown") return "—";
   if (/^\d{4}-00-00/.test(d)) return d.slice(0, 4);
@@ -169,4 +180,42 @@ function debounce(fn, ms) {
 function tracklistsDiffer(a, b) {
   if (a.length !== b.length) return true;
   return a.some((t, i) => t.title !== b[i]?.title);
+}
+
+// ---------------------------------------------------------------------------
+// Track info ("Show info" in the album modal)
+// ---------------------------------------------------------------------------
+// Pure helpers over the source-agnostic track shape returned by /lookup
+// (release_date, has_lyrics, has_synced_lyrics, …). Any field may be missing
+// for a given metadata source; missing data is ignored, never guessed.
+
+/** "before" | "after" | "same" relative to the album date, or null if either is unknown. */
+function trackDateRelation(trackDate, albumDate) {
+  const t = (trackDate || "").slice(0, 10);
+  const a = (albumDate || "").slice(0, 10);
+  if (!t || !a) return null;
+  if (t < a) return "before";
+  if (t > a) return "after";
+  return "same";
+}
+
+/**
+ * Summarize songs (music videos excluded) for the album info panel:
+ * how many were already out before the album (pre-released singles,
+ * compilations of old material) and lyrics coverage.
+ */
+function summarizeTrackInfo(tracks, albumDate) {
+  const songs = (tracks || []).filter(t => !t.is_music_video);
+  const dated = songs.filter(t => t.release_date);
+  const early = dated.filter(t => trackDateRelation(t.release_date, albumDate) === "before");
+  const earliest = early.reduce((min, t) => (!min || t.release_date < min ? t.release_date : min), null);
+  return {
+    total: songs.length,
+    dated: dated.length,
+    prereleased: early.length,
+    earliestDate: earliest ? earliest.slice(0, 10) : null,
+    lyricsKnown: songs.some(t => "has_lyrics" in t || "has_synced_lyrics" in t),
+    lyrics: songs.filter(t => t.has_lyrics || t.has_synced_lyrics).length,
+    synced: songs.filter(t => t.has_synced_lyrics).length,
+  };
 }

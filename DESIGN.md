@@ -267,6 +267,14 @@ Left sidebar. Brand: ♫ icon + "AM Discovery" gradient-fill text. Nav links: ic
 
 Floating glass card. Backdrop `rgba(0,0,0,.7)` + 6px blur. 560px max / 90vh max / radius 20. Compact header: ~130px artwork thumb + meta + action pill row. Tracklist as a numbered list (music videos separated from song tracks). Footer: "✨ Discover Similar" gradient button. Modals are **content surfaces** (rich album detail), not task dialogs.
 
+**Release Info.** Between the action rows (MusicBrainz / Harmony) and the tracklist, `.album-info-panel` uses the same section treatment as `.tracklist` — top divider, uppercase 10px label — so it reads as part of the modal, not a nested card.
+- **Header (`.aip-head`):** left, a `▾ / ▸ RELEASE INFO` toggle (`.aip-toggle`) that collapses the section. Collapsed/expanded is a *persistent* preference (`ReleaseInfoPrefs`, localStorage) — unlike the per-album Show info toggle. Right, one clickable `sf-chip` per storefront (`.aip-sf-chip`: the user's metadata storefront first and selected by default, then home, then every storefront the album was seen in). Unselected chips sit at 50% opacity; the selected one gets a `currentColor` border (§8); a chip being fetched pulses.
+- **Body (`.aip-body`):** summary notes as `.modal-tag` pills (`.aip-note`; pre-released / incomplete notes get the info-blue border via `.aip-highlight`, §10 blue = info), then a label/copyright/UPC key-value grid (`.aip-grid`, 12px, dim keys). Loading / no-data states are a single dim italic line (`.aip-status`). With no lookup data it shows what the DB knows (release date, UPC) with no chip selected.
+
+**Show info (track info).** A `ⓘ Show info` pill (`.btn-track-info`, right of the tracklist header) reveals a secondary line under each track (`.track-info-line`, 11px): track date, lyrics (`Synced lyrics` / `Lyrics` / dim `No lyrics`), `EXPLICIT` mini-badge, ISRC (monospace, select-all), audio locale, featured artist, composer. Hidden by default and **per album** — every modal opens collapsed. Active state is an accent *border* (§8). A track date earlier than the album date gets an info-blue border (`.ti-early`) — it's information, not a call to action, so it is not amber.
+
+All fields are optional: anything a metadata source doesn't provide is omitted rather than shown empty.
+
 ---
 
 ## 19 · Page archetypes

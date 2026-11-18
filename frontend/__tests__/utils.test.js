@@ -662,3 +662,80 @@ describe("ReleasesPrefs", () => {
     expect(ctx.appWindow.__test_ReleasesPrefs.getSort()).toBe("first_seen");
   });
 });
+
+// ---------------------------------------------------------------------------
+// trackDateRelation / summarizeTrackInfo (album modal "Show info")
+// ---------------------------------------------------------------------------
+
+describe("trackDateRelation", () => {
+  test("before / after / same", () => {
+    expect(ctx.appWindow.trackDateRelation("2025-01-01", "2025-03-01")).toBe("before");
+    expect(ctx.appWindow.trackDateRelation("2025-04-01", "2025-03-01")).toBe("after");
+    expect(ctx.appWindow.trackDateRelation("2025-03-01", "2025-03-01")).toBe("same");
+  });
+
+  test("compares on the date part only", () => {
+    expect(ctx.appWindow.trackDateRelation("2025-03-01T00:00:00Z", "2025-03-01")).toBe("same");
+  });
+
+  test("returns null when either date is missing", () => {
+    expect(ctx.appWindow.trackDateRelation(null, "2025-03-01")).toBeNull();
+    expect(ctx.appWindow.trackDateRelation("2025-03-01", "")).toBeNull();
+  });
+});
+
+describe("summarizeTrackInfo", () => {
+  const tracks = [
+    { title: "A", release_date: "2024-11-01", has_lyrics: true, has_synced_lyrics: true },
+    { title: "B", release_date: "2025-01-15", has_lyrics: true, has_synced_lyrics: false },
+    { title: "C", release_date: "2025-03-01", has_lyrics: false, has_synced_lyrics: false },
+    { title: "C (MV)", release_date: "2020-01-01", is_music_video: true, has_lyrics: true },
+  ];
+
+  test("counts tracks released before the album, ignoring music videos", () => {
+    const s = ctx.appWindow.summarizeTrackInfo(tracks, "2025-03-01");
+    expect(s.total).toBe(3);
+    expect(s.dated).toBe(3);
+    expect(s.prereleased).toBe(2);
+    expect(s.earliestDate).toBe("2024-11-01");
+  });
+
+  test("counts lyrics and synced lyrics", () => {
+    const s = ctx.appWindow.summarizeTrackInfo(tracks, "2025-03-01");
+    expect(s.lyricsKnown).toBe(true);
+    expect(s.lyrics).toBe(2);
+    expect(s.synced).toBe(1);
+  });
+
+  test("no album date → nothing counted as pre-released", () => {
+    const s = ctx.appWindow.summarizeTrackInfo(tracks, null);
+    expect(s.prereleased).toBe(0);
+    expect(s.earliestDate).toBeNull();
+  });
+
+  test("source without lyrics/date fields reports them as unknown", () => {
+    const s = ctx.appWindow.summarizeTrackInfo([{ title: "X" }], "2025-03-01");
+    expect(s.dated).toBe(0);
+    expect(s.lyricsKnown).toBe(false);
+  });
+
+  test("handles null / empty input", () => {
+    expect(ctx.appWindow.summarizeTrackInfo(null, "2025-03-01").total).toBe(0);
+  });
+});
+
+describe("ReleaseInfoPrefs", () => {
+  afterEach(() => ctx.appWindow.localStorage.removeItem("release_info_collapsed"));
+
+  test("defaults to expanded", () => {
+    expect(ctx.appWindow.__test_ReleaseInfoPrefs.isCollapsed()).toBe(false);
+  });
+
+  test("round-trips the collapsed flag through localStorage", () => {
+    ctx.appWindow.__test_ReleaseInfoPrefs.setCollapsed(true);
+    expect(ctx.appWindow.localStorage.getItem("release_info_collapsed")).toBe("1");
+    expect(ctx.appWindow.__test_ReleaseInfoPrefs.isCollapsed()).toBe(true);
+    ctx.appWindow.__test_ReleaseInfoPrefs.setCollapsed(false);
+    expect(ctx.appWindow.__test_ReleaseInfoPrefs.isCollapsed()).toBe(false);
+  });
+});

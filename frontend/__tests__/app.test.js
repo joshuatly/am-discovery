@@ -14,7 +14,7 @@ const fs = require("fs");
 const path = require("path");
 
 const JS_FILES = [
-  "utils.js", "components.js", "state.js", "status.js", "modal.js",
+  "utils.js", "components.js", "state.js", "status.js", "track-info.js", "modal.js",
   "page-releases.js", "page-artist.js", "page-watchlist.js", "page-settings.js",
   "page-settings-notifications.js", "page-admin.js", "app.js",
 ];

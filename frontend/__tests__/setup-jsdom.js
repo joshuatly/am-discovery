@@ -72,6 +72,7 @@ beforeAll(() => {
     "components.js",
     "state.js",
     "status.js",
+    "track-info.js",
     "modal.js",
     "page-releases.js",
     "page-artist.js",
@@ -110,6 +111,7 @@ beforeAll(() => {
     window.__test_renderWatchlist          = renderWatchlist;
     window.__test_WatchlistPrefs           = WatchlistPrefs;
     window.__test_ReleasesPrefs            = ReleasesPrefs;
+    window.__test_ReleaseInfoPrefs         = ReleaseInfoPrefs;
     window.__test_paginateList             = paginateList;
     window.__test_WATCHLIST_PAGE_SIZE      = WATCHLIST_PAGE_SIZE;
     window.__test_submitCliSchedulerJob    = submitCliSchedulerJob;

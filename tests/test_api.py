@@ -382,6 +382,27 @@ class TestApiLookup(ServerTestCase):
         self.assertEqual(data["title"], "My Album")
 
     @patch("api_releases.AppleMusicClient")
+    def test_passes_through_show_info_fields(self, MockClient):
+        """The modal's "Show info" panel reads these from the same /lookup response."""
+        mock_client = MockClient.return_value
+        mock_client.get_album_full_info.return_value = {
+            "title": "My Album",
+            "source": "apple_music",
+            "storefront": "jp",
+            "record_label": "Label",
+            "is_complete": True,
+            "tracks": [{"title": "T1", "isrc": "JPX", "release_date": "2023-05-01", "has_synced_lyrics": True}],
+        }
+
+        data = self.client.get("/api/releases/A1/lookup?storefront=jp").get_json()
+        self.assertEqual(data["record_label"], "Label")
+        self.assertEqual(data["source"], "apple_music")
+        self.assertEqual(data["tracks"][0]["isrc"], "JPX")
+        self.assertEqual(data["tracks"][0]["release_date"], "2023-05-01")
+        self.assertTrue(data["tracks"][0]["has_synced_lyrics"])
+        mock_client.get_album_full_info.assert_called_once()
+
+    @patch("api_releases.AppleMusicClient")
     def test_default_storefront_us(self, MockClient):
         mock_client = MockClient.return_value
         mock_client.get_album_full_info.return_value = {}

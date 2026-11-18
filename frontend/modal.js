@@ -40,6 +40,20 @@ async function openModal(storeAdamId) {
 
   let album;
   let myAlbumData = null;
+  // The /lookup response the tracklist came from. "Show info" and Release Info
+  // render from it (and from myAlbumData), so they never re-query.
+  let info = null;
+  // One /lookup request per storefront for this modal: every caller (initial
+  // load, Release Info chips, lazy tracklist load) shares these promises.
+  const lookups = new Map();
+  const getLookup = (sf) => {
+    if (!lookups.has(sf)) {
+      const p = API.get(`/api/releases/${storeAdamId}/lookup?storefront=${sf}`);
+      lookups.set(sf, p);
+      p.catch(() => lookups.delete(sf));  // allow a retry after a failure
+    }
+    return lookups.get(sf);
+  };
   try {
     const home = state.homeStorefront;
     const shouldCompareMY = state.alwaysIncludeMY
@@ -49,16 +63,8 @@ async function openModal(storeAdamId) {
     const lookupSf = state.metadataStorefront || home || "us";
 
     const dbPromise = API.get(`/api/releases/${storeAdamId}`);
-    const lookupPromise = state.metadataStorefront
-      ? API.get(`/api/releases/${storeAdamId}/lookup?storefront=${state.metadataStorefront}`)
-      : null;
-    const myLookupPromise = shouldCompareMY
-      ? API.get(`/api/releases/${storeAdamId}/lookup?storefront=${home}`)
-      : null;
-    // These are awaited later, or never if the load bails early; mark them
-    // handled so an early return doesn't leave an unhandled rejection behind.
-    lookupPromise?.catch(() => {});
-    myLookupPromise?.catch(() => {});
+    const lookupPromise = state.metadataStorefront ? getLookup(state.metadataStorefront) : null;
+    const myLookupPromise = shouldCompareMY ? getLookup(home) : null;
 
     try {
       album = await dbPromise;
@@ -66,9 +72,11 @@ async function openModal(storeAdamId) {
       if (stale()) return null;
       // Album not in local DB (e.g. a "You Might Also Like" suggestion that
       // was never discovered through room polling). Fall back to a fresh
-      // Apple Music lookup so the modal still renders.
+      // Apple Music lookup so the modal still renders (via the shared cache,
+      // so it reuses lookupPromise whenever that targets the same storefront).
       try {
-        const fresh = await API.get(`/api/releases/${storeAdamId}/lookup?storefront=${lookupSf}`);
+        const fresh = await getLookup(lookupSf);
+        info = fresh;
         album = {
           store_adam_id: storeAdamId,
           title: fresh.title,
@@ -112,6 +120,7 @@ async function openModal(storeAdamId) {
         if (fresh.music_video_count != null) album.music_video_count = fresh.music_video_count;
         if (fresh.audio_formats?.length) album.audio_formats = fresh.audio_formats;
         album._metaSf = state.metadataStorefront;
+        info = fresh;
       } catch {}
     }
 
@@ -185,7 +194,7 @@ async function openModal(storeAdamId) {
   const details = el("div", "modal-details");
 
   // Compute diff early so the banner can appear before the tags
-  const tracks = album.tracks || [];
+  let tracks = album.tracks || [];
   const myTracks = myAlbumData?.tracks || [];
   const hasDiff = tracks.length > 0 && myTracks.length > 0 && tracklistsDiffer(tracks, myTracks);
   const homeForDiff = state.homeStorefront || "my";
@@ -448,77 +457,92 @@ async function openModal(storeAdamId) {
 
   details.appendChild(actions);
 
-  // Tracklist
-  if (tracks.length) {
-    const tl = el("div", "tracklist");
-    const tlHead = el("div", "tracklist-header");
-    const mvCount = tracks.filter(t => t.is_music_video).length;
-    const songCount = tracks.length - mvCount;
-    let trackLabel;
-    if (mvCount > 0) {
-      trackLabel = `${songCount} track${songCount !== 1 ? "s" : ""} + ${mvCount} video${mvCount !== 1 ? "s" : ""}`;
-    } else {
-      trackLabel = `${tracks.length} track${tracks.length !== 1 ? "s" : ""}`;
-    }
-    if (hasDiff) {
-      tlHead.innerHTML = `${sfChipHtml(album._metaSf, "font-size:10px;vertical-align:middle;")} &nbsp;Tracklist — ${trackLabel}`;
-    } else {
-      tlHead.textContent = `Tracklist — ${trackLabel}`;
-    }
-    tl.appendChild(tlHead);
-    tracks.forEach((t, i) => {
-      const myTrack = myTracks[i];
-      const rowDiffers = hasDiff && myTrack && t.title !== myTrack.title;
-      const row = el("div", `track-row${rowDiffers ? " track-differs" : ""}`);
-      const num = el("span", "track-num", String(t.track_number ?? i + 1));
-      const titleCell = el("span", "track-title-cell");
-      const titleSpan = el("span", "track-title", t.title || "—");
-      titleCell.appendChild(titleSpan);
-      if (t.is_music_video) {
-        titleCell.appendChild(el("span", "track-mv-badge", "MV"));
-      }
-      const dur = el("span", "track-dur", formatDuration(t.duration_ms));
-      row.appendChild(num);
-      row.appendChild(titleCell);
-      row.appendChild(dur);
-      tl.appendChild(row);
-    });
-    details.appendChild(tl);
-  } else if (album._metaSf && album.artist_id) {
-    // Live-fetched but no tracks found — show note
-    const note = el("p", "tracklist-empty", "No tracklist available from this storefront.");
-    details.appendChild(note);
-  }
+  // Release Info — collapsible (persistent preference), one chip per storefront.
+  // Defaults to the user's metadata storefront; storefronts already fetched
+  // switch instantly, others are fetched once through the shared cache.
+  const knownLookups = new Map();
+  if (info) knownLookups.set(album._metaSf, info);
+  if (myAlbumData) knownLookups.set(homeForDiff, myAlbumData);
+  const releaseInfo = buildReleaseInfoSection({
+    album,
+    storefronts: [...new Set([...knownLookups.keys(), ...(album.storefronts || [])].map(s => s.toLowerCase()))],
+    known: knownLookups,
+    selected: info?.title ? album._metaSf : null,
+    getLookup,
+  });
+  details.appendChild(releaseInfo.el);
 
-  if (hasDiff && myTracks.length) {
-    const myTl = el("div", "tracklist");
-    const myTlHead = el("div", "tracklist-header tracklist-header-my");
-    const myMvCount = myTracks.filter(t => t.is_music_video).length;
-    const mySongCount = myTracks.length - myMvCount;
-    const myTrackLabel = myMvCount > 0
-      ? `${mySongCount} track${mySongCount !== 1 ? "s" : ""} + ${myMvCount} video${myMvCount !== 1 ? "s" : ""}`
-      : `${myTracks.length} track${myTracks.length !== 1 ? "s" : ""}`;
-    myTlHead.innerHTML = `${sfChipHtml(homeForDiff, "font-size:10px;vertical-align:middle;")} &nbsp;Tracklist — ${myTrackLabel}`;
-    myTl.appendChild(myTlHead);
-    myTracks.forEach((t, i) => {
-      const mainTrack = tracks[i];
-      const rowDiffers = mainTrack && t.title !== mainTrack.title;
-      const row = el("div", `track-row${rowDiffers ? " track-differs-my" : ""}`);
-      const num = el("span", "track-num", String(t.track_number ?? i + 1));
-      const titleCell = el("span", "track-title-cell");
-      const titleSpan = el("span", "track-title", t.title || "—");
-      titleCell.appendChild(titleSpan);
-      if (t.is_music_video) {
-        titleCell.appendChild(el("span", "track-mv-badge", "MV"));
+  // Tracklist with per-track "Show info" (track dates, ISRCs, lyrics, …).
+  // Built from the lookup response(s) already fetched above; only when no
+  // lookup ran at all (metadata source Off, or it failed) does the button
+  // fetch — once. The toggle is per album: every modal opens collapsed.
+  const trackSection = el("div", "track-section");
+  details.appendChild(trackSection);
+  const infoBtn = el("button", "btn-track-info");
+  infoBtn.type = "button";
+  infoBtn.title = "Track dates, ISRCs, lyrics, composers";
+  let showInfo = false;
+
+  const renderTrackSection = () => {
+    trackSection.innerHTML = "";
+    infoBtn.disabled = false;
+    const meta = mergeNonNull(album, info);
+    if (tracks.length) {
+      const tl = buildTracklist(tracks, {
+        compareTracks: hasDiff ? myTracks : null,
+        diffClass: "track-differs",
+        headerSf: hasDiff ? album._metaSf : null,
+        albumDate: meta.release_date,
+        albumArtist: meta.artist,
+      });
+      tl.querySelector(".tracklist-header").appendChild(infoBtn);
+      trackSection.appendChild(tl);
+      if (hasDiff) {
+        trackSection.appendChild(buildTracklist(myTracks, {
+          compareTracks: tracks,
+          diffClass: "track-differs-my",
+          headerSf: homeForDiff,
+          headerClass: "tracklist-header-my",
+          albumDate: myAlbumData.release_date || meta.release_date,
+          albumArtist: myAlbumData.artist || meta.artist,
+        }));
       }
-      const dur = el("span", "track-dur", formatDuration(t.duration_ms));
-      row.appendChild(num);
-      row.appendChild(titleCell);
-      row.appendChild(dur);
-      myTl.appendChild(row);
-    });
-    details.appendChild(myTl);
-  }
+      setTrackInfoVisible(trackSection, infoBtn, showInfo);
+      infoBtn.onclick = () => {
+        showInfo = !showInfo;
+        setTrackInfoVisible(trackSection, infoBtn, showInfo);
+      };
+    } else if (info) {
+      // A lookup ran but returned no tracks — don't offer to repeat it.
+      trackSection.appendChild(el("p", "tracklist-empty", "No tracklist available from this storefront."));
+    } else {
+      const tl = el("div", "tracklist");
+      const head = el("div", "tracklist-header");
+      head.appendChild(el("span", "tracklist-header-label", "Tracklist"));
+      head.appendChild(infoBtn);
+      tl.appendChild(head);
+      trackSection.appendChild(tl);
+      setTrackInfoVisible(trackSection, infoBtn, false);
+      infoBtn.onclick = async () => {
+        infoBtn.disabled = true;
+        infoBtn.textContent = "Loading…";
+        const sf = state.homeStorefront || "us";
+        try {
+          info = await getLookup(sf);
+          tracks = info.tracks || [];
+          album._metaSf = sf;
+          showInfo = true;
+          renderTrackSection();
+          knownLookups.set(sf, info);
+          releaseInfo.select(sf);
+        } catch {
+          infoBtn.disabled = false;
+          infoBtn.textContent = "ⓘ Retry";
+        }
+      };
+    }
+  };
+  renderTrackSection();
 
   // Discover Similar — ✨ button + "You Might Also Like" grid, rendered at the
   // bottom of the modal (after the tracklist section).
