@@ -1463,7 +1463,7 @@ a.sf-chip:hover { opacity: 0.75; }
 .modal-details .tracklist {
   margin-top: 8px;
 }
-.tracklist-header {
+.tracklist-header, .aip-head {
   font-size: 10px;
   font-weight: 700;
   text-transform: uppercase;
@@ -1578,10 +1578,8 @@ a.sf-chip:hover { opacity: 0.75; }
 .btn-track-info.active { border-color: var(--accent); color: var(--accent); }
 .btn-track-info:disabled { opacity: 0.5; cursor: default; }
 
-.track-info-line,
-.album-info-panel { display: none; }
+.track-info-line { display: none; }
 .show-track-info .track-info-line { display: flex; }
-.show-track-info .album-info-panel { display: block; }
 
 .track-info-line {
   grid-column: 2 / -1;
@@ -1619,30 +1617,16 @@ a.sf-chip:hover { opacity: 0.75; }
   white-space: nowrap;
 }
 
+/* Release Info — always visible; same section treatment as .tracklist
+   (divider + uppercase label), summary notes reuse the .modal-tag pill. */
 .album-info-panel {
-  margin-top: 16px;
-  padding: 12px 14px;
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
+  margin-top: 8px;
+  border-top: 1px solid var(--border);
+  padding-top: 16px;
 }
-.aip-head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
-.aip-title {
-  font-size: 10px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  color: var(--text-dim);
-}
-.aip-notes { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
-.aip-note {
-  font-size: 13px;
-  color: var(--text-secondary);
-  padding: 6px 10px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-}
-.aip-note.aip-highlight { color: var(--text-primary); border-color: rgba(88,166,255,0.4); }
+.aip-notes { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+.aip-note { font-weight: 500; }
+.aip-note.aip-highlight { color: #58a6ff; border-color: rgba(88,166,255,0.4); }
 .aip-grid {
   display: grid;
   grid-template-columns: max-content 1fr;

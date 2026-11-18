@@ -420,21 +420,25 @@ async function openModal(storeAdamId) {
 
   details.appendChild(actions);
 
-  // Tracklist + "Show info" (track dates, ISRCs, lyrics, label, …). Built from
-  // the lookup response(s) already fetched above; only when no lookup ran at
-  // all (metadata source Off, or it failed) does the button fetch — once.
+  // Release Info (always shown) + tracklist with per-track "Show info"
+  // (track dates, ISRCs, lyrics, …). Built from the lookup response(s) already
+  // fetched above; only when no lookup ran at all (metadata source Off, or it
+  // failed) does the button fetch — once. The toggle is per album: every
+  // modal opens with track info collapsed.
   const trackSection = el("div", "track-section");
   details.appendChild(trackSection);
   const infoBtn = el("button", "btn-track-info");
   infoBtn.type = "button";
-  infoBtn.title = "Track dates, ISRCs, lyrics, label and copyright";
+  infoBtn.title = "Track dates, ISRCs, lyrics, composers";
+  let showInfo = false;
 
   const renderTrackSection = () => {
     trackSection.innerHTML = "";
     infoBtn.disabled = false;
+    const meta = mergeNonNull(album, info);
+    const panel = buildAlbumInfoPanel(meta, tracks, info ? album._metaSf : null);
+    if (panel) trackSection.appendChild(panel);
     if (tracks.length) {
-      const meta = mergeNonNull(album, info);
-      trackSection.appendChild(buildAlbumInfoPanel(meta, tracks, album._metaSf));
       const tl = buildTracklist(tracks, {
         compareTracks: hasDiff ? myTracks : null,
         diffClass: "track-differs",
@@ -454,10 +458,10 @@ async function openModal(storeAdamId) {
           albumArtist: myAlbumData.artist || meta.artist,
         }));
       }
-      setTrackInfoVisible(trackSection, infoBtn, state.showTrackInfo);
+      setTrackInfoVisible(trackSection, infoBtn, showInfo);
       infoBtn.onclick = () => {
-        state.showTrackInfo = !state.showTrackInfo;
-        setTrackInfoVisible(trackSection, infoBtn, state.showTrackInfo);
+        showInfo = !showInfo;
+        setTrackInfoVisible(trackSection, infoBtn, showInfo);
       };
     } else if (info) {
       // A lookup ran but returned no tracks — don't offer to repeat it.
@@ -478,7 +482,7 @@ async function openModal(storeAdamId) {
           info = await API.get(`/api/releases/${album.store_adam_id}/lookup?storefront=${sf}`);
           tracks = info.tracks || [];
           album._metaSf = sf;
-          state.showTrackInfo = true;
+          showInfo = true;
           renderTrackSection();
         } catch {
           infoBtn.disabled = false;
@@ -646,16 +650,22 @@ function buildTracklist(tracks, opts = {}) {
   return tl;
 }
 
-/** Album-level "Release Info" panel; hidden by CSS unless info is shown. */
+/**
+ * Album-level "Release Info" section (always visible), styled like the
+ * tracklist section below it. Summary notes are modal-tag pills; returns
+ * null when there is nothing to show.
+ */
 function buildAlbumInfoPanel(meta, tracks, sf) {
   const panel = el("div", "album-info-panel");
   const head = el("div", "aip-head");
-  head.appendChild(el("span", "aip-title", "Release Info"));
-  if (sf) head.insertAdjacentHTML("beforeend", sfChipHtml(sf));
+  const label = el("span", "aip-title", "Release Info");
+  if (sf) label.insertAdjacentHTML("afterbegin", `${sfChipHtml(sf, "font-size:10px;vertical-align:middle;")} &nbsp;`);
+  head.appendChild(label);
   panel.appendChild(head);
 
   const notes = el("div", "aip-notes");
-  const addNote = (text, highlight = false) => notes.appendChild(el("div", `aip-note${highlight ? " aip-highlight" : ""}`, text));
+  const addNote = (text, highlight = false) =>
+    notes.appendChild(el("span", `modal-tag aip-note${highlight ? " aip-highlight" : ""}`, text));
   const sum = summarizeTrackInfo(tracks, meta.release_date);
   if (sum.dated && meta.release_date && sum.total > 0) {
     if (sum.prereleased === sum.total) {
@@ -696,7 +706,7 @@ function buildAlbumInfoPanel(meta, tracks, sf) {
     });
     panel.appendChild(grid);
   }
-  return panel;
+  return notes.childNodes.length || rows.length ? panel : null;
 }
 
 function closeModal() {

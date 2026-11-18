@@ -430,7 +430,6 @@ describe("openModal Show info", () => {
     s.metadataStorefront = "jp";
     s.homeStorefront = "jp";
     s.alwaysIncludeMY = false;
-    s.showTrackInfo = false;
   });
 
   afterEach(() => {
@@ -438,7 +437,6 @@ describe("openModal Show info", () => {
     ctx.appWindow.fetch.mockImplementation(() =>
       Promise.resolve({ ok: true, json: () => Promise.resolve({ items: [], total: 0 }) }));
     body().innerHTML = "";
-    ctx.appWindow.__test_state.showTrackInfo = false;
   });
 
   test("info is hidden by default and the toggle reveals it without another request", async () => {
@@ -457,19 +455,33 @@ describe("openModal Show info", () => {
     expect(section.classList.contains("show-track-info")).toBe(true);
     expect(btn.classList.contains("active")).toBe(true);
     expect(btn.textContent).toContain("Hide info");
-    expect(ctx.appWindow.__test_state.showTrackInfo).toBe(true);
     expect(calls.length).toBe(before);
 
     btn.click();
     expect(section.classList.contains("show-track-info")).toBe(false);
-    expect(ctx.appWindow.__test_state.showTrackInfo).toBe(false);
   });
 
-  test("toggle state is remembered for the next modal in the session", async () => {
-    ctx.appWindow.__test_state.showTrackInfo = true;
+  test("toggle is per album: the next modal opens with track info collapsed", async () => {
     routeFetch([["/lookup", lookup], ["/api/releases/777", dbAlbum]]);
     await ctx.appWindow.openModal("777");
+    body().querySelector(".btn-track-info").click();
     expect(body().querySelector(".track-section").classList.contains("show-track-info")).toBe(true);
+
+    await ctx.appWindow.openModal("777");
+    const btn = body().querySelector(".btn-track-info");
+    expect(body().querySelector(".track-section").classList.contains("show-track-info")).toBe(false);
+    expect(btn.textContent).toContain("Show info");
+  });
+
+  test("release info is shown without toggling, above the tracklist", async () => {
+    routeFetch([["/lookup", lookup], ["/api/releases/777", dbAlbum]]);
+    await ctx.appWindow.openModal("777");
+    const section = body().querySelector(".track-section");
+    expect(section.classList.contains("show-track-info")).toBe(false);
+    expect(section.firstElementChild.classList.contains("album-info-panel")).toBe(true);
+    expect(section.querySelector(".album-info-panel + .tracklist")).not.toBeNull();
+    const notes = section.querySelectorAll(".album-info-panel .aip-note.modal-tag");
+    expect(notes.length).toBeGreaterThan(0);
   });
 
   test("track info lines show dates, lyrics, ISRC, featured artist and composer", async () => {
@@ -550,6 +562,10 @@ describe("openModal Show info", () => {
 
     expect(lookupCalls()).toHaveLength(0);
     expect(body().querySelectorAll(".track-row")).toHaveLength(0);
+    // Release Info still renders from the DB row (date, UPC), with no source chip
+    const dbPanel = body().querySelector(".album-info-panel");
+    expect(dbPanel.textContent).toContain("0000111");
+    expect(dbPanel.querySelector(".sf-chip")).toBeNull();
     const btn = body().querySelector(".btn-track-info");
     expect(btn).not.toBeNull();
 
@@ -568,6 +584,8 @@ describe("openModal Show info", () => {
     await ctx.appWindow.openModal("777");
     expect(body().querySelector(".btn-track-info")).toBeNull();
     expect(body().querySelector(".tracklist-empty")).not.toBeNull();
+    // Album-level info from the lookup is still shown
+    expect(body().querySelector(".album-info-panel").textContent).toContain("Test Records");
   });
 
   test("album not in local DB reuses the in-flight lookup instead of fetching twice", async () => {
