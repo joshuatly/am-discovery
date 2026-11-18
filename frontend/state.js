@@ -20,6 +20,7 @@ const state = {
   metadataStorefront: localStorage.getItem("metadataStorefront") || "",
   alwaysIncludeMY: localStorage.getItem("alwaysIncludeMY") === "true",
   homeStorefront: "",
+  configReady: null,          // Promise for the storefront config load (set at bootstrap); openModal awaits it
   artistViewMode: "chrono",   // "chrono" | "grouped"
   artistTypeFilter: "",       // "" = all, else a release_type value
   artistSeedFilter: false,    // true = only releases that need MusicBrainz seeding

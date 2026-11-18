@@ -287,9 +287,27 @@ function albumCard(album) {
   info.appendChild(meta);
   card.appendChild(info);
 
-  card.addEventListener("click", () => openModal(album.store_adam_id));
+  // A real link stretched over the whole tile (see .album-card-link), so a
+  // plain click routes to #/album/<id> and Ctrl/⌘/middle-click or "Open in new
+  // tab" open the album on its own. The tile stays a <div> because it already
+  // holds artist links, and anchors can't nest.
+  const link = el("a", "album-card-link");
+  link.href = albumHash(album.store_adam_id);
+  link.setAttribute("aria-label", [album.title, album.artist].filter(Boolean).join(" — ") || "Open album");
+  card.appendChild(link);
+  // Corner badges stack above the link (they carry tooltips); forward clicks
+  // on them so the whole tile still opens the album.
+  card.addEventListener("click", e => {
+    if (e.target.closest("a")) return;
+    link.click();
+  });
 
   return card;
+}
+
+// Route for an album's detail modal.
+function albumHash(storeAdamId) {
+  return `#/album/${encodeURIComponent(storeAdamId)}`;
 }
 
 // ---------------------------------------------------------------------------

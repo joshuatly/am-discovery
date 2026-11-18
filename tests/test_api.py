@@ -419,6 +419,14 @@ class TestApiLookup(ServerTestCase):
         resp = self.client.get("/api/releases/A1/lookup?storefront=../etc")
         self.assertEqual(resp.status_code, 400)
 
+    @patch("api_releases.AppleMusicClient")
+    def test_unknown_album_returns_404(self, MockClient):
+        # get_album_full_info swallows Apple's 404 and returns all-empty fields.
+        MockClient.return_value.get_album_full_info.return_value = {"title": None, "tracks": []}
+        resp = self.client.get("/api/releases/999/lookup?storefront=jp")
+        self.assertEqual(resp.status_code, 404)
+        self.assertIn("error", resp.get_json())
+
 
 # ---------------------------------------------------------------------------
 # GET /api/search/artists
@@ -1316,6 +1324,55 @@ class TestApiMusicBrainzLookup(ServerTestCase):
         data = resp.get_json()
         self.assertFalse(data["found"])
         self.assertEqual(data["upc"], "123456")
+
+    @staticmethod
+    def _mb_resp(payload):
+        mock_resp = unittest.mock.MagicMock()
+        mock_resp.read.return_value = json.dumps(payload).encode()
+        mock_resp.__enter__ = lambda s: s
+        mock_resp.__exit__ = lambda s, *a: None
+        return mock_resp
+
+    @patch("api_releases.db")
+    def test_missing_album_with_only_title_returns_404(self, mock_db):
+        mock_db.get_album.return_value = None
+        resp = self.client.get("/api/releases/MISSING/musicbrainz?title=Only+Title")
+        self.assertEqual(resp.status_code, 404)
+
+    @patch("api_releases.urllib.request.urlopen")
+    @patch("api_releases.db")
+    def test_missing_album_uses_query_upc(self, mock_db, mock_urlopen):
+        mock_db.get_album.return_value = None
+        mock_urlopen.return_value = self._mb_resp(
+            {"releases": [{"id": "mb-1", "title": "Live Album", "artist-credit": []}]}
+        )
+        resp = self.client.get("/api/releases/NOTINDB/musicbrainz?upc=4988&title=Live+Album&artist=X")
+        self.assertEqual(resp.status_code, 200)
+        data = resp.get_json()
+        self.assertTrue(data["found"])
+        self.assertEqual(data["method"], "barcode")
+        self.assertEqual(data["upc"], "4988")
+        self.assertIn("barcode%3A4988", mock_urlopen.call_args[0][0].full_url)
+
+    @patch("api_releases.urllib.request.urlopen")
+    @patch("api_releases.db")
+    def test_missing_album_falls_back_to_query_title_artist(self, mock_db, mock_urlopen):
+        mock_db.get_album.return_value = None
+        mock_urlopen.return_value = self._mb_resp({"releases": [{"id": "mb-2", "title": "Song", "artist-credit": []}]})
+        resp = self.client.get("/api/releases/NOTINDB/musicbrainz?title=Song&artist=Singer")
+        self.assertEqual(resp.status_code, 200)
+        data = resp.get_json()
+        self.assertTrue(data["found"])
+        self.assertEqual(data["method"], "title_artist")
+        self.assertIsNone(data["upc"])
+
+    @patch("api_releases.urllib.request.urlopen")
+    @patch("api_releases.db")
+    def test_db_row_takes_precedence_over_query_params(self, mock_db, mock_urlopen):
+        mock_db.get_album.return_value = {"store_adam_id": "A1", "upc": "111"}
+        mock_urlopen.return_value = self._mb_resp({"releases": []})
+        resp = self.client.get("/api/releases/A1/musicbrainz?upc=222")
+        self.assertEqual(resp.get_json()["upc"], "111")
 
     @patch("api_releases.urllib.request.urlopen")
     @patch("api_releases.db")

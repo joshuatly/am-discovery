@@ -274,8 +274,8 @@ The config is live-reloaded on every poll, so changes take effect on the next cy
 | GET | `/api/releases` | Paginated list; supports `q`, `page`, `per_page`, `storefront`, `view=new` (discovered only), `watched=true`, `release_type` |
 | GET | `/api/releases/<id>` | Single release detail |
 | GET | `/api/releases/<id>/check_storefronts` | Availability across configured storefronts |
-| GET | `/api/releases/<id>/lookup` | Fresh metadata fetch (bypasses cache) |
-| GET | `/api/releases/<id>/musicbrainz` | MusicBrainz lookup for the release (barcode → search) |
+| GET | `/api/releases/<id>/lookup` | Fresh metadata fetch (bypasses cache); 404 when the storefront has no such album |
+| GET | `/api/releases/<id>/musicbrainz` | MusicBrainz lookup for the release (barcode → search); `upc`/`title`/`artist` query params for albums not in the DB |
 | GET | `/api/releases/<id>/you-might-also-like` | Apple Music recommendations for the release |
 | GET | `/api/artists/<id>/releases` | All releases for an artist |
 | POST | `/api/artists/<id>/fetch` | Fetch and store full artist catalog |
@@ -327,6 +327,15 @@ Full Swagger docs at `/apidocs`.
 - **Concurrent fetches:** `ThreadPoolExecutor(max_workers=10)` is used for batch metadata fetches. Keep individual fetch functions side-effect-free (write to DB only, no shared mutable state).
 
 ---
+
+## Album route (`#/album/<store_adam_id>`)
+
+The album detail modal is a route of its own (`routeAlbum` / `closeAlbumModal` in `app.js`), so albums can be bookmarked, shared and Ctrl/⌘-clicked into a new tab. Album cards carry a stretched `<a class="album-card-link">` (the tile itself stays a `<div>` because it holds artist links); link to albums with `albumHash(id)` rather than calling `openModal` directly.
+
+- **Background page:** opened from a page in the app → that page stays rendered untouched behind the modal; opened cold (new tab, pasted URL) → New Releases renders behind it.
+- **Closing (X / Esc / backdrop):** always returns to the background page, even after hopping through "You Might Also Like" albums; the browser Back button still steps back one album at a time. Each album history entry stores `{bg, depth, cold}` in `history.state.amAlbum` so this works across Back/Forward and reloads.
+- **`closeModal()` is visual only** (the notification event editor shares the overlay); route-aware closing is `closeAlbumModal()`.
+- **Albums not in the DB** are fetched live via `/lookup` (metadata storefront, else home) and never stored. `openModal` awaits `state.configReady` so a deep link uses the configured storefronts; `/lookup` returns 404 for unknown IDs ("Album not found"); the MusicBrainz check passes `upc`/`title`/`artist` as query params for these albums.
 
 ## Frontend state gotchas
 

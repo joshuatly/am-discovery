@@ -579,9 +579,11 @@ function adminReleaseCard(r, onChange) {
 
   const artWrap = el("div", "admin-release-art-wrap");
   const art = artworkEl(r.artwork_url, "admin-release-art");
-  art.style.cursor = "pointer";
-  art.addEventListener("click", () => openModal(r.store_adam_id));
-  artWrap.appendChild(art);
+  const artLink = el("a", "admin-release-art-link");
+  artLink.href = albumHash(r.store_adam_id);
+  artLink.setAttribute("aria-label", r.title || "Open album");
+  artLink.appendChild(art);
+  artWrap.appendChild(artLink);
   // Track-count chip, same convention as the album tile (songs+music-videos).
   if (r.track_count) {
     const mvCount = r.music_video_count || 0;
@@ -623,8 +625,8 @@ function adminReleaseCard(r, onChange) {
   harmony.rel = "noopener";
   actions.appendChild(harmony);
 
-  const openBtn = el("button", "btn-secondary", "Open");
-  openBtn.addEventListener("click", () => openModal(r.store_adam_id));
+  const openBtn = el("a", "btn-secondary", "Open");
+  openBtn.href = albumHash(r.store_adam_id);
   actions.appendChild(openBtn);
 
   const hideBtn = el("button", "btn-secondary admin-hide-btn", "Hide");
