@@ -15,9 +15,20 @@ async function openModal(storeAdamId) {
 
   let album;
   let myAlbumData = null;
-  // The /lookup response the tracklist came from. "Show info" renders from it
-  // (and from myAlbumData), so revealing track info never re-queries.
+  // The /lookup response the tracklist came from. "Show info" and Release Info
+  // render from it (and from myAlbumData), so they never re-query.
   let info = null;
+  // One /lookup request per storefront for this modal: every caller (initial
+  // load, Release Info chips, lazy tracklist load) shares these promises.
+  const lookups = new Map();
+  const getLookup = (sf) => {
+    if (!lookups.has(sf)) {
+      const p = API.get(`/api/releases/${storeAdamId}/lookup?storefront=${sf}`);
+      lookups.set(sf, p);
+      p.catch(() => lookups.delete(sf));  // allow a retry after a failure
+    }
+    return lookups.get(sf);
+  };
   try {
     const home = state.homeStorefront;
     const shouldCompareMY = state.alwaysIncludeMY
@@ -27,23 +38,18 @@ async function openModal(storeAdamId) {
     const lookupSf = state.metadataStorefront || home || "us";
 
     const dbPromise = API.get(`/api/releases/${storeAdamId}`);
-    const lookupPromise = state.metadataStorefront
-      ? API.get(`/api/releases/${storeAdamId}/lookup?storefront=${state.metadataStorefront}`)
-      : null;
-    const myLookupPromise = shouldCompareMY
-      ? API.get(`/api/releases/${storeAdamId}/lookup?storefront=${home}`)
-      : null;
+    const lookupPromise = state.metadataStorefront ? getLookup(state.metadataStorefront) : null;
+    const myLookupPromise = shouldCompareMY ? getLookup(home) : null;
 
     try {
       album = await dbPromise;
     } catch {
       // Album not in local DB (e.g. a "You Might Also Like" suggestion that
       // was never discovered through room polling). Fall back to a fresh
-      // Apple Music lookup so the modal still renders. lookupPromise already
-      // targets lookupSf whenever it exists — reuse it rather than re-fetching.
+      // Apple Music lookup so the modal still renders (via the shared cache,
+      // so it reuses lookupPromise whenever that targets the same storefront).
       try {
-        const fresh = await (lookupPromise
-          || API.get(`/api/releases/${storeAdamId}/lookup?storefront=${lookupSf}`));
+        const fresh = await getLookup(lookupSf);
         info = fresh;
         album = {
           store_adam_id: storeAdamId,
@@ -420,11 +426,25 @@ async function openModal(storeAdamId) {
 
   details.appendChild(actions);
 
-  // Release Info (always shown) + tracklist with per-track "Show info"
-  // (track dates, ISRCs, lyrics, …). Built from the lookup response(s) already
-  // fetched above; only when no lookup ran at all (metadata source Off, or it
-  // failed) does the button fetch — once. The toggle is per album: every
-  // modal opens with track info collapsed.
+  // Release Info — collapsible (persistent preference), one chip per storefront.
+  // Defaults to the user's metadata storefront; storefronts already fetched
+  // switch instantly, others are fetched once through the shared cache.
+  const knownLookups = new Map();
+  if (info) knownLookups.set(album._metaSf, info);
+  if (myAlbumData) knownLookups.set(homeForDiff, myAlbumData);
+  const releaseInfo = buildReleaseInfoSection({
+    album,
+    storefronts: [...new Set([...knownLookups.keys(), ...(album.storefronts || [])].map(s => s.toLowerCase()))],
+    known: knownLookups,
+    selected: info?.title ? album._metaSf : null,
+    getLookup,
+  });
+  details.appendChild(releaseInfo.el);
+
+  // Tracklist with per-track "Show info" (track dates, ISRCs, lyrics, …).
+  // Built from the lookup response(s) already fetched above; only when no
+  // lookup ran at all (metadata source Off, or it failed) does the button
+  // fetch — once. The toggle is per album: every modal opens collapsed.
   const trackSection = el("div", "track-section");
   details.appendChild(trackSection);
   const infoBtn = el("button", "btn-track-info");
@@ -436,8 +456,6 @@ async function openModal(storeAdamId) {
     trackSection.innerHTML = "";
     infoBtn.disabled = false;
     const meta = mergeNonNull(album, info);
-    const panel = buildAlbumInfoPanel(meta, tracks, info ? album._metaSf : null);
-    if (panel) trackSection.appendChild(panel);
     if (tracks.length) {
       const tl = buildTracklist(tracks, {
         compareTracks: hasDiff ? myTracks : null,
@@ -479,11 +497,13 @@ async function openModal(storeAdamId) {
         infoBtn.textContent = "Loading…";
         const sf = state.homeStorefront || "us";
         try {
-          info = await API.get(`/api/releases/${album.store_adam_id}/lookup?storefront=${sf}`);
+          info = await getLookup(sf);
           tracks = info.tracks || [];
           album._metaSf = sf;
           showInfo = true;
           renderTrackSection();
+          knownLookups.set(sf, info);
+          releaseInfo.select(sf);
         } catch {
           infoBtn.disabled = false;
           infoBtn.textContent = "ⓘ Retry";
@@ -544,169 +564,6 @@ async function openModal(storeAdamId) {
       }
     });
   }
-}
-
-// ---------------------------------------------------------------------------
-// Tracklist + track info ("Show info")
-// ---------------------------------------------------------------------------
-// Everything here renders from the source-agnostic /lookup shape. Every field
-// is optional — whatever a metadata source doesn't provide is left out.
-
-/** Copy of `base` with every non-null value from `extra` laid over it. */
-function mergeNonNull(base, extra) {
-  const out = { ...base };
-  for (const [k, v] of Object.entries(extra || {})) {
-    if (v != null && k !== "tracks") out[k] = v;
-  }
-  return out;
-}
-
-function plural(n, word) {
-  return `${n} ${word}${n === 1 ? "" : "s"}`;
-}
-
-function trackCountLabel(tracks) {
-  const mv = tracks.filter(t => t.is_music_video).length;
-  const songs = tracks.length - mv;
-  return mv > 0 ? `${plural(songs, "track")} + ${plural(mv, "video")}` : plural(tracks.length, "track");
-}
-
-function setTrackInfoVisible(container, btn, on) {
-  container.classList.toggle("show-track-info", on);
-  btn.classList.toggle("active", on);
-  btn.setAttribute("aria-pressed", String(on));
-  btn.textContent = on ? "ⓘ Hide info" : "ⓘ Show info";
-}
-
-/** Secondary line under a track title; hidden by CSS unless info is shown. */
-function trackInfoLine(t, albumDate, albumArtist) {
-  const line = el("div", "track-info-line");
-  if (t.release_date) {
-    const rel = trackDateRelation(t.release_date, albumDate);
-    const cls = rel === "before" ? " ti-early" : rel === "after" ? " ti-late" : "";
-    const d = el("span", `ti-date${cls}`, formatDate(t.release_date));
-    d.title = rel === "before" ? "Released before the album"
-      : rel === "after" ? "Released after the album date" : "Track date";
-    line.appendChild(d);
-  }
-  if ("has_lyrics" in t || "has_synced_lyrics" in t) {
-    const any = t.has_lyrics || t.has_synced_lyrics;
-    const label = t.has_synced_lyrics ? "Synced lyrics" : any ? "Lyrics" : "No lyrics";
-    line.appendChild(el("span", `ti-lyrics${any ? "" : " ti-none"}`, label));
-  }
-  if (t.content_rating === "explicit") line.appendChild(el("span", "ti-explicit", "Explicit"));
-  if (t.isrc) {
-    const isrc = el("span", "ti-isrc", t.isrc);
-    isrc.title = "ISRC";
-    line.appendChild(isrc);
-  }
-  if (t.audio_locale) {
-    const loc = el("span", "ti-meta", t.audio_locale);
-    loc.title = "Audio locale";
-    line.appendChild(loc);
-  }
-  if (t.artist && albumArtist && t.artist !== albumArtist) {
-    line.appendChild(el("span", "ti-meta", t.artist));
-  }
-  if (t.composer) {
-    const c = el("span", "ti-meta ti-composer", `✎ ${t.composer}`);
-    c.title = `Composer: ${t.composer}`;
-    line.appendChild(c);
-  }
-  return line.childNodes.length ? line : null;
-}
-
-/**
- * Numbered tracklist. `compareTracks` (same index) marks rows whose titles
- * differ with `diffClass`; `headerSf` prefixes the header with a storefront chip.
- */
-function buildTracklist(tracks, opts = {}) {
-  const { compareTracks = null, diffClass = "", headerSf = null, headerClass = "", albumDate = null, albumArtist = null } = opts;
-  const tl = el("div", "tracklist");
-  const head = el("div", `tracklist-header${headerClass ? ` ${headerClass}` : ""}`);
-  const label = el("span", "tracklist-header-label");
-  if (headerSf) {
-    label.innerHTML = `${sfChipHtml(headerSf, "font-size:10px;vertical-align:middle;")} &nbsp;Tracklist — ${trackCountLabel(tracks)}`;
-  } else {
-    label.textContent = `Tracklist — ${trackCountLabel(tracks)}`;
-  }
-  head.appendChild(label);
-  tl.appendChild(head);
-
-  tracks.forEach((t, i) => {
-    const other = compareTracks?.[i];
-    const differs = other && t.title !== other.title;
-    const row = el("div", `track-row${differs ? ` ${diffClass}` : ""}`);
-    row.appendChild(el("span", "track-num", String(t.track_number ?? i + 1)));
-    const titleCell = el("span", "track-title-cell");
-    titleCell.appendChild(el("span", "track-title", t.title || "—"));
-    if (t.is_music_video) titleCell.appendChild(el("span", "track-mv-badge", "MV"));
-    row.appendChild(titleCell);
-    row.appendChild(el("span", "track-dur", formatDuration(t.duration_ms)));
-    const infoLine = trackInfoLine(t, albumDate, albumArtist);
-    if (infoLine) row.appendChild(infoLine);
-    tl.appendChild(row);
-  });
-  return tl;
-}
-
-/**
- * Album-level "Release Info" section (always visible), styled like the
- * tracklist section below it. Summary notes are modal-tag pills; returns
- * null when there is nothing to show.
- */
-function buildAlbumInfoPanel(meta, tracks, sf) {
-  const panel = el("div", "album-info-panel");
-  const head = el("div", "aip-head");
-  const label = el("span", "aip-title", "Release Info");
-  if (sf) label.insertAdjacentHTML("afterbegin", `${sfChipHtml(sf, "font-size:10px;vertical-align:middle;")} &nbsp;`);
-  head.appendChild(label);
-  panel.appendChild(head);
-
-  const notes = el("div", "aip-notes");
-  const addNote = (text, highlight = false) =>
-    notes.appendChild(el("span", `modal-tag aip-note${highlight ? " aip-highlight" : ""}`, text));
-  const sum = summarizeTrackInfo(tracks, meta.release_date);
-  if (sum.dated && meta.release_date && sum.total > 0) {
-    if (sum.prereleased === sum.total) {
-      addNote(sum.total === 1
-        ? "This track was released before this release"
-        : `All ${sum.total} tracks were released before this album — no new music`, true);
-    } else if (sum.prereleased) {
-      addNote(`${sum.prereleased} of ${plural(sum.total, "track")} released before the album · earliest ${formatDate(sum.earliestDate)}`, true);
-    } else {
-      addNote(sum.total === 1 ? "New track with this release" : `All ${sum.total} tracks are new with this release`);
-    }
-  }
-  if (sum.lyricsKnown && sum.total > 0) {
-    addNote(sum.lyrics
-      ? `Lyrics on ${sum.lyrics} of ${plural(sum.total, "track")}${sum.synced ? ` · ${sum.synced} synced` : ""}`
-      : "No lyrics on any track");
-  }
-  if (meta.is_complete === false) {
-    addNote(`Incomplete — ${tracks.length} of ${meta.track_count ?? "?"} tracks available in this storefront`, true);
-  }
-  if (notes.childNodes.length) panel.appendChild(notes);
-
-  const flags = [meta.is_compilation && "Compilation", meta.is_single && "Single"].filter(Boolean).join(" · ");
-  const rating = { explicit: "Explicit", clean: "Clean" }[meta.content_rating];
-  const rows = [
-    ["Released", meta.release_date ? formatDate(meta.release_date) : null],
-    ["Label", meta.record_label],
-    ["Copyright", meta.copyright],
-    ["UPC", meta.upc],
-    ["Flagged as", flags || null],
-    ["Rating", rating || null],
-  ].filter(([, v]) => v);
-  if (rows.length) {
-    const grid = el("dl", "aip-grid");
-    rows.forEach(([k, v]) => {
-      grid.appendChild(el("dt", "", k));
-      grid.appendChild(el("dd", k === "UPC" ? "aip-mono" : "", v));
-    });
-    panel.appendChild(grid);
-  }
-  return notes.childNodes.length || rows.length ? panel : null;
 }
 
 function closeModal() {

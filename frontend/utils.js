@@ -97,6 +97,17 @@ const ReleasesPrefs = {
   },
 };
 
+// Album modal "Release Info" collapsed/expanded — a persistent preference
+// (unlike the per-album "Show info" track toggle).
+const ReleaseInfoPrefs = {
+  isCollapsed() {
+    try { return localStorage.getItem("release_info_collapsed") === "1"; } catch { return false; }
+  },
+  setCollapsed(collapsed) {
+    try { localStorage.setItem("release_info_collapsed", collapsed ? "1" : "0"); } catch {}
+  },
+};
+
 function formatDate(d) {
   if (!d || d === "Unknown") return "—";
   if (/^\d{4}-00-00/.test(d)) return d.slice(0, 4);

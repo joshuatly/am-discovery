@@ -70,7 +70,8 @@ Each Python source file must stay under 800 lines.
 The frontend has no build step. JS is split into modules loaded via `<script>` tags in `index.html` in this order (each file depends on globals defined by files above it):
 
 ```
-utils.js          — API helpers, DOM ($, el), sanitizeHtml, WatchlistPrefs, date/time
+utils.js          — API helpers, DOM ($, el), sanitizeHtml, WatchlistPrefs,
+                    ReleasesPrefs, ReleaseInfoPrefs, date/time
                     utils, RELEASE_TYPE_LABELS/ORDER, FORMAT_LABELS,
                     COLLECTION_STATUS_LABELS/TRANSITIONS, debounce, tracklistsDiffer,
                     trackDateRelation, summarizeTrackInfo
@@ -81,8 +82,10 @@ state.js          — global state object, loadWatchedIds, toggleWatch,
                     submitCliSchedulerJob
 status.js         — refreshStatus, triggerRefresh, metadata source widget
                     (renderMetaSourceWidget, initMetaSourceWidget, updateSrcBadge, …)
-modal.js          — openModal, closeModal, showImageLightbox, buildTracklist,
-                    trackInfoLine, buildAlbumInfoPanel ("Show info")
+track-info.js     — album-modal building blocks: buildTracklist, trackInfoLine
+                    ("Show info"), buildAlbumInfoBody, buildReleaseInfoSection
+                    (collapsible, per-storefront chips)
+modal.js          — openModal (+ per-modal /lookup cache), closeModal, showImageLightbox
 page-releases.js  — renderArtistReleaseGrid, renderNewReleases, renderAllReleases
 page-artist.js    — renderArtist
 page-watchlist.js — paginateList, WATCHLIST_PAGE_SIZE, renderWatchlist
@@ -99,7 +102,7 @@ app.js            — route(), DOMContentLoaded bootstrap
 - New reusable UI component (card, badge, etc.) → `components.js`
 - New state field or watchlist API helper → `state.js`
 - Changes to the status bar or metadata source widget → `status.js`
-- Changes to the album detail modal → `modal.js`
+- Changes to the album detail modal → `modal.js`; tracklist / track info / Release Info rendering → `track-info.js`
 - Changes to New Releases or All Albums pages → `page-releases.js`
 - Changes to Artist Detail page → `page-artist.js`
 - Changes to Artist Watchlist page → `page-watchlist.js`
@@ -326,7 +329,7 @@ Full Swagger docs at `/apidocs`.
 - **Storefront merging:** Each album tracks which storefronts it was seen in; storefronts are merged (not replaced) on each upsert.
 - **Source tracking:** Albums are tagged with `source='discovered'` (from room polling) or `source='artist_fetch'` (manually fetched via artist page). The `view=new` filter shows only discovered ones.
 - **Info fetch caching:** `info_fetched=1` is set once full metadata has been retrieved; subsequent polls skip the expensive API call for known albums.
-- **Track info ("Show info") is live-only, never stored.** `client.get_album_full_info()` normalizes the extra catalog fields into a source-agnostic shape — album: `source`, `storefront`, `record_label`, `copyright`, `content_rating`, `is_complete`, `is_compilation`, `is_single`; per track (`_parse_track`): `id`, `disc_number`, `release_date`, `isrc`, `artist`, `composer`, `genres`, `audio_locale`, `content_rating`, `has_lyrics`, `has_synced_lyrics`, `audio_formats`. The album modal renders the panel from the `/lookup` response(s) it already fetched for the tracklist / storefront diff — toggling it must not trigger another request. A new metadata source should fill the same keys (or leave them `None`); the UI omits anything missing.
+- **Track info ("Show info") is live-only, never stored.** `client.get_album_full_info()` normalizes the extra catalog fields into a source-agnostic shape — album: `source`, `storefront`, `record_label`, `copyright`, `content_rating`, `is_complete`, `is_compilation`, `is_single`; per track (`_parse_track`): `id`, `disc_number`, `release_date`, `isrc`, `artist`, `composer`, `genres`, `audio_locale`, `content_rating`, `has_lyrics`, `has_synced_lyrics`, `audio_formats`. The album modal renders it from the `/lookup` response(s) it already fetched for the tracklist / storefront diff — toggling must not trigger another request. All modal lookups go through one per-modal cache (`getLookup(sf)` in `openModal`), so clicking a Release Info storefront chip fetches that storefront at most once and reuses anything already loaded. A new metadata source should fill the same keys (or leave them `None`); the UI omits anything missing.
 - **Concurrent fetches:** `ThreadPoolExecutor(max_workers=10)` is used for batch metadata fetches. Keep individual fetch functions side-effect-free (write to DB only, no shared mutable state).
 
 ---
@@ -344,7 +347,7 @@ Full Swagger docs at `/apidocs`.
 ## Things that are still in flux
 
 - Schema — new fields are being added regularly; always write a migration
-- Frontend — vanilla JS, no build step; split across 10 modules (see Frontend JS modules above)
+- Frontend — vanilla JS, no build step; split across 13 modules (see Frontend JS modules above)
 
 When in doubt, keep changes small and don't over-engineer — the codebase is moving fast.
 

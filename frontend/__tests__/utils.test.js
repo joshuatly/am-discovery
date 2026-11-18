@@ -723,3 +723,19 @@ describe("summarizeTrackInfo", () => {
     expect(ctx.appWindow.summarizeTrackInfo(null, "2025-03-01").total).toBe(0);
   });
 });
+
+describe("ReleaseInfoPrefs", () => {
+  afterEach(() => ctx.appWindow.localStorage.removeItem("release_info_collapsed"));
+
+  test("defaults to expanded", () => {
+    expect(ctx.appWindow.__test_ReleaseInfoPrefs.isCollapsed()).toBe(false);
+  });
+
+  test("round-trips the collapsed flag through localStorage", () => {
+    ctx.appWindow.__test_ReleaseInfoPrefs.setCollapsed(true);
+    expect(ctx.appWindow.localStorage.getItem("release_info_collapsed")).toBe("1");
+    expect(ctx.appWindow.__test_ReleaseInfoPrefs.isCollapsed()).toBe(true);
+    ctx.appWindow.__test_ReleaseInfoPrefs.setCollapsed(false);
+    expect(ctx.appWindow.__test_ReleaseInfoPrefs.isCollapsed()).toBe(false);
+  });
+});
