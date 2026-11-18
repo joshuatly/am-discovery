@@ -19,6 +19,7 @@ const state = {
   discoveryStorefronts: null,
   metadataStorefront: localStorage.getItem("metadataStorefront") || "",
   alwaysIncludeMY: localStorage.getItem("alwaysIncludeMY") === "true",
+  showTrackInfo: false,       // album modal "Show info" toggle; sticky for the session once opened
   homeStorefront: "",
   artistViewMode: "chrono",   // "chrono" | "grouped"
   artistTypeFilter: "",       // "" = all, else a release_type value

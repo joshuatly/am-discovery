@@ -267,6 +267,12 @@ Left sidebar. Brand: ♫ icon + "AM Discovery" gradient-fill text. Nav links: ic
 
 Floating glass card. Backdrop `rgba(0,0,0,.7)` + 6px blur. 560px max / 90vh max / radius 20. Compact header: ~130px artwork thumb + meta + action pill row. Tracklist as a numbered list (music videos separated from song tracks). Footer: "✨ Discover Similar" gradient button. Modals are **content surfaces** (rich album detail), not task dialogs.
 
+**Show info (track info).** A `ⓘ Show info` pill (`.btn-track-info`, right of the tracklist header) reveals extended metadata; hidden by default so the modal reads the same as before. Active state is an accent *border* (§8), and the choice is remembered for the session (`state.showTrackInfo`). When on, the `.track-section` gets `.show-track-info`, which reveals:
+- a **Release Info** panel (`.album-info-panel`, nested glass card, radius 14) with a storefront chip, summary notes (`.aip-note`; pre-released / incomplete notes get the info-blue border via `.aip-highlight`) and a label/copyright/UPC key-value grid;
+- a secondary line under each track (`.track-info-line`, 11px): track date, lyrics (`Synced lyrics` / `Lyrics` / dim `No lyrics`), `EXPLICIT` mini-badge, ISRC (monospace, select-all), audio locale, featured artist, composer. A track date earlier than the album date gets an info-blue border (`.ti-early`, §10 blue = info) — it's information, not a call to action, so it is not amber.
+
+All fields are optional: anything a metadata source doesn't provide is omitted rather than shown empty.
+
 ---
 
 ## 19 · Page archetypes

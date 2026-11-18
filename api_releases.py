@@ -276,7 +276,7 @@ def api_musicbrainz_lookup(store_adam_id):
 
 @releases_bp.route("/api/releases/<store_adam_id>/lookup")
 def api_lookup(store_adam_id):
-    """Fetch fresh metadata for a release from a specific storefront.
+    """Fetch fresh metadata (incl. per-track ISRC, track date, lyrics flags) for a release from a storefront.
     ---
 
     parameters:

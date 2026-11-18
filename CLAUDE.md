@@ -72,7 +72,8 @@ The frontend has no build step. JS is split into modules loaded via `<script>` t
 ```
 utils.js          — API helpers, DOM ($, el), sanitizeHtml, WatchlistPrefs, date/time
                     utils, RELEASE_TYPE_LABELS/ORDER, FORMAT_LABELS,
-                    COLLECTION_STATUS_LABELS/TRANSITIONS, debounce, tracklistsDiffer
+                    COLLECTION_STATUS_LABELS/TRANSITIONS, debounce, tracklistsDiffer,
+                    trackDateRelation, summarizeTrackInfo
 components.js     — formatBadges, artworkEl, placeholderEl, SF color palette + chip
                     helpers, skeletonGrid, buildHeader, buildPagination,
                     makeArtistLinks, albumCard
@@ -80,7 +81,8 @@ state.js          — global state object, loadWatchedIds, toggleWatch,
                     submitCliSchedulerJob
 status.js         — refreshStatus, triggerRefresh, metadata source widget
                     (renderMetaSourceWidget, initMetaSourceWidget, updateSrcBadge, …)
-modal.js          — openModal, closeModal, showImageLightbox
+modal.js          — openModal, closeModal, showImageLightbox, buildTracklist,
+                    trackInfoLine, buildAlbumInfoPanel ("Show info")
 page-releases.js  — renderArtistReleaseGrid, renderNewReleases, renderAllReleases
 page-artist.js    — renderArtist
 page-watchlist.js — paginateList, WATCHLIST_PAGE_SIZE, renderWatchlist
@@ -274,7 +276,7 @@ The config is live-reloaded on every poll, so changes take effect on the next cy
 | GET | `/api/releases` | Paginated list; supports `q`, `page`, `per_page`, `storefront`, `view=new` (discovered only), `watched=true`, `release_type` |
 | GET | `/api/releases/<id>` | Single release detail |
 | GET | `/api/releases/<id>/check_storefronts` | Availability across configured storefronts |
-| GET | `/api/releases/<id>/lookup` | Fresh metadata fetch (bypasses cache) |
+| GET | `/api/releases/<id>/lookup` | Fresh metadata fetch (bypasses cache); includes per-track "show info" fields |
 | GET | `/api/releases/<id>/musicbrainz` | MusicBrainz lookup for the release (barcode → search) |
 | GET | `/api/releases/<id>/you-might-also-like` | Apple Music recommendations for the release |
 | GET | `/api/artists/<id>/releases` | All releases for an artist |
@@ -324,6 +326,7 @@ Full Swagger docs at `/apidocs`.
 - **Storefront merging:** Each album tracks which storefronts it was seen in; storefronts are merged (not replaced) on each upsert.
 - **Source tracking:** Albums are tagged with `source='discovered'` (from room polling) or `source='artist_fetch'` (manually fetched via artist page). The `view=new` filter shows only discovered ones.
 - **Info fetch caching:** `info_fetched=1` is set once full metadata has been retrieved; subsequent polls skip the expensive API call for known albums.
+- **Track info ("Show info") is live-only, never stored.** `client.get_album_full_info()` normalizes the extra catalog fields into a source-agnostic shape — album: `source`, `storefront`, `record_label`, `copyright`, `content_rating`, `is_complete`, `is_compilation`, `is_single`; per track (`_parse_track`): `id`, `disc_number`, `release_date`, `isrc`, `artist`, `composer`, `genres`, `audio_locale`, `content_rating`, `has_lyrics`, `has_synced_lyrics`, `audio_formats`. The album modal renders the panel from the `/lookup` response(s) it already fetched for the tracklist / storefront diff — toggling it must not trigger another request. A new metadata source should fill the same keys (or leave them `None`); the UI omits anything missing.
 - **Concurrent fetches:** `ThreadPoolExecutor(max_workers=10)` is used for batch metadata fetches. Keep individual fetch functions side-effect-free (write to DB only, no shared mutable state).
 
 ---
