@@ -365,3 +365,360 @@ describe("openModal music video tracks", () => {
     expect(rows[1].querySelector(".track-mv-badge").textContent).toBe("MV");
   });
 });
+
+// ---------------------------------------------------------------------------
+// "Show info" — extended track/album metadata from the existing lookup
+// ---------------------------------------------------------------------------
+
+describe("openModal Show info", () => {
+  const dbAlbum = {
+    store_adam_id: "777",
+    title: "Piecemeal Album",
+    artist: "Test Artist",
+    artist_id: "ART1",
+    url: "https://music.apple.com/jp/album/777",
+    storefronts: ["jp"],
+    release_date: "2025-03-01",
+    track_count: 3,
+    music_video_count: 0,
+    upc: "0000111",
+    audio_formats: [],
+    artists_json: [],
+  };
+  const lookup = {
+    title: "Piecemeal Album",
+    artist: "Test Artist",
+    release_date: "2025-03-01",
+    source: "apple_music",
+    storefront: "jp",
+    record_label: "Test Records",
+    copyright: "℗ 2025 Test Records",
+    is_complete: true,
+    is_compilation: false,
+    tracks: [
+      { title: "Single 1", track_number: 1, duration_ms: 1000, release_date: "2024-10-01",
+        isrc: "JPAAA2400001", has_lyrics: true, has_synced_lyrics: true, artist: "Test Artist" },
+      { title: "Single 2", track_number: 2, duration_ms: 1000, release_date: "2025-01-10",
+        isrc: "JPAAA2500001", has_lyrics: true, has_synced_lyrics: false, artist: "Test Artist feat. Guest",
+        composer: "Writer" },
+      { title: "New Song", track_number: 3, duration_ms: 1000, release_date: "2025-03-01",
+        isrc: "JPAAA2500002", has_lyrics: false, has_synced_lyrics: false, artist: "Test Artist" },
+    ],
+  };
+
+  // Route fetch by URL; record every path requested.
+  let calls;
+  function routeFetch(routes) {
+    calls = [];
+    ctx.appWindow.fetch.mockImplementation((path) => {
+      calls.push(path);
+      for (const [frag, body] of routes) {
+        if (path.includes(frag)) {
+          if (body === 404) return Promise.resolve({ ok: false, status: 404, json: () => Promise.resolve({}) });
+          // Clone: openModal mutates the album object it receives.
+          return Promise.resolve({ ok: true, json: () => Promise.resolve(JSON.parse(JSON.stringify(body))) });
+        }
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
+    });
+  }
+  const body = () => ctx.appWindow.document.getElementById("modal-body");
+  const lookupCalls = () => calls.filter(p => p.includes("/lookup"));
+
+  beforeEach(() => {
+    const s = ctx.appWindow.__test_state;
+    s.metadataStorefront = "jp";
+    s.homeStorefront = "jp";
+    s.alwaysIncludeMY = false;
+    ctx.appWindow.localStorage.removeItem("release_info_collapsed");
+  });
+
+  afterEach(() => {
+    ctx.appWindow.fetch.mockReset();
+    ctx.appWindow.fetch.mockImplementation(() =>
+      Promise.resolve({ ok: true, json: () => Promise.resolve({ items: [], total: 0 }) }));
+    body().innerHTML = "";
+  });
+
+  test("info is hidden by default and the toggle reveals it without another request", async () => {
+    routeFetch([["/lookup", lookup], ["/api/releases/777", dbAlbum]]);
+    await ctx.appWindow.openModal("777");
+
+    const section = body().querySelector(".track-section");
+    const btn = body().querySelector(".tracklist-header .btn-track-info");
+    expect(btn).not.toBeNull();
+    expect(btn.textContent).toContain("Show info");
+    expect(section.classList.contains("show-track-info")).toBe(false);
+    expect(lookupCalls()).toHaveLength(1);
+
+    const before = calls.length;
+    btn.click();
+    expect(section.classList.contains("show-track-info")).toBe(true);
+    expect(btn.classList.contains("active")).toBe(true);
+    expect(btn.textContent).toContain("Hide info");
+    expect(calls.length).toBe(before);
+
+    btn.click();
+    expect(section.classList.contains("show-track-info")).toBe(false);
+  });
+
+  test("toggle is per album: the next modal opens with track info collapsed", async () => {
+    routeFetch([["/lookup", lookup], ["/api/releases/777", dbAlbum]]);
+    await ctx.appWindow.openModal("777");
+    body().querySelector(".btn-track-info").click();
+    expect(body().querySelector(".track-section").classList.contains("show-track-info")).toBe(true);
+
+    await ctx.appWindow.openModal("777");
+    const btn = body().querySelector(".btn-track-info");
+    expect(body().querySelector(".track-section").classList.contains("show-track-info")).toBe(false);
+    expect(btn.textContent).toContain("Show info");
+  });
+
+  test("release info is shown without toggling, above the tracklist", async () => {
+    routeFetch([["/lookup", lookup], ["/api/releases/777", dbAlbum]]);
+    await ctx.appWindow.openModal("777");
+    expect(body().querySelector(".track-section").classList.contains("show-track-info")).toBe(false);
+    const panel = body().querySelector(".album-info-panel");
+    expect(panel.classList.contains("collapsed")).toBe(false);
+    expect(body().querySelector(".album-info-panel + .track-section .tracklist")).not.toBeNull();
+    expect(panel.querySelectorAll(".aip-note.modal-tag").length).toBeGreaterThan(0);
+  });
+
+  test("track info lines show dates, lyrics, ISRC, featured artist and composer", async () => {
+    routeFetch([["/lookup", lookup], ["/api/releases/777", dbAlbum]]);
+    await ctx.appWindow.openModal("777");
+
+    const lines = body().querySelectorAll(".track-row .track-info-line");
+    expect(lines).toHaveLength(3);
+    expect(lines[0].querySelector(".ti-date").classList.contains("ti-early")).toBe(true);
+    expect(lines[0].querySelector(".ti-lyrics").textContent).toBe("Synced lyrics");
+    expect(lines[0].querySelector(".ti-isrc").textContent).toBe("JPAAA2400001");
+    expect(lines[1].querySelector(".ti-lyrics").textContent).toBe("Lyrics");
+    expect(lines[1].textContent).toContain("Test Artist feat. Guest");
+    expect(lines[1].querySelector(".ti-composer").textContent).toContain("Writer");
+    // Same-day track is not flagged; album artist is not repeated
+    expect(lines[2].querySelector(".ti-date").classList.contains("ti-early")).toBe(false);
+    expect(lines[2].querySelector(".ti-lyrics").classList.contains("ti-none")).toBe(true);
+    expect(lines[2].textContent).not.toContain("Test Artist");
+  });
+
+  test("release info panel summarizes pre-released tracks, lyrics and label", async () => {
+    routeFetch([["/lookup", lookup], ["/api/releases/777", dbAlbum]]);
+    await ctx.appWindow.openModal("777");
+
+    const panel = body().querySelector(".album-info-panel");
+    expect(panel).not.toBeNull();
+    const text = panel.textContent;
+    expect(text).toContain("2 of 3 tracks released before the album");
+    expect(text).toContain("Lyrics on 2 of 3 tracks · 1 synced");
+    expect(text).toContain("Test Records");
+    expect(text).toContain("℗ 2025 Test Records");
+    expect(text).toContain("0000111");  // UPC from the DB row survives a lookup without one
+    expect(panel.querySelector(".sf-chip")).not.toBeNull();
+    expect(text).not.toContain("Incomplete");
+  });
+
+  test("flags an album whose tracks were all released earlier", async () => {
+    const compilation = {
+      ...lookup,
+      is_compilation: true,
+      tracks: lookup.tracks.map(t => ({ ...t, release_date: "2020-01-01" })),
+    };
+    routeFetch([["/lookup", compilation], ["/api/releases/777", dbAlbum]]);
+    await ctx.appWindow.openModal("777");
+    const text = body().querySelector(".album-info-panel").textContent;
+    expect(text).toContain("All 3 tracks were released before this album");
+    expect(text).toContain("Compilation");
+  });
+
+  test("notes an incomplete album", async () => {
+    routeFetch([["/lookup", { ...lookup, is_complete: false, track_count: 5 }], ["/api/releases/777", dbAlbum]]);
+    await ctx.appWindow.openModal("777");
+    expect(body().querySelector(".album-info-panel").textContent).toContain("Incomplete — 3 of 5 tracks");
+  });
+
+  test("comparison tracklist gets its own info lines from the home-storefront lookup", async () => {
+    const s = ctx.appWindow.__test_state;
+    s.homeStorefront = "my";
+    s.alwaysIncludeMY = true;
+    const myLookup = {
+      ...lookup,
+      tracks: lookup.tracks.map((t, i) => ({ ...t, title: `${t.title} (EN)`, isrc: `MYISRC${i}` })),
+    };
+    routeFetch([["storefront=my", myLookup], ["storefront=jp", lookup], ["/api/releases/777", dbAlbum]]);
+    await ctx.appWindow.openModal("777");
+
+    expect(lookupCalls()).toHaveLength(2);
+    const lists = body().querySelectorAll(".tracklist");
+    expect(lists).toHaveLength(2);
+    expect(lists[1].querySelector(".ti-isrc").textContent).toBe("MYISRC0");
+  });
+
+  test("metadata source off: one on-demand lookup, then info is shown", async () => {
+    const s = ctx.appWindow.__test_state;
+    s.metadataStorefront = "";
+    routeFetch([["/lookup", lookup], ["/api/releases/777", dbAlbum]]);
+    await ctx.appWindow.openModal("777");
+
+    expect(lookupCalls()).toHaveLength(0);
+    expect(body().querySelectorAll(".track-row")).toHaveLength(0);
+    // Release Info still renders from the DB row (date, UPC); no chip selected yet
+    const dbPanel = body().querySelector(".album-info-panel");
+    expect(dbPanel.querySelector(".aip-body").textContent).toContain("0000111");
+    expect(dbPanel.querySelector(".aip-sf-chip.selected")).toBeNull();
+    const btn = body().querySelector(".btn-track-info");
+    expect(btn).not.toBeNull();
+
+    btn.click();
+    await new Promise(r => setTimeout(r, 0));
+    await new Promise(r => setTimeout(r, 0));
+
+    expect(lookupCalls()).toEqual(["/api/releases/777/lookup?storefront=jp"]);
+    expect(body().querySelectorAll(".track-row")).toHaveLength(3);
+    expect(body().querySelector(".track-section").classList.contains("show-track-info")).toBe(true);
+    // Release Info switches to the storefront that was just loaded
+    expect(body().querySelector(".aip-sf-chip.selected").textContent).toBe("JP");
+    expect(body().querySelector(".album-info-panel").textContent).toContain("Test Records");
+  });
+
+  test("lookup that returned no tracks shows the note, not a re-fetch button", async () => {
+    routeFetch([["/lookup", { ...lookup, tracks: [] }], ["/api/releases/777", dbAlbum]]);
+    await ctx.appWindow.openModal("777");
+    expect(body().querySelector(".btn-track-info")).toBeNull();
+    expect(body().querySelector(".tracklist-empty")).not.toBeNull();
+    // Album-level info from the lookup is still shown
+    expect(body().querySelector(".album-info-panel").textContent).toContain("Test Records");
+  });
+
+  test("album not in local DB reuses the in-flight lookup instead of fetching twice", async () => {
+    routeFetch([["/lookup", lookup], ["/api/releases/777", 404]]);
+    await ctx.appWindow.openModal("777");
+
+    expect(lookupCalls()).toHaveLength(1);
+    expect(body().querySelector(".modal-title").textContent).toBe("Piecemeal Album");
+    expect(body().querySelectorAll(".track-row")).toHaveLength(3);
+    expect(body().querySelector(".album-info-panel").textContent).toContain("Test Records");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Release Info section: persistent collapse + per-storefront chips
+// ---------------------------------------------------------------------------
+
+describe("openModal Release Info", () => {
+  const dbAlbum = {
+    store_adam_id: "888", title: "Multi SF", artist: "A", artist_id: "ART1",
+    url: "https://music.apple.com/jp/album/888", storefronts: ["jp", "hk", "tw"],
+    release_date: "2025-03-01", track_count: 2, upc: "999", audio_formats: [], artists_json: [],
+  };
+  const mkLookup = (sf, label, date) => ({
+    title: "Multi SF", artist: "A", release_date: date, storefront: sf, record_label: label,
+    tracks: [
+      { title: "One", track_number: 1, release_date: "2024-01-01", has_lyrics: true, has_synced_lyrics: true },
+      { title: "Two", track_number: 2, release_date: date, has_lyrics: false, has_synced_lyrics: false },
+    ],
+  });
+  const bySf = { jp: mkLookup("jp", "JP Label", "2025-03-01"), my: mkLookup("my", "MY Label", "2025-03-01"),
+                 hk: mkLookup("hk", "HK Label", "2025-03-08"), tw: { title: null, tracks: [] } };
+
+  let calls;
+  const route = () => {
+    calls = [];
+    ctx.appWindow.fetch.mockImplementation((path) => {
+      calls.push(path);
+      const m = path.match(/lookup\?storefront=(\w+)/);
+      const bodyData = m ? bySf[m[1]] : dbAlbum;
+      return Promise.resolve({ ok: true, json: () => Promise.resolve(JSON.parse(JSON.stringify(bodyData))) });
+    });
+  };
+  const body = () => ctx.appWindow.document.getElementById("modal-body");
+  const panel = () => body().querySelector(".album-info-panel");
+  const chip = (code) => [...panel().querySelectorAll(".aip-sf-chip")].find(c => c.textContent === code);
+  const lookupsFor = (sf) => calls.filter(p => p.endsWith(`lookup?storefront=${sf}`)).length;
+  const flush = async () => { for (let i = 0; i < 3; i++) await new Promise(r => setTimeout(r, 0)); };
+
+  beforeEach(() => {
+    const s = ctx.appWindow.__test_state;
+    s.metadataStorefront = "jp";
+    s.homeStorefront = "my";
+    s.alwaysIncludeMY = true;
+    ctx.appWindow.localStorage.removeItem("release_info_collapsed");
+    route();
+  });
+
+  afterEach(() => {
+    ctx.appWindow.fetch.mockReset();
+    ctx.appWindow.fetch.mockImplementation(() =>
+      Promise.resolve({ ok: true, json: () => Promise.resolve({ items: [], total: 0 }) }));
+    body().innerHTML = "";
+    ctx.appWindow.__test_state.alwaysIncludeMY = false;
+    ctx.appWindow.localStorage.removeItem("release_info_collapsed");
+  });
+
+  test("shows a chip per storefront, metadata storefront selected by default", async () => {
+    await ctx.appWindow.openModal("888");
+    const codes = [...panel().querySelectorAll(".aip-sf-chip")].map(c => c.textContent);
+    expect(codes).toEqual(["JP", "MY", "HK", "TW"]);
+    expect(chip("JP").classList.contains("selected")).toBe(true);
+    expect(panel().querySelector(".aip-body").textContent).toContain("JP Label");
+  });
+
+  test("switching to an already-fetched storefront is instant and sends no request", async () => {
+    await ctx.appWindow.openModal("888");
+    const before = calls.length;
+    chip("MY").click();
+    expect(chip("MY").classList.contains("selected")).toBe(true);
+    expect(chip("JP").classList.contains("selected")).toBe(false);
+    expect(panel().querySelector(".aip-body").textContent).toContain("MY Label");
+    expect(calls.length).toBe(before);
+  });
+
+  test("other storefronts are fetched once on click, then reused", async () => {
+    await ctx.appWindow.openModal("888");
+    expect(lookupsFor("hk")).toBe(0);
+    chip("HK").click();
+    expect(panel().querySelector(".aip-status").textContent).toContain("Loading HK");
+    await flush();
+    const text = panel().querySelector(".aip-body").textContent;
+    expect(text).toContain("HK Label");
+    expect(text).toContain("8 Mar 2025");  // HK's own release date
+    chip("JP").click();
+    chip("HK").click();
+    await flush();
+    expect(lookupsFor("hk")).toBe(1);
+    expect(lookupsFor("jp")).toBe(1);
+  });
+
+  test("storefront with no data shows a neutral note", async () => {
+    await ctx.appWindow.openModal("888");
+    chip("TW").click();
+    await flush();
+    expect(panel().querySelector(".aip-status").textContent).toContain("No release info from the TW storefront");
+  });
+
+  test("collapse persists across albums and is saved as a preference", async () => {
+    await ctx.appWindow.openModal("888");
+    const toggle = panel().querySelector(".aip-toggle");
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    expect(panel().querySelector(".aip-chevron").textContent).toBe("▾");
+    toggle.click();
+    expect(panel().classList.contains("collapsed")).toBe(true);
+    expect(panel().querySelector(".aip-chevron").textContent).toBe("▸");
+    expect(ctx.appWindow.__test_ReleaseInfoPrefs.isCollapsed()).toBe(true);
+
+    await ctx.appWindow.openModal("888");
+    expect(panel().classList.contains("collapsed")).toBe(true);
+    expect(panel().querySelector(".aip-toggle").getAttribute("aria-expanded")).toBe("false");
+
+    panel().querySelector(".aip-toggle").click();
+    expect(ctx.appWindow.__test_ReleaseInfoPrefs.isCollapsed()).toBe(false);
+    await ctx.appWindow.openModal("888");
+    expect(panel().classList.contains("collapsed")).toBe(false);
+  });
+
+  test("track Show info stays per album even with release info collapsed", async () => {
+    ctx.appWindow.__test_ReleaseInfoPrefs.setCollapsed(true);
+    await ctx.appWindow.openModal("888");
+    expect(body().querySelector(".track-section").classList.contains("show-track-info")).toBe(false);
+  });
+});

@@ -102,6 +102,37 @@ _VIEW_MAP = {
 logger = logging.getLogger(__name__)
 
 
+def _parse_track(item: dict) -> dict | None:
+    """Normalize one catalog song / music-video into the source-agnostic track shape.
+
+    Besides the tracklist basics, this carries the per-track "show info"
+    fields (track release date, ISRC, lyrics flags, …) that the album modal
+    reveals on demand. Returns None for entries without a title.
+    """
+    a = item.get("attributes") or {}
+    if not a.get("name"):
+        return None
+    traits = list(a.get("audioTraits") or [])
+    return {
+        "id": item.get("id"),
+        "title": a["name"],
+        "track_number": a.get("trackNumber"),
+        "disc_number": a.get("discNumber"),
+        "duration_ms": a.get("durationInMillis"),
+        "is_music_video": item.get("type") == "music-videos",
+        "release_date": a.get("releaseDate"),
+        "isrc": a.get("isrc"),
+        "artist": a.get("artistName"),
+        "composer": a.get("composerName"),
+        "genres": a.get("genreNames") or [],
+        "audio_locale": a.get("audioLocale"),
+        "content_rating": a.get("contentRating"),
+        "has_lyrics": bool(a.get("hasLyrics")),
+        "has_synced_lyrics": bool(a.get("hasTimeSyncedLyrics")),
+        "audio_formats": traits or None,
+    }
+
+
 def _load_cors_proxy() -> str:
     """Return cors_proxy from config.json, or empty string if not set."""
     config_path = os.path.join(_BASE_DIR, "config.json")
@@ -345,11 +376,22 @@ class AppleMusicClient(DiscoveryMixin):
             "tracks": [],
             "audio_formats": None,
             "upc": None,
+            # Extended "show info" fields (source-agnostic names; None when the
+            # source doesn't provide them). Not persisted — served live only.
+            "source": "apple_music",
+            "storefront": None,
+            "record_label": None,
+            "copyright": None,
+            "content_rating": None,
+            "is_complete": None,
+            "is_compilation": None,
+            "is_single": None,
         }
         m = re.search(r"music\.apple\.com/([a-z]{2})/album/(?:[^/]+/)?(\d+)", url)
         if not m:
             return result
         storefront, adam_id = m.group(1), m.group(2)
+        result["storefront"] = storefront
 
         data = self._amp_api_get(
             f"/v1/catalog/{storefront}/albums/{adam_id}",
@@ -374,6 +416,12 @@ class AppleMusicClient(DiscoveryMixin):
 
         result["description"] = (attrs.get("editorialNotes") or {}).get("standard")
         result["upc"] = attrs.get("upc")
+        result["record_label"] = attrs.get("recordLabel")
+        result["copyright"] = attrs.get("copyright")
+        result["content_rating"] = attrs.get("contentRating")
+        result["is_complete"] = attrs.get("isComplete")
+        result["is_compilation"] = attrs.get("isCompilation")
+        result["is_single"] = attrs.get("isSingle")
 
         formats = list(attrs.get("audioTraits") or [])
         if attrs.get("isMasteredForItunes"):
@@ -400,25 +448,10 @@ class AppleMusicClient(DiscoveryMixin):
             result["artist_id"] = artists[0]["id"]
             result["artist_url"] = artists[0]["url"]
 
-        tracks = []
-        mv_count = 0
-        for t in rels.get("tracks", {}).get("data") or []:
-            tattrs = t.get("attributes") or {}
-            title = tattrs.get("name")
-            if title:
-                is_mv = t.get("type") == "music-videos"
-                if is_mv:
-                    mv_count += 1
-                tracks.append(
-                    {
-                        "title": title,
-                        "track_number": tattrs.get("trackNumber"),
-                        "duration_ms": tattrs.get("durationInMillis"),
-                        "is_music_video": is_mv,
-                    },
-                )
+        tracks = [_parse_track(t) for t in rels.get("tracks", {}).get("data") or []]
+        tracks = [t for t in tracks if t]
         result["tracks"] = tracks
-        result["music_video_count"] = mv_count
+        result["music_video_count"] = sum(1 for t in tracks if t["is_music_video"])
 
         return result
 

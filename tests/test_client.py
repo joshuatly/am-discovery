@@ -80,6 +80,7 @@ def _make_album_api_response(
     tracks=None,
     artists=None,
     upc=None,
+    extra_attrs=None,
 ):
     attrs = {
         "name": name,
@@ -93,17 +94,23 @@ def _make_album_api_response(
     }
     if upc is not None:
         attrs["upc"] = upc
+    if extra_attrs:
+        attrs.update(extra_attrs)
     if artwork_url:
         attrs["artwork"] = {"url": artwork_url}
 
     artist_rel = artists or [{"id": "artist-id-1", "attributes": {"url": "https://music.apple.com/us/artist/test/1"}}]
 
+    # Each track dict is passed through as catalog attributes (so tests can add
+    # isrc / releaseDate / hasLyrics …); "id" and "type" go on the resource.
     track_data = [
         {
+            "id": t.get("id"),
+            "type": t.get("type", "songs"),
             "attributes": {
-                "name": t["name"],
-                "trackNumber": t.get("trackNumber", 1),
-                "durationInMillis": t.get("durationInMillis", 200000),
+                "trackNumber": 1,
+                "durationInMillis": 200000,
+                **{k: v for k, v in t.items() if k not in ("id", "type")},
             },
         }
         for t in (tracks or [])
@@ -666,6 +673,91 @@ class TestGetAlbumFullInfo(unittest.TestCase):
         self.assertEqual(result["tracks"][0]["title"], "Track 1")
         self.assertEqual(result["tracks"][1]["track_number"], 2)
         self.assertEqual(result["tracks"][0]["duration_ms"], 180000)
+
+    def test_extracts_extended_track_info(self):
+        tracks = [
+            {
+                "id": "t1",
+                "name": "Lead Single",
+                "trackNumber": 1,
+                "discNumber": 1,
+                "releaseDate": "2025-11-01",
+                "isrc": "USABC2500001",
+                "artistName": "Test Artist feat. Guest",
+                "composerName": "Writer A & Writer B",
+                "genreNames": ["Pop", "Music"],
+                "audioLocale": "ja",
+                "contentRating": "explicit",
+                "hasLyrics": True,
+                "hasTimeSyncedLyrics": True,
+                "audioTraits": ["lossless", "atmos"],
+            },
+            {"id": "t2", "name": "Album Track", "trackNumber": 2},
+        ]
+        api_data = _make_album_api_response(tracks=tracks)
+        with patch.object(self.client, "_amp_api_get", return_value=api_data):
+            result = self.client.get_album_full_info("https://music.apple.com/jp/album/test/111222333")
+        t1, t2 = result["tracks"]
+        self.assertEqual(t1["id"], "t1")
+        self.assertEqual(t1["disc_number"], 1)
+        self.assertEqual(t1["release_date"], "2025-11-01")
+        self.assertEqual(t1["isrc"], "USABC2500001")
+        self.assertEqual(t1["artist"], "Test Artist feat. Guest")
+        self.assertEqual(t1["composer"], "Writer A & Writer B")
+        self.assertEqual(t1["genres"], ["Pop", "Music"])
+        self.assertEqual(t1["audio_locale"], "ja")
+        self.assertEqual(t1["content_rating"], "explicit")
+        self.assertTrue(t1["has_lyrics"])
+        self.assertTrue(t1["has_synced_lyrics"])
+        self.assertEqual(t1["audio_formats"], ["lossless", "atmos"])
+        # Missing attributes normalize to None / False / [] rather than raising
+        self.assertIsNone(t2["release_date"])
+        self.assertIsNone(t2["isrc"])
+        self.assertFalse(t2["has_lyrics"])
+        self.assertFalse(t2["has_synced_lyrics"])
+        self.assertEqual(t2["genres"], [])
+        self.assertIsNone(t2["audio_formats"])
+
+    def test_extracts_extended_album_info(self):
+        api_data = _make_album_api_response(
+            extra_attrs={
+                "recordLabel": "Test Records",
+                "copyright": "℗ 2026 Test Records",
+                "contentRating": "explicit",
+                "isComplete": False,
+                "isCompilation": True,
+                "isSingle": False,
+            }
+        )
+        with patch.object(self.client, "_amp_api_get", return_value=api_data):
+            result = self.client.get_album_full_info("https://music.apple.com/jp/album/test/111222333")
+        self.assertEqual(result["source"], "apple_music")
+        self.assertEqual(result["storefront"], "jp")
+        self.assertEqual(result["record_label"], "Test Records")
+        self.assertEqual(result["copyright"], "℗ 2026 Test Records")
+        self.assertEqual(result["content_rating"], "explicit")
+        self.assertIs(result["is_complete"], False)
+        self.assertIs(result["is_compilation"], True)
+        self.assertIs(result["is_single"], False)
+
+    def test_extended_album_info_none_when_absent(self):
+        with patch.object(self.client, "_amp_api_get", return_value=_make_album_api_response()):
+            result = self.client.get_album_full_info("https://music.apple.com/us/album/test/111222333")
+        for key in ("record_label", "copyright", "content_rating", "is_complete", "is_compilation", "is_single"):
+            self.assertIsNone(result[key], key)
+
+    def test_counts_music_videos_and_skips_untitled_tracks(self):
+        tracks = [
+            {"name": "Song", "trackNumber": 1},
+            {"name": "Song (MV)", "trackNumber": 2, "type": "music-videos"},
+            {"name": None, "trackNumber": 3},
+        ]
+        api_data = _make_album_api_response(tracks=tracks)
+        with patch.object(self.client, "_amp_api_get", return_value=api_data):
+            result = self.client.get_album_full_info("https://music.apple.com/us/album/test/111222333")
+        self.assertEqual(len(result["tracks"]), 2)
+        self.assertEqual(result["music_video_count"], 1)
+        self.assertTrue(result["tracks"][1]["is_music_video"])
 
     def test_audio_formats_include_lossless_and_mastered(self):
         api_data = _make_album_api_response(audio_traits=["lossless"], mastered_for_itunes=True)
