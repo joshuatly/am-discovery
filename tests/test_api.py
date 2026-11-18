@@ -81,6 +81,38 @@ class ServerTestCase(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
+# _credited_artist_ids / _preferred_source helpers
+# ---------------------------------------------------------------------------
+
+
+class TestPreferredSourceHelpers(unittest.TestCase):
+    def setUp(self):
+        import api_utility
+
+        self.u = api_utility
+
+    def test_credited_ids_from_db_row(self):
+        row = {"artist_id": "A", "artists_json": [{"id": "A"}, {"id": "B"}, {"name": "no id"}]}
+        self.assertEqual(self.u._credited_artist_ids(row), ["A", "B"])
+
+    def test_credited_ids_from_lookup_result(self):
+        row = {"artist_id": "A", "artists": [{"id": "A"}, {"id": "C"}]}
+        self.assertEqual(self.u._credited_artist_ids(row), ["A", "C"])
+
+    def test_credited_ids_empty(self):
+        self.assertEqual(self.u._credited_artist_ids({}), [])
+
+    def test_preferred_source_skips_lookup_without_artists(self):
+        calls = []
+        self.assertIsNone(self.u._preferred_source({}, lambda ids: calls.append(ids) or {}))
+        self.assertEqual(calls, [])
+
+    def test_preferred_source_follows_credit_order(self):
+        row = {"artist_id": "A", "artists_json": [{"id": "B"}, {"id": "C"}]}
+        self.assertEqual(self.u._preferred_source(row, lambda ids: {"C": "hk", "B": "jp"}), "jp")
+
+
+# ---------------------------------------------------------------------------
 # _serialize helper
 # ---------------------------------------------------------------------------
 
@@ -323,6 +355,37 @@ class TestApiReleaseDetail(ServerTestCase):
         self.assertTrue(data["watched"])
 
     @patch("api_releases.db")
+    def test_preferred_source_of_watched_main_artist(self, mock_db):
+        mock_db.get_album.return_value = _make_album("A1", artist_id="ART1")
+        mock_db.get_watched_artist_ids.return_value = {"ART1"}
+        mock_db.get_preferred_sources.return_value = {"ART1": "jp"}
+
+        data = self.client.get("/api/releases/A1").get_json()
+        self.assertEqual(data["preferred_source"], "jp")
+        mock_db.get_preferred_sources.assert_called_once_with(["ART1"])
+
+    @patch("api_releases.db")
+    def test_preferred_source_null_when_not_watched(self, mock_db):
+        mock_db.get_album.return_value = _make_album("A1", artist_id="ART1")
+        mock_db.get_watched_artist_ids.return_value = set()
+        mock_db.get_preferred_sources.return_value = {}
+
+        data = self.client.get("/api/releases/A1").get_json()
+        self.assertIsNone(data["preferred_source"])
+
+    @patch("api_releases.db")
+    def test_preferred_source_first_credited_watched_artist(self, mock_db):
+        """Main artist first, then credited artists in order; first with a source wins."""
+        credits = '[{"id": "ART1"}, {"id": "ART2"}, {"id": "ART3"}]'
+        mock_db.get_album.return_value = _make_album("A1", artist_id="ART1", artists_json=credits)
+        mock_db.get_watched_artist_ids.return_value = {"ART2", "ART3"}
+        mock_db.get_preferred_sources.return_value = {"ART3": "hk", "ART2": "tw"}
+
+        data = self.client.get("/api/releases/A1").get_json()
+        self.assertEqual(data["preferred_source"], "tw")
+        mock_db.get_preferred_sources.assert_called_once_with(["ART1", "ART2", "ART3"])
+
+    @patch("api_releases.db")
     def test_storefronts_deserialized(self, mock_db):
         mock_db.get_album.return_value = _make_album("A1", storefronts='["us","jp"]')
         mock_db.get_watched_artist_ids.return_value = set()
@@ -439,6 +502,30 @@ class TestApiLookup(ServerTestCase):
     def test_traversal_storefront_rejected(self, MockClient):
         resp = self.client.get("/api/releases/A1/lookup?storefront=../etc")
         self.assertEqual(resp.status_code, 400)
+
+    @patch("api_releases.db")
+    @patch("api_releases.AppleMusicClient")
+    def test_includes_preferred_source_of_credited_artist(self, MockClient, mock_db):
+        """Albums not in the DB still learn the watched artist's preferred storefront."""
+        MockClient.return_value.get_album_full_info.return_value = {
+            "title": "My Album",
+            "artist_id": "ART1",
+            "artists": [{"id": "ART1"}, {"id": "ART2"}],
+        }
+        mock_db.get_preferred_sources.return_value = {"ART2": "tw"}
+
+        data = self.client.get("/api/releases/A1/lookup?storefront=my").get_json()
+        self.assertEqual(data["preferred_source"], "tw")
+        mock_db.get_preferred_sources.assert_called_once_with(["ART1", "ART2"])
+
+    @patch("api_releases.db")
+    @patch("api_releases.AppleMusicClient")
+    def test_preferred_source_null_for_unwatched(self, MockClient, mock_db):
+        MockClient.return_value.get_album_full_info.return_value = {"title": "My Album", "artist_id": "ART1"}
+        mock_db.get_preferred_sources.return_value = {}
+
+        data = self.client.get("/api/releases/A1/lookup?storefront=my").get_json()
+        self.assertIsNone(data["preferred_source"])
 
     @patch("api_releases.AppleMusicClient")
     def test_unknown_album_returns_404(self, MockClient):

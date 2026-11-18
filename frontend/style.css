@@ -557,6 +557,9 @@ body {
 .sf-chip.tw { background: rgba(100,150,255,0.2);color: #6496ff; }
 .sf-chip.sg { background: rgba(255,200,60,0.2); color: #ffc83c; }
 .sf-chip.sf-chip-dim { background: rgba(255,255,255,0.06); color: var(--text-dim); }
+/* Watched artist's preferred storefront: a dashed ring in the chip's own colour.
+   Outline (not border) so it stacks with a selected chip's solid border (§8). */
+.sf-preferred { outline: 1px dashed currentColor; outline-offset: 1px; }
 a.sf-chip { text-decoration: none; }
 a.sf-chip:hover { opacity: 0.75; }
 
@@ -1539,7 +1542,7 @@ a.sf-chip:hover { opacity: 0.75; }
   font-style: italic;
 }
 
-/* MY tracklist comparison */
+/* Tracklist comparison (metadata vs preferred / home storefronts) */
 .tracklist-diff-banner {
   display: flex;
   align-items: center;
@@ -1555,11 +1558,11 @@ a.sf-chip:hover { opacity: 0.75; }
   color: var(--gold);
 }
 .diff-warn-icon { font-size: 15px; }
-.tracklist-header-my { color: #3cc864; }
-.track-row.track-differs { background: rgba(245,200,66,0.06); }
-.track-row.track-differs .track-title { color: var(--gold); }
-.track-row.track-differs-my { background: rgba(60,200,100,0.06); }
-.track-row.track-differs-my .track-title { color: #3cc864; }
+/* Each tracklist sets --diff-color to its storefront's chip colour (sfColor),
+   so differing rows read as "this storefront's title" — metadata, preferred, home. */
+.tracklist-header-compare { color: var(--diff-color, var(--text-secondary)); }
+.track-row.track-differs { background: color-mix(in srgb, var(--diff-color, var(--accent)) 6%, transparent); }
+.track-row.track-differs .track-title { color: var(--diff-color, var(--accent)); }
 
 /* Track info ("Show info") — hidden until .show-track-info is on the section.
    Blue = info (§10); a pre-released track date is flagged by its border (§8). */

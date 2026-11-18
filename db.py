@@ -789,6 +789,31 @@ def count_artists_needing_refresh(refresh_interval_days: int = 7) -> int:
         return row[0] if row else 0
 
 
+def get_watchlist_entry(artist_id: str):
+    """Return one watched artist's row (preferred_source, collection_status, alt_name, …) or None."""
+    with get_conn() as conn:
+        row = conn.execute("SELECT * FROM watched_artists WHERE artist_id = ?", (artist_id,)).fetchone()
+        return dict(row) if row else None
+
+
+def get_preferred_sources(artist_ids) -> dict:
+    """Map each watched artist in ``artist_ids`` to its preferred storefront.
+
+    Artists that aren't watched, or are watched without a preferred source, are omitted.
+    """
+    ids = [a for a in dict.fromkeys(artist_ids or []) if a]
+    if not ids:
+        return {}
+    placeholders = ",".join("?" * len(ids))
+    with get_conn() as conn:
+        rows = conn.execute(
+            f"""SELECT artist_id, preferred_source FROM watched_artists
+                WHERE artist_id IN ({placeholders}) AND COALESCE(preferred_source, '') != ''""",
+            ids,
+        ).fetchall()
+        return {r["artist_id"]: r["preferred_source"] for r in rows}
+
+
 def update_preferred_source(artist_id: str, preferred_source):
     """Set (or clear) the preferred metadata source for a watched artist."""
     with get_conn() as conn:

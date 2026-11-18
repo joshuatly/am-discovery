@@ -316,9 +316,9 @@ describe("renderArtist alt name edit — Enter key saves", () => {
       // Watchlist fetch (for pre-populating alt_name)
       .mockResolvedValueOnce({
         ok: true,
-        json: () => Promise.resolve([
+        json: () => Promise.resolve(
           { artist_id: "ART99", name: "Test Artist", alt_name: "Old Name", collection_status: "new", added_at: 1700000000 },
-        ]),
+        ),
       })
       // PATCH response
       .mockResolvedValueOnce({
@@ -342,6 +342,8 @@ describe("renderArtist alt name edit — Enter key saves", () => {
     input.dispatchEvent(new ctx.appWindow.KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
     await new Promise(r => setTimeout(r, 50));
 
+    // The entry is loaded from the single-artist endpoint, not the whole watchlist
+    expect(ctx.appWindow.fetch.mock.calls.map(c => c[0])).toContain("/api/watchlist/ART99");
     // PATCH should have been called
     const patchCall = ctx.appWindow.fetch.mock.calls.find(([url, opts]) =>
       typeof url === "string" && url.includes("/api/watchlist/ART99") && opts?.method === "PATCH"

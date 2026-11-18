@@ -43,6 +43,27 @@ def _is_watched(row: dict, watched_ids: set) -> bool:
     return any(artist.get("id") in watched_ids for artist in row.get("artists_json") or [])
 
 
+def _credited_artist_ids(row: dict) -> list:
+    """Artist IDs credited on an album, main artist first.
+
+    Works for both a DB row (``artists_json``) and a live ``/lookup`` result (``artists``).
+    """
+    credits = row.get("artists_json") or row.get("artists") or []
+    ids = [row.get("artist_id")] + [a.get("id") for a in credits if isinstance(a, dict)]
+    return [i for i in dict.fromkeys(ids) if i]
+
+
+def _preferred_source(row: dict, get_sources) -> str | None:
+    """Preferred storefront of the first credited artist that is watched with one set, else None.
+
+    ``get_sources`` is ``db.get_preferred_sources`` — passed in by the calling blueprint so
+    route tests that patch that blueprint's ``db`` also cover this lookup.
+    """
+    ids = _credited_artist_ids(row)
+    sources = get_sources(ids) if ids else {}
+    return next((sources[i] for i in ids if i in sources), None)
+
+
 def _server():
     """Lazy import of the server module to avoid circular imports at load time."""
     import server

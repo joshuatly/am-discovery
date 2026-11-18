@@ -12,7 +12,7 @@ import urllib.request
 from flask import Blueprint, jsonify, request
 
 import db
-from api_utility import _is_watched, _serialize, _validate_storefront
+from api_utility import _is_watched, _preferred_source, _serialize, _validate_storefront
 from client import AppleMusicClient, RateLimitError
 from config import load_config
 
@@ -169,6 +169,7 @@ def api_release_detail(store_adam_id):
     row = _serialize(row)
     watched_ids = db.get_watched_artist_ids()
     row["watched"] = _is_watched(row, watched_ids)
+    row["preferred_source"] = _preferred_source(row, db.get_preferred_sources)
     return jsonify(row)
 
 
@@ -328,6 +329,9 @@ def api_lookup(store_adam_id):
         # The catalog API returns nothing for unknown IDs (or albums not sold in
         # this storefront); the client swallows that as an all-empty result.
         return jsonify({"error": "Not found"}), 404
+    # Lets the modal compare against a watched artist's preferred storefront even
+    # for albums that were never stored (deep links, "You Might Also Like").
+    info["preferred_source"] = _preferred_source(info, db.get_preferred_sources)
     return jsonify(info)
 
 

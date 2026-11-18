@@ -75,16 +75,26 @@ function trackInfoLine(t, albumDate, albumArtist) {
 }
 
 /**
- * Numbered tracklist. `compareTracks` (same index) marks rows whose titles
- * differ with `diffClass`; `headerSf` prefixes the header with a storefront chip.
+ * Numbered tracklist. Rows whose title differs from the same index in any of
+ * `compareLists` (or the single `compareTracks`) get `diffClass`, tinted with
+ * `diffColor` (a storefront's colour, via the --diff-color custom property).
+ * `headerSf` — one storefront code or an array — prefixes the header with chips;
+ * `preferredSf` rings the chip of the watched artist's preferred storefront.
  */
 function buildTracklist(tracks, opts = {}) {
-  const { compareTracks = null, diffClass = "", headerSf = null, headerClass = "", albumDate = null, albumArtist = null } = opts;
+  const {
+    compareTracks = null, compareLists = null, diffClass = "", diffColor = null,
+    headerSf = null, headerClass = "", preferredSf = null, albumDate = null, albumArtist = null,
+  } = opts;
+  const lists = compareLists || (compareTracks ? [compareTracks] : []);
   const tl = el("div", "tracklist");
+  if (diffColor) tl.style.setProperty("--diff-color", diffColor);
   const head = el("div", `tracklist-header${headerClass ? ` ${headerClass}` : ""}`);
   const label = el("span", "tracklist-header-label");
-  if (headerSf) {
-    label.innerHTML = `${sfChipHtml(headerSf, "font-size:10px;vertical-align:middle;")} &nbsp;Tracklist — ${trackCountLabel(tracks)}`;
+  const headerSfs = headerSf ? [].concat(headerSf) : [];
+  if (headerSfs.length) {
+    const chips = headerSfs.map(sf => sfChipHtml(sf, "font-size:10px;vertical-align:middle;", preferredSf)).join(" ");
+    label.innerHTML = `${chips} &nbsp;Tracklist — ${trackCountLabel(tracks)}`;
   } else {
     label.textContent = `Tracklist — ${trackCountLabel(tracks)}`;
   }
@@ -92,8 +102,7 @@ function buildTracklist(tracks, opts = {}) {
   tl.appendChild(head);
 
   tracks.forEach((t, i) => {
-    const other = compareTracks?.[i];
-    const differs = other && t.title !== other.title;
+    const differs = lists.some(other => other?.[i] && t.title !== other[i].title);
     const row = el("div", `track-row${differs ? ` ${diffClass}` : ""}`);
     row.appendChild(el("span", "track-num", String(t.track_number ?? i + 1)));
     const titleCell = el("span", "track-title-cell");
@@ -106,6 +115,35 @@ function buildTracklist(tracks, opts = {}) {
     tl.appendChild(row);
   });
   return tl;
+}
+
+/**
+ * Comparison storefronts whose tracklist differs from the primary one, with
+ * storefronts that returned the *same* tracklist as each other merged into one
+ * group (so e.g. an identical HOME + preferred list is shown once, two chips).
+ * `comparisons`: [{ sf, data }] in display order; entries without tracks are skipped.
+ * Returns [{ sfs: [...], data }].
+ */
+function groupTracklistComparisons(primaryTracks, comparisons) {
+  const groups = [];
+  if (!primaryTracks?.length) return groups;
+  (comparisons || []).forEach(({ sf, data }) => {
+    const t = data?.tracks || [];
+    if (!t.length || !tracklistsDiffer(primaryTracks, t)) return;
+    const same = groups.find(g => !tracklistsDiffer(g.data.tracks, t));
+    if (same) same.sfs.push(sf);
+    else groups.push({ sfs: [sf], data });
+  });
+  return groups;
+}
+
+/** "Track titles differ between TW and JP · MY" banner for the album modal. */
+function buildTracklistDiffBanner(primarySf, groups, preferredSf = null) {
+  const banner = el("div", "tracklist-diff-banner");
+  const chip = (sf) => sfChipHtml(sf, "", preferredSf);
+  const others = groups.flatMap(g => g.sfs).map(chip).join(" · ");
+  banner.innerHTML = `<span class="diff-warn-icon">⚠</span> Track titles differ between ${chip(primarySf)} and ${others}`;
+  return banner;
 }
 
 /**
@@ -163,15 +201,16 @@ function buildAlbumInfoBody(meta, tracks) {
 /**
  * Collapsible "Release Info" section with clickable storefront chips.
  *
- * - `storefronts`: chip order (the user's metadata storefront first).
+ * - `storefronts`: chip order (metadata storefront, preferred, home, then seen-in).
  * - `known`: Map storefront → /lookup response already fetched by the modal;
  *   those switch instantly. Other storefronts go through `getLookup(sf)`
  *   (the modal's per-album cache) — at most one request each.
  * - `selected`: initial storefront, or null to show only the DB row (`album`).
+ * - `preferredSf`: a watched artist's preferred storefront; its chip gets a ring.
  * Collapsed/expanded is a persistent user preference (ReleaseInfoPrefs).
  * Returns { el, select(sf) } so the modal can switch it after a lazy load.
  */
-function buildReleaseInfoSection({ album, storefronts, known, selected, getLookup }) {
+function buildReleaseInfoSection({ album, storefronts, known, selected, getLookup, preferredSf = null }) {
   const section = el("div", "album-info-panel");
   const head = el("div", "aip-head");
   const toggle = el("button", "aip-toggle");
@@ -242,6 +281,7 @@ function buildReleaseInfoSection({ album, storefronts, known, selected, getLooku
     c.type = "button";
     c.title = `Release info from the ${sf.toUpperCase()} storefront`;
     applysfChipColor(c, sf);
+    markPreferredSf(c, sf, preferredSf);
     c.addEventListener("click", () => { if (sf !== current) select(sf); });
     chipFor[sf] = c;
     chips.appendChild(c);

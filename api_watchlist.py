@@ -94,6 +94,29 @@ def api_watchlist_add():
     return jsonify({"ok": True})
 
 
+@watchlist_bp.route("/api/watchlist/<artist_id>", methods=["GET"])
+def api_watchlist_entry(artist_id):
+    """Get one watched artist's entry (preferred source, collection status, alt name).
+    ---
+
+    parameters:
+      - name: artist_id
+        in: path
+        type: string
+        required: true
+    responses:
+      200:
+        description: The watchlist entry
+      404:
+        description: Artist is not on the watchlist
+
+    """
+    entry = db.get_watchlist_entry(artist_id)
+    if not entry:
+        return jsonify({"error": "Not watched"}), 404
+    return jsonify(entry)
+
+
 @watchlist_bp.route("/api/watchlist/<artist_id>", methods=["PATCH"])
 def api_watchlist_patch(artist_id):
     """Update a watched artist's preferred source, collection status, or alt name.
