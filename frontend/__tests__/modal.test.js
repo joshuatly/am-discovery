@@ -935,6 +935,24 @@ describe("openModal preferred storefront comparison", () => {
     expect(ringed(".modal-tags")).toEqual(["JP"]);
   });
 
+  test("Check Storefronts results ring the preferred storefront, available or not", async () => {
+    db = dbAlbum({ preferred_source: "jp" });
+    const run = async (available, unavailable) => {
+      const base = ctx.appWindow.fetch.getMockImplementation();
+      ctx.appWindow.fetch.mockImplementation((path) => path.includes("/check_storefronts")
+        ? Promise.resolve({ ok: true, json: () => Promise.resolve({ available, unavailable }) })
+        : base(path));
+      await ctx.appWindow.openModal("555");
+      [...body().querySelectorAll("button")].find(b => b.textContent === "Check Storefronts").click();
+      for (let i = 0; i < 3; i++) await new Promise(r => setTimeout(r, 0));
+      const res = body().querySelector(".sf-check-results");
+      return [...res.querySelectorAll(".sf-preferred")].map(c => `${c.closest(".sf-result-row").firstChild.textContent}:${c.textContent}`);
+    };
+    expect(await run(["tw", "jp", "hk"], ["my"])).toEqual(["Available:JP"]);
+    route();
+    expect(await run(["tw", "hk"], ["jp", "my"])).toEqual(["Unavailable:JP"]);
+  });
+
   test("album not in the DB: the lookup's preferred_source triggers the comparison", async () => {
     db = 404;
     bySf.tw = mk("tw", T("中文一", "中文二"), { preferred_source: "jp" });

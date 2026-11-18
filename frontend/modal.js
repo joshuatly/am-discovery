@@ -360,7 +360,7 @@ async function openModal(storeAdamId) {
           a.href = `https://music.apple.com/${sf}/album/${album.store_adam_id}`;
           a.target = "_blank";
           a.rel = "noopener";
-          chips.appendChild(a);
+          chips.appendChild(markPreferredSf(a, sf, preferredSf));
         });
         row.appendChild(chips);
         sfResultContainer.appendChild(row);
@@ -379,7 +379,7 @@ async function openModal(storeAdamId) {
         const row = el("div", "sf-result-row");
         row.appendChild(el("span", "sf-result-label", "Unavailable"));
         const chips = el("div", "sf-result-chips");
-        res.unavailable.forEach(sf => chips.appendChild(el("span", "sf-chip sf-chip-dim", sf.toUpperCase())));
+        res.unavailable.forEach(sf => chips.appendChild(markPreferredSf(el("span", "sf-chip sf-chip-dim", sf.toUpperCase()), sf, preferredSf)));
         row.appendChild(chips);
         sfResultContainer.appendChild(row);
       }
