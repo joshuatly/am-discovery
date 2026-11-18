@@ -214,16 +214,39 @@ def api_musicbrainz_lookup(store_adam_id):
         in: path
         type: string
         required: true
+      - name: upc
+        in: query
+        type: string
+        required: false
+        description: Barcode to use when the album is not in the local database
+      - name: title
+        in: query
+        type: string
+        required: false
+        description: Album title to use when the album is not in the local database
+      - name: artist
+        in: query
+        type: string
+        required: false
+        description: Artist name to use when the album is not in the local database
     responses:
       200:
         description: MusicBrainz lookup result
       404:
-        description: Album not found in local database
+        description: Album not in the local database and no upc/title+artist supplied
 
     """
     row = db.get_album(store_adam_id)
     if not row:
-        return jsonify({"error": "Not found"}), 404
+        # Albums opened live (deep link, "You Might Also Like") are never stored;
+        # the modal passes the metadata it already fetched from Apple Music.
+        row = {
+            "upc": request.args.get("upc", "").strip() or None,
+            "title": request.args.get("title", "").strip(),
+            "artist": request.args.get("artist", "").strip(),
+        }
+        if not row["upc"] and not (row["title"] and row["artist"]):
+            return jsonify({"error": "Not found"}), 404
 
     upc = row.get("upc")
     title = row.get("title") or ""
@@ -291,6 +314,8 @@ def api_lookup(store_adam_id):
     responses:
       200:
         description: Fresh metadata from the specified storefront
+      404:
+        description: Album not found in this storefront
 
     """
     storefront = _validate_storefront(request.args.get("storefront", "us").strip().lower())
@@ -299,6 +324,10 @@ def api_lookup(store_adam_id):
     url = f"https://music.apple.com/{storefront}/album/{store_adam_id}"
     client = AppleMusicClient()
     info = client.get_album_full_info(url)
+    if not info.get("title"):
+        # The catalog API returns nothing for unknown IDs (or albums not sold in
+        # this storefront); the client swallows that as an all-empty result.
+        return jsonify({"error": "Not found"}), 404
     return jsonify(info)
 
 

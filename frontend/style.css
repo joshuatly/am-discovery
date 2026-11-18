@@ -414,6 +414,17 @@ body {
   border-color: var(--gold);
   box-shadow: 0 0 16px rgba(245,200,66,0.15);
 }
+/* Stretched link: covers the whole tile so the card behaves like a link
+   (new-tab gestures, context menu) while artist links sit above it. */
+.album-card-link {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  border-radius: inherit;
+}
+.album-card-link:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.album-card .artist-link,
+.album-card a.album-artist { position: relative; z-index: 2; }
 
 .watched-badge {
   position: absolute;
@@ -2208,6 +2219,7 @@ a.sf-chip:hover { opacity: 0.75; }
 }
 .admin-release-card:hover { background: var(--bg-card-hover); }
 .admin-release-art-wrap { position: relative; }
+.admin-release-art-link { display: block; cursor: pointer; }
 .admin-release-art { width: 100%; aspect-ratio: 1 / 1; object-fit: cover; display: block; }
 .admin-release-info { padding: 12px; display: flex; flex-direction: column; gap: 6px; }
 .admin-release-title {

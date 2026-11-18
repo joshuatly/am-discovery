@@ -7,11 +7,36 @@
 // ---------------------------------------------------------------------------
 // Album Detail Modal
 // ---------------------------------------------------------------------------
+// Bumped on every open/close. A load that finishes after the modal was closed
+// or re-pointed at another album (e.g. hopping through "You Might Also Like")
+// sees a stale token and bails instead of painting over the newer content.
+let _modalSeq = 0;
+
+function modalMessage(text) {
+  $("modal-body").innerHTML = "";
+  const msg = el("div", "modal-message", text);
+  msg.style.padding = "32px";
+  msg.style.textAlign = "center";
+  $("modal-body").appendChild(msg);
+}
+
+// Opens the album detail modal. Resolves to the album shown, or null when the
+// load failed or was superseded. Normally reached via the #/album/<id> route
+// (see app.js) rather than called directly.
 async function openModal(storeAdamId) {
+  const seq = ++_modalSeq;
+  const stale = () => seq !== _modalSeq;
   const overlay = $("modal-overlay");
   const body = $("modal-body");
   overlay.style.display = "flex";
   body.innerHTML = `<div style="padding:32px;text-align:center;color:var(--text-dim)">Loading…</div>`;
+
+  // A deep link can open the modal before the storefront config has loaded;
+  // wait for it so the lookups use the configured storefronts, not "us".
+  if (state.configReady) {
+    try { await state.configReady; } catch {}
+    if (stale()) return null;
+  }
 
   let album;
   let myAlbumData = null;
@@ -44,6 +69,7 @@ async function openModal(storeAdamId) {
     try {
       album = await dbPromise;
     } catch {
+      if (stale()) return null;
       // Album not in local DB (e.g. a "You Might Also Like" suggestion that
       // was never discovered through room polling). Fall back to a fresh
       // Apple Music lookup so the modal still renders (via the shared cache,
@@ -71,10 +97,13 @@ async function openModal(storeAdamId) {
           upc: fresh.upc || null,
           release_type: fresh.release_type || null,
           _metaSf: lookupSf,
+          _notIndexed: true,
         };
-      } catch {
-        body.innerHTML = `<div style="padding:32px;text-align:center">Failed to load</div>`;
-        return;
+      } catch (err) {
+        if (stale()) return null;
+        const notFound = String((err && err.message) || "").includes("404");
+        modalMessage(notFound ? "Album not found" : "Failed to load");
+        return null;
       }
     }
 
@@ -99,9 +128,11 @@ async function openModal(storeAdamId) {
       try { myAlbumData = await myLookupPromise; } catch {}
     }
   } catch {
-    body.innerHTML = `<div style="padding:32px;text-align:center">Failed to load</div>`;
-    return;
+    if (stale()) return null;
+    modalMessage("Failed to load");
+    return null;
   }
+  if (stale()) return null;
 
   body.innerHTML = "";
 
@@ -364,7 +395,7 @@ async function openModal(storeAdamId) {
     mbCheckBtn.textContent = "…";
     mbCheckBtn.disabled = true;
     try {
-      const res = await API.get(`/api/releases/${album.store_adam_id}/musicbrainz`);
+      const res = await API.get(musicBrainzCheckUrl(album));
       if (res.found && res.releases && res.releases.length) {
         mbResult.innerHTML = "";
         const methodNote = res.method === "title_artist" ? el("span", "mb-method-note", "~") : null;
@@ -564,9 +595,28 @@ async function openModal(storeAdamId) {
       }
     });
   }
+
+  return album;
 }
 
+// The MusicBrainz route reads barcode/title/artist from the DB row. Albums
+// that were never stored (deep link, "You Might Also Like") send the values
+// fetched live from Apple Music instead.
+function musicBrainzCheckUrl(album) {
+  const base = `/api/releases/${album.store_adam_id}/musicbrainz`;
+  if (!album._notIndexed) return base;
+  const params = new URLSearchParams();
+  if (album.upc) params.set("upc", album.upc);
+  if (album.title) params.set("title", album.title);
+  if (album.artist) params.set("artist", album.artist);
+  const qs = params.toString();
+  return qs ? `${base}?${qs}` : base;
+}
+
+// Hides the modal overlay. Purely visual — the album route's URL/history
+// handling lives in closeAlbumModal (app.js), which ends up calling this.
 function closeModal() {
+  _modalSeq++;
   $("modal-overlay").style.display = "none";
 }
 
