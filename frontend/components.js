@@ -85,11 +85,33 @@ function applyMetaSrcBtnColor(btn, sf, isActive) {
   btn.style.borderColor = bg.replace("0.2)", "0.4)");
 }
 
-// Returns full <span class="sf-chip ..."> HTML for use in innerHTML, with optional extra style
-function sfChipHtml(sf, extraStyle = "") {
+// Foreground colour of a storefront chip — mirrors the hardcoded `.sf-chip.<code>`
+// classes in style.css, else the hashed palette. For tinting things that aren't
+// chips (e.g. a storefront's differing tracklist rows).
+const SF_CSS_FG = { hk: "#ff3c82", jp: "#ff503c", my: "#3cc864", tw: "#6496ff", sg: "#ffc83c" };
+function sfColor(sf) {
+  const code = sf.toLowerCase();
+  return SF_CSS_FG[code] || sfPaletteColor(code).fg;
+}
+
+// The watched artist's preferred storefront gets a dashed ring (style.css
+// `.sf-preferred`) wherever a storefront chip/button for it appears.
+const SF_PREFERRED_TITLE = "Watched artist's preferred storefront";
+function markPreferredSf(node, sf, preferredSf) {
+  if (!preferredSf || !sf || sf.toLowerCase() !== preferredSf.toLowerCase()) return node;
+  node.classList.add("sf-preferred");
+  node.title = node.title ? `${node.title} · ${SF_PREFERRED_TITLE}` : SF_PREFERRED_TITLE;
+  return node;
+}
+
+// Returns full <span class="sf-chip ..."> HTML for use in innerHTML, with optional extra style.
+// Pass `preferredSf` to ring the chip when it is the watched artist's preferred storefront.
+function sfChipHtml(sf, extraStyle = "", preferredSf = null) {
   const inlineStyle = sfChipInlineStyle(sf) + extraStyle;
   const styleAttr = inlineStyle ? ` style="${inlineStyle}"` : "";
-  return `<span class="sf-chip ${sf.toLowerCase()}"${styleAttr}>${sf.toUpperCase()}</span>`;
+  const isPref = preferredSf && sf.toLowerCase() === preferredSf.toLowerCase();
+  const prefAttrs = isPref ? ` title="${SF_PREFERRED_TITLE}"` : "";
+  return `<span class="sf-chip ${sf.toLowerCase()}${isPref ? " sf-preferred" : ""}"${styleAttr}${prefAttrs}>${sf.toUpperCase()}</span>`;
 }
 
 // Build a Harmony seed URL for an album in a given storefront.
@@ -103,12 +125,13 @@ function buildHarmonyUrl(storeAdamId, storefront, upc, regions) {
   return `https://harmony.pulsewidth.org.uk/release?${params.toString()}`;
 }
 
-function sfChips(storefronts) {
+function sfChips(storefronts, preferredSf = null) {
   const div = el("div", "sf-chips");
   (storefronts || []).forEach(sf => {
     const c = el("span", `sf-chip ${sf.toLowerCase()}`);
     applysfChipColor(c, sf);
     c.textContent = sf.toUpperCase();
+    markPreferredSf(c, sf, preferredSf);
     div.appendChild(c);
   });
   return div;

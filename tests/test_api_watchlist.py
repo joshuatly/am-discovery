@@ -165,6 +165,30 @@ class TestApiWatchlist(ServerTestCase):
 # ---------------------------------------------------------------------------
 
 
+class TestApiWatchlistEntry(ServerTestCase):
+    @patch("api_watchlist.db")
+    def test_returns_entry(self, mock_db):
+        mock_db.get_watchlist_entry.return_value = {"artist_id": "ART1", "name": "One", "preferred_source": "jp"}
+        resp = self.client.get("/api/watchlist/ART1")
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.get_json()["preferred_source"], "jp")
+        mock_db.get_watchlist_entry.assert_called_once_with("ART1")
+
+    @patch("api_watchlist.db")
+    def test_404_when_not_watched(self, mock_db):
+        mock_db.get_watchlist_entry.return_value = None
+        resp = self.client.get("/api/watchlist/NOPE")
+        self.assertEqual(resp.status_code, 404)
+
+    @patch("api_watchlist.db")
+    def test_static_routes_still_win(self, mock_db):
+        """/ids and /export must not be captured by the <artist_id> route."""
+        mock_db.get_watchlist_ids.return_value = ["ART1"]
+        resp = self.client.get("/api/watchlist/ids")
+        self.assertEqual(resp.get_json(), ["ART1"])
+        mock_db.get_watchlist_entry.assert_not_called()
+
+
 class TestApiWatchlistIds(ServerTestCase):
     @patch("api_watchlist.db")
     def test_get_ids_returns_list(self, mock_db):

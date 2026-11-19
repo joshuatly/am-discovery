@@ -347,8 +347,7 @@ async function renderArtist(main, artistId) {
 
   if (isWatched) {
     // Load current preferred_source, collection_status, and alt_name, pre-select
-    API.get("/api/watchlist").then(wl => {
-      const entry = wl.find(a => a.artist_id === artistId);
+    API.get(`/api/watchlist/${artistId}`).then(entry => {
       buildSrcOptions(entry?.preferred_source || null);
       buildCsOptions(entry?.collection_status || "new");
       buildAltNameDisplay(entry?.alt_name || null);

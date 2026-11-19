@@ -838,3 +838,56 @@ describe("artist names are openable in a new tab", () => {
     expect(card.querySelector(".artist-card-name").textContent).toBe("Unknown");
   });
 });
+
+// ---------------------------------------------------------------------------
+// Preferred storefront marking (watched artist's preferred_source)
+// ---------------------------------------------------------------------------
+
+describe("preferred storefront marking", () => {
+  test("sfChips rings only the preferred storefront chip", () => {
+    const chips = ctx.appWindow.sfChips(["tw", "jp", "my"], "jp");
+    const ringed = [...chips.children].filter(c => c.classList.contains("sf-preferred"));
+    expect(ringed.map(c => c.textContent)).toEqual(["JP"]);
+    expect(ringed[0].title).toBe("Watched artist's preferred storefront");
+  });
+
+  test("sfChips without a preferred storefront rings nothing", () => {
+    const chips = ctx.appWindow.sfChips(["tw", "jp"]);
+    expect(chips.querySelector(".sf-preferred")).toBeNull();
+  });
+
+  test("sfChipHtml adds the ring and title only for the preferred storefront", () => {
+    expect(ctx.appWindow.sfChipHtml("jp", "", "jp")).toContain("sf-chip jp sf-preferred");
+    expect(ctx.appWindow.sfChipHtml("jp", "", "jp")).toContain('title="Watched artist');
+    expect(ctx.appWindow.sfChipHtml("tw", "", "jp")).not.toContain("sf-preferred");
+    expect(ctx.appWindow.sfChipHtml("tw")).toBe('<span class="sf-chip tw">TW</span>');
+  });
+
+  test("markPreferredSf is case-insensitive and keeps an existing title", () => {
+    const b = ctx.appWindow.document.createElement("button");
+    b.title = "Send";
+    ctx.appWindow.markPreferredSf(b, "JP", "jp");
+    expect(b.classList.contains("sf-preferred")).toBe(true);
+    expect(b.title).toBe("Send · Watched artist's preferred storefront");
+  });
+
+  test("markPreferredSf leaves other storefronts alone", () => {
+    const b = ctx.appWindow.document.createElement("button");
+    ctx.appWindow.markPreferredSf(b, "tw", "jp");
+    ctx.appWindow.markPreferredSf(b, "tw", null);
+    expect(b.classList.contains("sf-preferred")).toBe(false);
+    expect(b.title).toBe("");
+  });
+});
+
+describe("sfColor", () => {
+  test("matches the hardcoded chip colours for known storefronts", () => {
+    expect(ctx.appWindow.sfColor("jp")).toBe("#ff503c");
+    expect(ctx.appWindow.sfColor("MY")).toBe("#3cc864");
+    expect(ctx.appWindow.sfColor("tw")).toBe("#6496ff");
+  });
+
+  test("uses the hashed palette for other storefronts", () => {
+    expect(ctx.appWindow.sfColor("us")).toBe(ctx.appWindow.sfPaletteColor("us").fg);
+  });
+});

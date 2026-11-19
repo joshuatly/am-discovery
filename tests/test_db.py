@@ -1234,6 +1234,45 @@ class TestUpdatePreferredSource(DBTestCase):
 
 
 # ---------------------------------------------------------------------------
+# get_preferred_sources / get_watchlist_entry
+# ---------------------------------------------------------------------------
+
+
+class TestGetPreferredSources(DBTestCase):
+    def test_maps_watched_artists_with_a_source(self):
+        self.db.add_to_watchlist("ART1", "One", preferred_source="jp")
+        self.db.add_to_watchlist("ART2", "Two", preferred_source="tw")
+        self.assertEqual(self.db.get_preferred_sources(["ART1", "ART2"]), {"ART1": "jp", "ART2": "tw"})
+
+    def test_omits_unwatched_and_unset(self):
+        self.db.add_to_watchlist("ART1", "One")  # watched, no preferred source
+        self.db.add_to_watchlist("ART2", "Two", preferred_source="jp")
+        self.db.update_preferred_source("ART2", "")  # blank counts as unset
+        self.assertEqual(self.db.get_preferred_sources(["ART1", "ART2", "NOPE"]), {})
+
+    def test_empty_and_none_ids(self):
+        self.assertEqual(self.db.get_preferred_sources([]), {})
+        self.assertEqual(self.db.get_preferred_sources(None), {})
+        self.assertEqual(self.db.get_preferred_sources([None, ""]), {})
+
+    def test_duplicate_ids(self):
+        self.db.add_to_watchlist("ART1", "One", preferred_source="jp")
+        self.assertEqual(self.db.get_preferred_sources(["ART1", "ART1"]), {"ART1": "jp"})
+
+
+class TestGetWatchlistEntry(DBTestCase):
+    def test_returns_entry(self):
+        self.db.add_to_watchlist("ART1", "One", preferred_source="jp")
+        entry = self.db.get_watchlist_entry("ART1")
+        self.assertEqual(entry["artist_id"], "ART1")
+        self.assertEqual(entry["preferred_source"], "jp")
+        self.assertEqual(entry["collection_status"], "new")
+
+    def test_none_when_not_watched(self):
+        self.assertIsNone(self.db.get_watchlist_entry("NOPE"))
+
+
+# ---------------------------------------------------------------------------
 # get_artists_needing_refresh / mark_artist_refreshed
 # ---------------------------------------------------------------------------
 

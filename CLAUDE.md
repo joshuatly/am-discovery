@@ -277,9 +277,9 @@ The config is live-reloaded on every poll, so changes take effect on the next cy
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/api/releases` | Paginated list; supports `q`, `page`, `per_page`, `storefront`, `view=new` (discovered only), `watched=true`, `release_type` |
-| GET | `/api/releases/<id>` | Single release detail |
+| GET | `/api/releases/<id>` | Single release detail; includes `preferred_source` (first credited watched artist's, else `null`) |
 | GET | `/api/releases/<id>/check_storefronts` | Availability across configured storefronts |
-| GET | `/api/releases/<id>/lookup` | Fresh metadata fetch (bypasses cache); includes per-track "show info" fields; 404 when the storefront has no such album |
+| GET | `/api/releases/<id>/lookup` | Fresh metadata fetch (bypasses cache); includes per-track "show info" fields and `preferred_source`; 404 when the storefront has no such album |
 | GET | `/api/releases/<id>/musicbrainz` | MusicBrainz lookup for the release (barcode → search); `upc`/`title`/`artist` query params for albums not in the DB |
 | GET | `/api/releases/<id>/you-might-also-like` | Apple Music recommendations for the release |
 | GET | `/api/artists/<id>/releases` | All releases for an artist |
@@ -290,6 +290,7 @@ The config is live-reloaded on every poll, so changes take effect on the next cy
 | GET | `/api/artists/search/local` | Search locally stored artists |
 | GET | `/api/watchlist` | Get watched artists (`preferred_source`, `collection_status`, `sort`) |
 | GET | `/api/watchlist/ids` | Set of watched artist IDs |
+| GET | `/api/watchlist/<id>` | One watched artist's entry (preferred source, status, alt name); 404 if not watched |
 | POST | `/api/watchlist` | Add artist to watchlist |
 | PATCH | `/api/watchlist/<id>` | Update watched artist (e.g. `collection_status`) |
 | DELETE | `/api/watchlist/<id>` | Remove from watchlist |
@@ -330,6 +331,7 @@ Full Swagger docs at `/apidocs`.
 - **Source tracking:** Albums are tagged with `source='discovered'` (from room polling) or `source='artist_fetch'` (manually fetched via artist page). The `view=new` filter shows only discovered ones.
 - **Info fetch caching:** `info_fetched=1` is set once full metadata has been retrieved; subsequent polls skip the expensive API call for known albums.
 - **Track info ("Show info") is live-only, never stored.** `client.get_album_full_info()` normalizes the extra catalog fields into a source-agnostic shape — album: `source`, `storefront`, `record_label`, `copyright`, `content_rating`, `is_complete`, `is_compilation`, `is_single`; per track (`_parse_track`): `id`, `disc_number`, `release_date`, `isrc`, `artist`, `composer`, `genres`, `audio_locale`, `content_rating`, `has_lyrics`, `has_synced_lyrics`, `audio_formats`. The album modal renders it from the `/lookup` response(s) it already fetched for the tracklist / storefront diff — toggling must not trigger another request. All modal lookups go through one per-modal cache (`getLookup(sf)` in `openModal`), so clicking a Release Info storefront chip fetches that storefront at most once and reuses anything already loaded. A new metadata source should fill the same keys (or leave them `None`); the UI omits anything missing.
+- **Album modal storefronts (metadata / preferred / home):** the user's metadata storefront (sidebar widget) is always the primary lookup. Two optional comparisons are diffed against it: the **preferred storefront** of the album's first credited watched artist that has one (always on — `preferred_source` comes from `/api/releases/<id>`, or from `/lookup` for albums not in the DB) and **home** (only with the sidebar `+HOME` toggle). Duplicates are skipped; storefronts with identical tracklists are shown once (`groupTracklistComparisons` in `track-info.js`). Metadata source **Off** means no live Apple Music calls at all, so the preferred storefront isn't fetched either — it is still highlighted (`.sf-preferred` ring via `markPreferredSf` / `sfChipHtml(sf, style, preferredSf)`) on chips and the Harmony / CLI Scheduler buttons, which start with metadata → preferred → home.
 - **Concurrent fetches:** `ThreadPoolExecutor(max_workers=10)` is used for batch metadata fetches. Keep individual fetch functions side-effect-free (write to DB only, no shared mutable state).
 
 ---

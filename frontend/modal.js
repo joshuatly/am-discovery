@@ -39,9 +39,15 @@ async function openModal(storeAdamId) {
   }
 
   let album;
-  let myAlbumData = null;
+  // Live comparisons against the primary (metadata storefront) lookup, in
+  // display order: the watched artist's preferred storefront, then +HOME.
+  // [{ sf, data }] — storefronts whose lookup failed are left out.
+  const comparisons = [];
+  // Preferred storefront of the first credited watched artist that has one
+  // (from the DB row, or the live lookup for albums not in the DB).
+  let preferredSf = null;
   // The /lookup response the tracklist came from. "Show info" and Release Info
-  // render from it (and from myAlbumData), so they never re-query.
+  // render from it (and from the comparison lookups), so they never re-query.
   let info = null;
   // One /lookup request per storefront for this modal: every caller (initial
   // load, Release Info chips, lazy tracklist load) shares these promises.
@@ -56,18 +62,25 @@ async function openModal(storeAdamId) {
   };
   try {
     const home = state.homeStorefront;
-    const shouldCompareMY = state.alwaysIncludeMY
-      && home
-      && state.metadataStorefront
-      && state.metadataStorefront !== home;
-    const lookupSf = state.metadataStorefront || home || "us";
+    // Metadata source "Off" = no live Apple Music calls at all, so the
+    // preferred storefront isn't fetched either (it's still highlighted).
+    const metaSf = state.metadataStorefront;
+    const shouldCompareHome = state.alwaysIncludeMY && home && metaSf && metaSf !== home;
+    const lookupSf = metaSf || home || "us";
 
     const dbPromise = API.get(`/api/releases/${storeAdamId}`);
-    const lookupPromise = state.metadataStorefront ? getLookup(state.metadataStorefront) : null;
-    const myLookupPromise = shouldCompareMY ? getLookup(home) : null;
+    const lookupPromise = metaSf ? getLookup(metaSf) : null;
+    const homeLookupPromise = shouldCompareHome ? getLookup(home) : null;
+    let prefLookupPromise = null;
+    // Kick off the preferred-storefront comparison as soon as it's known.
+    const startPreferred = (ps) => {
+      preferredSf = ps ? String(ps).toLowerCase() : null;
+      if (metaSf && preferredSf && preferredSf !== metaSf) prefLookupPromise = getLookup(preferredSf);
+    };
 
     try {
       album = await dbPromise;
+      startPreferred(album.preferred_source);
     } catch {
       if (stale()) return null;
       // Album not in local DB (e.g. a "You Might Also Like" suggestion that
@@ -77,6 +90,7 @@ async function openModal(storeAdamId) {
       try {
         const fresh = await getLookup(lookupSf);
         info = fresh;
+        startPreferred(fresh.preferred_source);
         album = {
           store_adam_id: storeAdamId,
           title: fresh.title,
@@ -119,13 +133,14 @@ async function openModal(storeAdamId) {
         if (fresh.tracks?.length) album.tracks     = fresh.tracks;
         if (fresh.music_video_count != null) album.music_video_count = fresh.music_video_count;
         if (fresh.audio_formats?.length) album.audio_formats = fresh.audio_formats;
-        album._metaSf = state.metadataStorefront;
+        album._metaSf = metaSf;
         info = fresh;
       } catch {}
     }
 
-    if (myLookupPromise) {
-      try { myAlbumData = await myLookupPromise; } catch {}
+    const compareSfs = [prefLookupPromise && preferredSf, homeLookupPromise && home].filter(Boolean);
+    for (const sf of new Set(compareSfs)) {
+      try { comparisons.push({ sf, data: await getLookup(sf) }); } catch {}
     }
   } catch {
     if (stale()) return null;
@@ -151,7 +166,14 @@ async function openModal(storeAdamId) {
 
   if (album._metaSf) {
     const sfBadge = el("div", "modal-meta-sf-badge");
-    sfBadge.innerHTML = `${sfChipHtml(album._metaSf)} metadata`;
+    let badge = `${sfChipHtml(album._metaSf, "", preferredSf)} metadata`;
+    if (preferredSf === album._metaSf) {
+      badge += " · preferred source";
+    } else if (preferredSf && state.metadataStorefront) {
+      const missing = !comparisons.some(c => c.sf === preferredSf);
+      badge += ` · ${sfChipHtml(preferredSf, "", preferredSf)} preferred source${missing ? " (not available)" : ""}`;
+    }
+    sfBadge.innerHTML = badge;
     headerInfo.appendChild(sfBadge);
   }
 
@@ -193,18 +215,15 @@ async function openModal(storeAdamId) {
 
   const details = el("div", "modal-details");
 
-  // Compute diff early so the banner can appear before the tags
+  // Compute diff early so the banner can appear before the tags. Each
+  // comparison storefront is diffed against the primary (metadata) tracklist;
+  // storefronts with identical tracklists are grouped and shown once.
   let tracks = album.tracks || [];
-  const myTracks = myAlbumData?.tracks || [];
-  const hasDiff = tracks.length > 0 && myTracks.length > 0 && tracklistsDiffer(tracks, myTracks);
-  const homeForDiff = state.homeStorefront || "my";
+  const primarySf = album._metaSf || null;
+  const diffGroups = primarySf ? groupTracklistComparisons(tracks, comparisons) : [];
+  const hasDiff = diffGroups.length > 0;
 
-  if (hasDiff) {
-    const diffBanner = el("div", "tracklist-diff-banner");
-    const sfLabel = album._metaSf.toUpperCase();
-    diffBanner.innerHTML = `<span class="diff-warn-icon">⚠</span> Track titles differ between ${sfChipHtml(album._metaSf)} and ${sfChipHtml(homeForDiff)}`;
-    details.appendChild(diffBanner);
-  }
+  if (hasDiff) details.appendChild(buildTracklistDiffBanner(primarySf, diffGroups, preferredSf));
 
   // Tags
   const tags = el("div", "modal-tags");
@@ -234,7 +253,7 @@ async function openModal(storeAdamId) {
     tags.appendChild(t);
   }
   if (album.storefronts?.length) {
-    tags.appendChild(sfChips(album.storefronts));
+    tags.appendChild(sfChips(album.storefronts, preferredSf));
   }
   details.appendChild(tags);
 
@@ -289,7 +308,7 @@ async function openModal(storeAdamId) {
     btn.href = `https://harmony.pulsewidth.org.uk/release?${params.toString()}`;
     btn.target = "_blank";
     btn.rel = "noopener";
-    return btn;
+    return markPreferredSf(btn, storefront, preferredSf);
   };
 
   const makeCliBtn = (storefront) => {
@@ -316,8 +335,9 @@ async function openModal(storeAdamId) {
         btn.className = "btn-cli-sf cli-sf-unreachable";
         btn.disabled = false;
       }
+      markPreferredSf(btn, storefront, preferredSf);  // className resets above drop it
     });
-    return btn;
+    return markPreferredSf(btn, storefront, preferredSf);
   };
 
   sfCheckBtn.addEventListener("click", async () => {
@@ -340,7 +360,7 @@ async function openModal(storeAdamId) {
           a.href = `https://music.apple.com/${sf}/album/${album.store_adam_id}`;
           a.target = "_blank";
           a.rel = "noopener";
-          chips.appendChild(a);
+          chips.appendChild(markPreferredSf(a, sf, preferredSf));
         });
         row.appendChild(chips);
         sfResultContainer.appendChild(row);
@@ -359,7 +379,7 @@ async function openModal(storeAdamId) {
         const row = el("div", "sf-result-row");
         row.appendChild(el("span", "sf-result-label", "Unavailable"));
         const chips = el("div", "sf-result-chips");
-        res.unavailable.forEach(sf => chips.appendChild(el("span", "sf-chip sf-chip-dim", sf.toUpperCase())));
+        res.unavailable.forEach(sf => chips.appendChild(markPreferredSf(el("span", "sf-chip sf-chip-dim", sf.toUpperCase()), sf, preferredSf)));
         row.appendChild(chips);
         sfResultContainer.appendChild(row);
       }
@@ -372,11 +392,12 @@ async function openModal(storeAdamId) {
   actions.appendChild(sfCheckBtn);
   actions.appendChild(sfResultContainer);
 
+  // CLI Scheduler / Harmony start with: metadata storefront, the watched
+  // artist's preferred storefront, then home ("Check Storefronts" replaces them).
+  const actionSfs = [...new Set([state.metadataStorefront, preferredSf, state.homeStorefront].filter(Boolean))];
+
   if (state.cliSchedulerEnabled) {
-    const initialSfs = [];
-    if (state.metadataStorefront) initialSfs.push(state.metadataStorefront);
-    if (state.homeStorefront && state.homeStorefront !== state.metadataStorefront) initialSfs.push(state.homeStorefront);
-    if (!initialSfs.length && state.homeStorefront) initialSfs.push(state.homeStorefront);
+    const initialSfs = actionSfs;
     const cliSection = el("div", "cli-scheduler-section");
     const cliLabel = el("span", "cli-scheduler-label", "CLI Scheduler");
     cliBtns = el("div", "cli-scheduler-btns");
@@ -443,10 +464,7 @@ async function openModal(storeAdamId) {
   actions.appendChild(mbSection);
 
   // --- Harmony seed row ---
-  const harmonyInitialSfs = [];
-  if (state.metadataStorefront) harmonyInitialSfs.push(state.metadataStorefront);
-  if (state.homeStorefront && state.homeStorefront !== state.metadataStorefront) harmonyInitialSfs.push(state.homeStorefront);
-  if (!harmonyInitialSfs.length && state.homeStorefront) harmonyInitialSfs.push(state.homeStorefront);
+  const harmonyInitialSfs = actionSfs;
   const harmonySection = el("div", "cli-scheduler-section");
   const harmonyLabel = el("span", "cli-scheduler-label", "Harmony");
   harmonyBtns = el("div", "cli-scheduler-btns");
@@ -462,13 +480,15 @@ async function openModal(storeAdamId) {
   // switch instantly, others are fetched once through the shared cache.
   const knownLookups = new Map();
   if (info) knownLookups.set(album._metaSf, info);
-  if (myAlbumData) knownLookups.set(homeForDiff, myAlbumData);
+  comparisons.forEach(c => knownLookups.set(c.sf, c.data));
+  const infoSfs = [album._metaSf, preferredSf, ...knownLookups.keys(), ...(album.storefronts || [])];
   const releaseInfo = buildReleaseInfoSection({
     album,
-    storefronts: [...new Set([...knownLookups.keys(), ...(album.storefronts || [])].map(s => s.toLowerCase()))],
+    storefronts: [...new Set(infoSfs.filter(Boolean).map(s => s.toLowerCase()))],
     known: knownLookups,
     selected: info?.title ? album._metaSf : null,
     getLookup,
+    preferredSf,
   });
   details.appendChild(releaseInfo.el);
 
@@ -489,24 +509,28 @@ async function openModal(storeAdamId) {
     const meta = mergeNonNull(album, info);
     if (tracks.length) {
       const tl = buildTracklist(tracks, {
-        compareTracks: hasDiff ? myTracks : null,
+        compareLists: hasDiff ? diffGroups.map(g => g.data.tracks) : null,
         diffClass: "track-differs",
-        headerSf: hasDiff ? album._metaSf : null,
+        diffColor: hasDiff ? sfColor(primarySf) : null,
+        headerSf: hasDiff ? primarySf : null,
+        preferredSf,
         albumDate: meta.release_date,
         albumArtist: meta.artist,
       });
       tl.querySelector(".tracklist-header").appendChild(infoBtn);
       trackSection.appendChild(tl);
-      if (hasDiff) {
-        trackSection.appendChild(buildTracklist(myTracks, {
+      diffGroups.forEach(g => {
+        trackSection.appendChild(buildTracklist(g.data.tracks, {
           compareTracks: tracks,
-          diffClass: "track-differs-my",
-          headerSf: homeForDiff,
-          headerClass: "tracklist-header-my",
-          albumDate: myAlbumData.release_date || meta.release_date,
-          albumArtist: myAlbumData.artist || meta.artist,
+          diffClass: "track-differs",
+          diffColor: sfColor(g.sfs[0]),
+          headerSf: g.sfs,
+          headerClass: "tracklist-header-compare",
+          preferredSf,
+          albumDate: g.data.release_date || meta.release_date,
+          albumArtist: g.data.artist || meta.artist,
         }));
-      }
+      });
       setTrackInfoVisible(trackSection, infoBtn, showInfo);
       infoBtn.onclick = () => {
         showInfo = !showInfo;

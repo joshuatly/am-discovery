@@ -722,3 +722,265 @@ describe("openModal Release Info", () => {
     expect(body().querySelector(".track-section").classList.contains("show-track-info")).toBe(false);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Tracklist comparison helpers (track-info.js)
+// ---------------------------------------------------------------------------
+
+describe("groupTracklistComparisons", () => {
+  const T = (...titles) => titles.map((title, i) => ({ title, track_number: i + 1 }));
+  const group = (...a) => ctx.appWindow.groupTracklistComparisons(...a);
+
+  test("drops comparisons that match the primary tracklist or have no tracks", () => {
+    const primary = T("A", "B");
+    expect(group(primary, [
+      { sf: "my", data: { tracks: T("A", "B") } },
+      { sf: "jp", data: { tracks: [] } },
+      { sf: "hk", data: null },
+    ])).toEqual([]);
+  });
+
+  test("merges storefronts that returned the same differing tracklist", () => {
+    const groups = group(T("A", "B"), [
+      { sf: "jp", data: { tracks: T("あ", "B") } },
+      { sf: "my", data: { tracks: T("X", "Y") } },
+      { sf: "hk", data: { tracks: T("あ", "B") } },
+    ]);
+    expect(groups.map(g => g.sfs)).toEqual([["jp", "hk"], ["my"]]);
+  });
+
+  test("nothing to compare when the primary tracklist is empty", () => {
+    expect(group([], [{ sf: "jp", data: { tracks: T("A") } }])).toEqual([]);
+  });
+});
+
+describe("buildTracklist multi-comparison", () => {
+  const T = (...titles) => titles.map((title, i) => ({ title, track_number: i + 1 }));
+
+  test("a row is marked when it differs from any comparison list", () => {
+    const tl = ctx.appWindow.buildTracklist(T("A", "B", "C"), {
+      compareLists: [T("A", "b", "C"), T("A", "B", "c")], diffClass: "track-differs", diffColor: "#6496ff",
+    });
+    const marked = [...tl.querySelectorAll(".track-row")].map(r => r.classList.contains("track-differs"));
+    expect(marked).toEqual([false, true, true]);
+    expect(tl.style.getPropertyValue("--diff-color")).toBe("#6496ff");
+  });
+
+  test("header shows a chip per storefront and rings the preferred one", () => {
+    const tl = ctx.appWindow.buildTracklist(T("A"), { headerSf: ["jp", "my"], preferredSf: "jp" });
+    const chips = [...tl.querySelectorAll(".tracklist-header .sf-chip")];
+    expect(chips.map(c => c.textContent)).toEqual(["JP", "MY"]);
+    expect(chips.map(c => c.classList.contains("sf-preferred"))).toEqual([true, false]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Watched artist's preferred storefront as an extra comparison
+// ---------------------------------------------------------------------------
+
+describe("openModal preferred storefront comparison", () => {
+  const T = (...titles) => titles.map((title, i) => ({ title, track_number: i + 1, duration_ms: 1000 }));
+  const mk = (sf, tracks, extra = {}) => ({
+    title: `Album ${sf.toUpperCase()}`, artist: "Artist", artist_id: "ART1", release_date: "2025-01-01",
+    storefront: sf, record_label: `${sf.toUpperCase()} Label`, tracks, ...extra,
+  });
+  const dbAlbum = (extra = {}) => ({
+    store_adam_id: "555", title: "DB Title", artist: "Artist", artist_id: "ART1",
+    url: "https://music.apple.com/tw/album/555", storefronts: ["tw", "jp", "hk"],
+    release_date: "2025-01-01", track_count: 2, upc: "111", audio_formats: [], artists_json: [],
+    preferred_source: null, ...extra,
+  });
+
+  let calls;
+  let bySf;
+  let db;
+  const route = () => {
+    calls = [];
+    ctx.appWindow.fetch.mockImplementation((path) => {
+      calls.push(path);
+      const m = path.match(/lookup\?storefront=(\w+)/);
+      const data = m ? bySf[m[1]] : (path.startsWith("/api/releases/555") ? db : {});
+      if (data === 404 || data === undefined) {
+        return Promise.resolve({ ok: false, status: 404, json: () => Promise.resolve({}) });
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve(JSON.parse(JSON.stringify(data))) });
+    });
+  };
+  const body = () => ctx.appWindow.document.getElementById("modal-body");
+  const lookups = () => calls.filter(p => p.includes("/lookup")).map(p => p.split("=")[1]);
+  const headerChips = (tl) => [...tl.querySelectorAll(".tracklist-header .sf-chip")].map(c => c.textContent);
+  const ringed = (sel) => [...body().querySelectorAll(`${sel} .sf-preferred, ${sel}.sf-preferred`)].map(c => c.textContent);
+
+  beforeEach(() => {
+    const s = ctx.appWindow.__test_state;
+    s.metadataStorefront = "tw";
+    s.homeStorefront = "my";
+    s.alwaysIncludeMY = false;
+    s.cliSchedulerEnabled = false;
+    ctx.appWindow.localStorage.removeItem("release_info_collapsed");
+    bySf = { tw: mk("tw", T("中文一", "中文二")), jp: mk("jp", T("日本語一", "日本語二")), my: mk("my", T("English 1", "English 2")) };
+    db = dbAlbum();
+    route();
+  });
+
+  afterEach(() => {
+    ctx.appWindow.fetch.mockReset();
+    ctx.appWindow.fetch.mockImplementation(() =>
+      Promise.resolve({ ok: true, json: () => Promise.resolve({ items: [], total: 0 }) }));
+    body().innerHTML = "";
+    ctx.appWindow.__test_state.alwaysIncludeMY = false;
+  });
+
+  test("unwatched artist: unchanged — only the metadata storefront is looked up", async () => {
+    await ctx.appWindow.openModal("555");
+    expect(lookups()).toEqual(["tw"]);
+    expect(body().querySelector(".tracklist-diff-banner")).toBeNull();
+    expect(body().querySelectorAll(".tracklist")).toHaveLength(1);
+    expect(body().querySelector(".sf-preferred")).toBeNull();
+    expect(body().querySelector(".modal-meta-sf-badge").textContent).not.toContain("preferred");
+  });
+
+  test("watched artist: preferred storefront is fetched and compared even with +HOME off", async () => {
+    db = dbAlbum({ preferred_source: "jp" });
+    await ctx.appWindow.openModal("555");
+    expect(lookups().sort()).toEqual(["jp", "tw"]);
+    // Metadata storefront stays primary
+    expect(body().querySelector(".modal-title").textContent).toBe("Album TW");
+    const banner = body().querySelector(".tracklist-diff-banner");
+    expect(banner.textContent).toContain("TW");
+    expect(banner.textContent).toContain("JP");
+    const lists = body().querySelectorAll(".tracklist");
+    expect(lists).toHaveLength(2);
+    expect(headerChips(lists[1])).toEqual(["JP"]);
+    expect(lists[1].style.getPropertyValue("--diff-color")).toBe(ctx.appWindow.sfColor("jp"));
+    expect(lists[1].querySelectorAll(".track-differs")).toHaveLength(2);
+    const badge = body().querySelector(".modal-meta-sf-badge");
+    expect(badge.textContent).toContain("preferred source");
+    expect(badge.querySelector(".sf-preferred").textContent).toBe("JP");
+  });
+
+  test("three-way: metadata vs preferred vs home, in that order", async () => {
+    ctx.appWindow.__test_state.alwaysIncludeMY = true;
+    db = dbAlbum({ preferred_source: "jp" });
+    await ctx.appWindow.openModal("555");
+    expect(lookups().sort()).toEqual(["jp", "my", "tw"]);
+    const lists = body().querySelectorAll(".tracklist");
+    expect(lists).toHaveLength(3);
+    expect(headerChips(lists[0])).toEqual(["TW"]);
+    expect(headerChips(lists[1])).toEqual(["JP"]);
+    expect(headerChips(lists[2])).toEqual(["MY"]);
+    // Release Info: metadata, preferred, home, then the other storefronts seen
+    const infoChips = [...body().querySelectorAll(".aip-sf-chip")];
+    expect(infoChips.map(c => c.textContent)).toEqual(["TW", "JP", "MY", "HK"]);
+    expect(infoChips.filter(c => c.classList.contains("sf-preferred")).map(c => c.textContent)).toEqual(["JP"]);
+    // The preferred storefront's release info is already loaded — no extra request
+    const before = calls.length;
+    infoChips[1].click();
+    expect(body().querySelector(".aip-body").textContent).toContain("JP Label");
+    expect(calls.length).toBe(before);
+  });
+
+  test("storefronts with the same differing tracklist are shown once", async () => {
+    ctx.appWindow.__test_state.alwaysIncludeMY = true;
+    bySf.my = mk("my", T("日本語一", "日本語二"));
+    db = dbAlbum({ preferred_source: "jp" });
+    await ctx.appWindow.openModal("555");
+    const lists = body().querySelectorAll(".tracklist");
+    expect(lists).toHaveLength(2);
+    expect(headerChips(lists[1])).toEqual(["JP", "MY"]);
+  });
+
+  test("preferred = metadata storefront: no extra request, metadata chip is ringed", async () => {
+    db = dbAlbum({ preferred_source: "tw" });
+    await ctx.appWindow.openModal("555");
+    expect(lookups()).toEqual(["tw"]);
+    const badge = body().querySelector(".modal-meta-sf-badge");
+    expect(badge.textContent).toContain("metadata · preferred source");
+    expect(badge.querySelector(".sf-preferred").textContent).toBe("TW");
+  });
+
+  test("preferred = home with +HOME on: home is fetched once and compared once", async () => {
+    ctx.appWindow.__test_state.alwaysIncludeMY = true;
+    db = dbAlbum({ preferred_source: "my" });
+    await ctx.appWindow.openModal("555");
+    expect(lookups().sort()).toEqual(["my", "tw"]);
+    const lists = body().querySelectorAll(".tracklist");
+    expect(lists).toHaveLength(2);
+    expect(headerChips(lists[1])).toEqual(["MY"]);
+    expect(lists[1].querySelector(".tracklist-header .sf-preferred").textContent).toBe("MY");
+  });
+
+  test("metadata source Off: no Apple Music calls, but the preferred storefront is still highlighted", async () => {
+    ctx.appWindow.__test_state.metadataStorefront = "";
+    db = dbAlbum({ preferred_source: "jp" });
+    await ctx.appWindow.openModal("555");
+    expect(lookups()).toEqual([]);
+    expect(ringed(".modal-tags")).toEqual(["JP"]);
+    const harmony = [...body().querySelectorAll(".cli-scheduler-section")]
+      .find(s => s.querySelector(".cli-scheduler-label").textContent === "Harmony");
+    expect([...harmony.querySelectorAll(".btn-cli-sf")].map(b => b.textContent)).toEqual(["JP", "MY"]);
+  });
+
+  test("Harmony and CLI Scheduler start with metadata, preferred, then home", async () => {
+    ctx.appWindow.__test_state.cliSchedulerEnabled = true;
+    db = dbAlbum({ preferred_source: "jp" });
+    await ctx.appWindow.openModal("555");
+    const sections = [...body().querySelectorAll(".cli-scheduler-section")];
+    const btns = (label) => [...sections.find(s => s.querySelector(".cli-scheduler-label").textContent === label)
+      .querySelectorAll(".btn-cli-sf")];
+    for (const label of ["Harmony", "CLI Scheduler"]) {
+      expect(btns(label).map(b => b.textContent)).toEqual(["TW", "JP", "MY"]);
+      expect(btns(label).filter(b => b.classList.contains("sf-preferred")).map(b => b.textContent)).toEqual(["JP"]);
+    }
+    expect(ringed(".modal-tags")).toEqual(["JP"]);
+  });
+
+  test("Check Storefronts results ring the preferred storefront, available or not", async () => {
+    db = dbAlbum({ preferred_source: "jp" });
+    const run = async (available, unavailable) => {
+      const base = ctx.appWindow.fetch.getMockImplementation();
+      ctx.appWindow.fetch.mockImplementation((path) => path.includes("/check_storefronts")
+        ? Promise.resolve({ ok: true, json: () => Promise.resolve({ available, unavailable }) })
+        : base(path));
+      await ctx.appWindow.openModal("555");
+      [...body().querySelectorAll("button")].find(b => b.textContent === "Check Storefronts").click();
+      for (let i = 0; i < 3; i++) await new Promise(r => setTimeout(r, 0));
+      const res = body().querySelector(".sf-check-results");
+      return [...res.querySelectorAll(".sf-preferred")].map(c => `${c.closest(".sf-result-row").firstChild.textContent}:${c.textContent}`);
+    };
+    expect(await run(["tw", "jp", "hk"], ["my"])).toEqual(["Available:JP"]);
+    route();
+    expect(await run(["tw", "hk"], ["jp", "my"])).toEqual(["Unavailable:JP"]);
+  });
+
+  test("album not in the DB: the lookup's preferred_source triggers the comparison", async () => {
+    db = 404;
+    bySf.tw = mk("tw", T("中文一", "中文二"), { preferred_source: "jp" });
+    await ctx.appWindow.openModal("555");
+    expect(lookups()).toEqual(["tw", "jp"]);
+    expect(body().querySelectorAll(".tracklist")).toHaveLength(2);
+    expect(body().querySelector(".modal-meta-sf-badge .sf-preferred").textContent).toBe("JP");
+  });
+
+  test("preferred storefront without the album: modal still renders and says so", async () => {
+    bySf.jp = 404;
+    db = dbAlbum({ preferred_source: "jp" });
+    await ctx.appWindow.openModal("555");
+    expect(body().querySelector(".modal-title").textContent).toBe("Album TW");
+    expect(body().querySelectorAll(".tracklist")).toHaveLength(1);
+    expect(body().querySelector(".modal-meta-sf-badge").textContent).toContain("preferred source (not available)");
+  });
+
+  test("matching tracklists: no banner, preferred data still available in Release Info", async () => {
+    bySf.jp = mk("jp", T("中文一", "中文二"));
+    db = dbAlbum({ preferred_source: "jp" });
+    await ctx.appWindow.openModal("555");
+    expect(body().querySelector(".tracklist-diff-banner")).toBeNull();
+    expect(body().querySelectorAll(".tracklist")).toHaveLength(1);
+    const jpChip = [...body().querySelectorAll(".aip-sf-chip")].find(c => c.textContent === "JP");
+    const before = calls.length;
+    jpChip.click();
+    expect(body().querySelector(".aip-body").textContent).toContain("JP Label");
+    expect(calls.length).toBe(before);
+  });
+});
